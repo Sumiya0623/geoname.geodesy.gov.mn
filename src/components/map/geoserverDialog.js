@@ -20,17 +20,9 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  CircularProgress,
   Tabs,
   Tab,
   useMediaQuery,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import {
@@ -42,15 +34,10 @@ import {
   Map as MapIcon,
   Terrain as TerrainIcon,
   Public as PublicIcon,
-  ShoppingCart as ShoppingCartIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  Link as LinkIcon,
   LayersClearRounded as ClearLayersIcon,
 } from "@mui/icons-material";
 
 import { useGetGeoserver } from "src/api/map";
-import OrderDialog from "src/sections/order/order-dialog";
 import NameCategoryTree from "./NameCategoryTree";
 import AdvancedSearch from "./AdvancedSearch";
 
@@ -276,13 +263,6 @@ function GeoserverDialog({
   onResults,
   forceOpen = false,
   forceTab = null,
-  orderPage,
-  setOrderPage,
-  orderRowsPerPage,
-  setOrderRowsPerPage,
-  orderData,
-  ordersLoading,
-  ordersCount,
   onFlyTo,
   onPanelClose,
   geonameSearchTerm,
@@ -302,11 +282,6 @@ function GeoserverDialog({
       setTab(forceTab);
     }
   }, [forceOpen, forceTab]);
-  const [expandedOrderRows, setExpandedOrderRows] = useState(new Set());
-
-  // Order dialog state
-  const [orderDialogOpen, setOrderDialogOpen] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState(null);
   const [layerGroups, setLayerGroups] = useState([]);
 
   // Нэрийн ангилал (GEONAME_TYPES) — идэвхжсэн ангиллын id‑ууд
@@ -489,33 +464,6 @@ function GeoserverDialog({
   const handleSearchChange = (e) =>
     onSearchChange && onSearchChange(e.target.value);
   const handleTabChange = (_e, value) => setTab(value);
-
-  const handleOrderPageChange = (event, newPage) => {
-    setOrderPage(newPage);
-  };
-
-  const handleOrderRowsPerPageChange = (event) => {
-    setOrderRowsPerPage(parseInt(event.target.value, 10));
-    setOrderPage(0);
-  };
-
-  const toggleOrderRowExpanded = (orderId) => {
-    const next = new Set(expandedOrderRows);
-    if (next.has(orderId)) next.delete(orderId);
-    else next.add(orderId);
-    setExpandedOrderRows(next);
-  };
-
-  // Order dialog handlers
-  const handleOrderDialogOpen = (order) => {
-    setSelectedOrder(order);
-    setOrderDialogOpen(true);
-  };
-
-  const handleOrderDialogClose = () => {
-    setOrderDialogOpen(false);
-    setSelectedOrder(null);
-  };
 
   const toggleGroupExpanded = (groupIndex) => {
     const next = new Set(expandedGroups);
@@ -821,11 +769,6 @@ function GeoserverDialog({
                   id="geoserver-network"
                   icon={<LayersIcon sx={{ color: "#0675c9" }} />}
                 />
-                <Tab
-                  value="orders"
-                  id="geoserver-cart"
-                  icon={<ShoppingCartIcon sx={{ color: "#4caf50" }} />}
-                />
                 {isSmall && (
                   <Tab
                     value="basemap"
@@ -1012,257 +955,11 @@ function GeoserverDialog({
                   </List>
                 </Box>
               )}
-              {tab === "orders" && (
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="h6" sx={{ p: 1, fontSize: "0.9rem" }}>
-                    Худалдан авалт
-                  </Typography>
-                  <TableContainer sx={{ maxHeight: 450 }}>
-                    <Table size="small" stickyHeader>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell
-                            sx={{ fontSize: "0.75rem", py: 1, width: 20 }}
-                          ></TableCell>
-                          <TableCell sx={{ fontSize: "0.75rem", py: 1 }}>
-                            №
-                          </TableCell>
-                          <TableCell sx={{ fontSize: "0.75rem", py: 1 }}>
-                            Тоо
-                          </TableCell>
-                          <TableCell sx={{ fontSize: "0.75rem", py: 1 }}>
-                            Төлбөр
-                          </TableCell>
-                          <TableCell sx={{ fontSize: "0.75rem", py: 1 }}>
-                            Төлөв
-                          </TableCell>
-                          <TableCell
-                            sx={{ fontSize: "0.75rem", py: 1, width: 60 }}
-                          >
-                            Үйлдэл
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {ordersLoading ? (
-                          <TableRow>
-                            <TableCell
-                              colSpan={6}
-                              align="center"
-                              sx={{ py: 2 }}
-                            >
-                              <CircularProgress size={20} />
-                            </TableCell>
-                          </TableRow>
-                        ) : orderData && orderData.length > 0 ? (
-                          orderData.map((order, index) => {
-                            const isPaid =
-                              order.status?.name &&
-                              order.status?.name.toLowerCase() === "төлсөн";
-                            return (
-                              <React.Fragment key={order.id}>
-                                <TableRow hover>
-                                  <TableCell
-                                    sx={{ fontSize: "0.75rem", py: 0.5, px: 1 }}
-                                  >
-                                    <IconButton
-                                      size="small"
-                                      onClick={() =>
-                                        toggleOrderRowExpanded(order.id)
-                                      }
-                                      sx={{ p: 0.5 }}
-                                    >
-                                      {expandedOrderRows.has(order.id) ? (
-                                        <ExpandLessIcon fontSize="small" />
-                                      ) : (
-                                        <ExpandMoreIcon fontSize="small" />
-                                      )}
-                                    </IconButton>
-                                  </TableCell>
-                                  <TableCell
-                                    sx={{ fontSize: "0.75rem", py: 0.5 }}
-                                  >
-                                    {orderPage * orderRowsPerPage + index + 1}
-                                  </TableCell>
-                                  <TableCell
-                                    sx={{ fontSize: "0.75rem", py: 0.5 }}
-                                  >
-                                    {order.items.length}
-                                  </TableCell>
-                                  <TableCell
-                                    sx={{ fontSize: "0.75rem", py: 0.5 }}
-                                  >
-                                    {order.subtotal || "0"}₮
-                                  </TableCell>
-                                  <TableCell
-                                    sx={{ fontSize: "0.75rem", py: 0.5 }}
-                                  >
-                                    <Chip
-                                      label={order.status?.name || "unknown"}
-                                      size="small"
-                                      variant="outlined"
-                                      color={order?.status?.color || "default"}
-                                      sx={{
-                                        fontSize: "0.65rem",
-                                        height: 20,
-                                        "& .MuiChip-label": { px: 1 },
-                                      }}
-                                    />
-                                  </TableCell>
-                                  <TableCell
-                                    sx={{
-                                      display: "flex",
-                                      fontSize: "0.75rem",
-                                      py: 0.5,
-                                    }}
-                                  >
-                                    {isPaid ? null : (
-                                      <Tooltip title="Төлбөр төлөх">
-                                        <IconButton
-                                          size="small"
-                                          onClick={() =>
-                                            handleOrderDialogOpen(order)
-                                          }
-                                          sx={{ p: 0.5 }}
-                                          color="primary"
-                                        >
-                                          <ShoppingCartIcon fontSize="small" />
-                                        </IconButton>
-                                      </Tooltip>
-                                    )}
-                                    <Tooltip title="Дэлгэрэнгүй">
-                                      <IconButton
-                                        size="small"
-                                        sx={{ p: 0.5 }}
-                                        color="primary"
-                                        href={`/dashboard/order/${order.id}`}
-                                        target="_blank"
-                                      >
-                                        <LinkIcon fontSize="small" />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </TableCell>
-                                </TableRow>
-
-                                <TableRow>
-                                  <TableCell
-                                    sx={{ py: 0, border: 0 }}
-                                    colSpan={6}
-                                  >
-                                    <Collapse
-                                      in={expandedOrderRows.has(order.id)}
-                                      timeout="auto"
-                                      unmountOnExit
-                                    >
-                                      <Box
-                                        sx={{
-                                          margin: 1,
-                                          p: 1,
-                                          bgcolor: "grey.50",
-                                          borderRadius: 1,
-                                        }}
-                                      >
-                                        {order.items &&
-                                          Array.isArray(order.items) && (
-                                            <>
-                                              <Typography
-                                                variant="body2"
-                                                sx={{
-                                                  fontSize: "0.65rem",
-                                                  mb: 0.5,
-                                                  fontWeight: "bold",
-                                                }}
-                                              >
-                                                Цэгүүд:
-                                              </Typography>
-                                              {order.items
-                                                .slice(0, 3)
-                                                .map((item, idx) => (
-                                                  <Typography
-                                                    key={item.id}
-                                                    variant="body2"
-                                                    sx={{ mb: 0.25, pl: 1 }}
-                                                  >
-                                                    • {item.point.name} (
-                                                    {item.point.number}) -{" "}
-                                                    {parseFloat(
-                                                      item.unit_price,
-                                                    ).toLocaleString()}
-                                                    ₮
-                                                  </Typography>
-                                                ))}
-                                              {order.items.length > 3 && (
-                                                <Typography
-                                                  variant="body2"
-                                                  sx={{
-                                                    pl: 1,
-                                                    fontStyle: "italic",
-                                                  }}
-                                                >
-                                                  ... болон{" "}
-                                                  {order.items.length - 3} цэг
-                                                </Typography>
-                                              )}
-                                            </>
-                                          )}
-                                      </Box>
-                                    </Collapse>
-                                  </TableCell>
-                                </TableRow>
-                              </React.Fragment>
-                            );
-                          })
-                        ) : (
-                          <TableRow>
-                            <TableCell
-                              colSpan={6}
-                              align="center"
-                              sx={{ py: 2, fontSize: "0.75rem" }}
-                            >
-                              Захиалга байхгүй
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-
-                  <TablePagination
-                    component="div"
-                    count={ordersCount || 0}
-                    page={orderPage}
-                    onPageChange={handleOrderPageChange}
-                    rowsPerPage={orderRowsPerPage}
-                    onRowsPerPageChange={handleOrderRowsPerPageChange}
-                    rowsPerPageOptions={[5, 10, 15]}
-                    labelRowsPerPage="Хуудсанд:"
-                    labelDisplayedRows={({ from, to, count }) =>
-                      `${from}-${to} / ${count !== -1 ? count : `${to}-аас олон`}`
-                    }
-                    sx={{
-                      "& .MuiTablePagination-toolbar": {
-                        fontSize: "0.75rem",
-                        minHeight: 40,
-                      },
-                      "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows":
-                        {
-                          fontSize: "0.75rem",
-                        },
-                    }}
-                  />
-                </Box>
-              )}
             </Box>
           </Box>
         </Paper>
       )}
 
-      {/* Order Dialog */}
-      <OrderDialog
-        open={orderDialogOpen}
-        onClose={handleOrderDialogClose}
-        item={selectedOrder}
-      />
     </Box>
   );
 }

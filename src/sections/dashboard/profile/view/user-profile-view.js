@@ -8,7 +8,6 @@ import { useSettingsContext } from "src/components/settings";
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 import { useAuthContext } from "src/auth/hooks";
 import ProfileCover from "../profile-cover";
-import { OrderListView } from "src/sections/order/view";
 import { ChampaignListView } from "src/sections/champaign/view";
 
 // --------------------------- Main Component ---------------------------
@@ -16,16 +15,11 @@ import { ChampaignListView } from "src/sections/champaign/view";
 export default function UserProfileView() {
   const settings = useSettingsContext();
   const { user } = useAuthContext();
-  const [currentTab, setCurrentTab] = useState("cart");
+  const [currentTab, setCurrentTab] = useState("agreement");
   const [anchorEl, setAnchorEl] = useState(null);
   const isMenuOpen = Boolean(anchorEl);
 
   const MAIN_TABS = [
-    {
-      value: "cart",
-      label: "Худалдан авалт",
-      icon: <Iconify icon="solar:user-id-bold" width={24} />,
-    },
     {
       value: "agreement",
       label: "Гэрээт ажлууд",
@@ -103,7 +97,6 @@ export default function UserProfileView() {
       </Card>
       <Box sx={{ mt: 3 }}>
         {currentTab === "agreement" && <ChampaignListView user={user} />}
-        {currentTab === "cart" && user && <OrderListView user={user} />}
       </Box>
     </Container>
   );

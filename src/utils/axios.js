@@ -150,7 +150,7 @@ export const endpoints = {
     delete: (id) => `/api/r/request/${id}/`,
     details: (id) => `/api/r/request/${id}/`,
     geonames: (request_body) =>
-      `/api/r/geoname/?pagination=false&${request_body}`,
+      `/api/n/geoname/dropdown/?${request_body}`,
     status: (request_body) => `/api/core/status/?${request_body}`,
     upload: (id) => `/api/r/request/${id}/upload/`,
     locate: (request_body) => `/api/r/request/locate/?${request_body}`,
@@ -196,6 +196,54 @@ export const endpoints = {
     gsCreateLayer: (id) => `/api/g/ws/${id}/gs-create-layer/`,
     gsUpdateLayer: (id) => `/api/g/ws/${id}/gs-update-layer/`,
     gsDeleteLayer: (id) => `/api/g/ws/${id}/gs-delete-layer/`,
+  },
+
+  // GeoServer — backend нь /api/g/ дээр (ws/st/fs/rule/group/item).
+  // api/map.js болон газрын зургийн давхаргын мод (fs/geoserver) үүнийг ашиглана.
+  geoserver: {
+    list: (request_body) => `/api/g/geoserver/?${request_body}`,
+    edit: (id) => `/api/g/geoserver/${id}/`,
+    create: `/api/g/geoserver/`,
+    delete: (id) => `/api/g/geoserver/${id}/`,
+    details: (id) => `/api/g/geoserver/${id}/`,
+    remove: (id) => `/api/g/geoserver/remove/${id}/`,
+    dropdown: (request_body) =>
+      `/api/g/geoserver/dropdown/?pagination=false&${request_body}`,
+    layer: {
+      list: (request_body) => `/api/g/fs/?${request_body}`,
+      edit: (id) => `/api/g/fs/${id}/`,
+      create: `/api/g/fs/`,
+      delete: (id) => `/api/g/fs/${id}/`,
+      details: (id) => `/api/g/fs/${id}/`,
+      remove: (id) => `/api/g/fs/remove/${id}/`,
+      geoserver: (request_body) => `/api/g/fs/geoserver/?${request_body}`,
+      attributes: (request_body) => `/api/g/fs/attributes/?${request_body}`,
+      stylefields: (request_body) => `/api/g/fs/stylefields/?${request_body}`,
+      baseLayers: `/api/g/fs/baselayers/`,
+    },
+    style: {
+      list: (request_body) => `/api/g/style/?${request_body}`,
+      edit: (id) => `/api/g/style/${id}/`,
+      create: `/api/g/style/`,
+      delete: (id) => `/api/g/style/${id}/`,
+      details: (id) => `/api/g/style/${id}/`,
+      rule: {
+        list: (request_body) => `/api/g/rule/?${request_body}`,
+        edit: (id) => `/api/g/rule/${id}/`,
+        create: `/api/g/rule/`,
+        delete: (id) => `/api/g/rule/${id}/`,
+        details: (id) => `/api/g/rule/${id}/`,
+        iconPreview: (svg) => `/api/g/rule/icon/${encodeURIComponent(svg)}`,
+      },
+    },
+    group: {
+      list: (request_body) => `/api/g/group/?${request_body}`,
+      edit: (id) => `/api/g/group/${id}/`,
+      create: `/api/g/group/`,
+      delete: (id) => `/api/g/group/${id}/`,
+      details: (id) => `/api/g/group/${id}/`,
+    },
+    geoserver: (request_body) => `/api/g/fs/geoserver/?${request_body}`,
   },
 
   unit: {

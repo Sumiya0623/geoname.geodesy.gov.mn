@@ -13,7 +13,7 @@ export function useGetMaps(request_body = {}) {
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     [URL, axiosInstance, "get"],
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
 
   const memoizedValue = useMemo(
@@ -26,7 +26,7 @@ export function useGetMaps(request_body = {}) {
       mapsMutation: mutate,
       mapsValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
 
   return memoizedValue;
@@ -36,7 +36,7 @@ export function useGetMap(id) {
   const URL = endpoints.geoserver.details(id);
   const { data, isLoading, error, isValidating } = useSWR(
     id ? [URL, axiosInstance, "get"] : null,
-    fetcher
+    fetcher,
   );
   const memoizedValue = useMemo(
     () => ({
@@ -47,7 +47,7 @@ export function useGetMap(id) {
       mapValidating: isValidating,
       mapEmpty: !isLoading && !error && !Object.keys(data || {}).length,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;
@@ -66,7 +66,7 @@ export function useGetMapsFordropdown(query) {
       mapsLoading: isLoading,
       mapsValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;
@@ -90,7 +90,7 @@ export function useGetLayers(request_body = {}) {
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     [URL, axiosInstance, "get"],
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
   const memoizedValue = useMemo(
     () => ({
@@ -102,7 +102,7 @@ export function useGetLayers(request_body = {}) {
       layersMutation: mutate,
       layersValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
   return memoizedValue;
 }
@@ -111,7 +111,7 @@ export function useGetLayer(id) {
   const URL = endpoints.geoserver.layer.details(id);
   const { data, isLoading, error, isValidating } = useSWR(
     id ? [URL, axiosInstance, "get"] : null,
-    fetcher
+    fetcher,
   );
   const memoizedValue = useMemo(
     () => ({
@@ -122,7 +122,7 @@ export function useGetLayer(id) {
       layerValidating: isValidating,
       layerEmpty: !isLoading && !error && !Object.keys(data || {}).length,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;
@@ -146,7 +146,7 @@ export function useGetAttributes(request_body = {}) {
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     URL ? [URL, axiosInstance, "get"] : null, // ← layerId байхгүй үед fetch хийхгүй
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
   return useMemo(
     () => ({
@@ -158,7 +158,7 @@ export function useGetAttributes(request_body = {}) {
       attributesMutation: mutate,
       attributesValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
 }
 
@@ -180,7 +180,7 @@ export function useGetStyleFields(request_body = {}) {
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     URL ? [URL, axiosInstance, "get"] : null, // ← layerId байхгүй үед fetch хийхгүй
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
   return useMemo(
     () => ({
@@ -192,7 +192,7 @@ export function useGetStyleFields(request_body = {}) {
       fieldsMutation: mutate,
       fieldsValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
 }
 
@@ -202,7 +202,7 @@ export function useGetStyles(request_body = {}) {
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     [URL, axiosInstance, "get"],
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
   const memoizedValue = useMemo(
     () => ({
@@ -214,7 +214,7 @@ export function useGetStyles(request_body = {}) {
       stylesMutation: mutate,
       stylesValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
   return memoizedValue;
 }
@@ -223,7 +223,7 @@ export function useGetStyle(id) {
   const URL = endpoints.geoserver.style.details(id);
   const { data, isLoading, error, isValidating } = useSWR(
     id ? [URL, axiosInstance, "get"] : null,
-    fetcher
+    fetcher,
   );
   const memoizedValue = useMemo(
     () => ({
@@ -234,7 +234,7 @@ export function useGetStyle(id) {
       styleValidating: isValidating,
       styleEmpty: !isLoading && !error && !Object.keys(data || {}).length,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
   return memoizedValue;
 }
@@ -245,7 +245,7 @@ export function useGetGeoserver(request_body = {}) {
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     [URL, axiosInstance, "get"],
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
   const memoizedValue = useMemo(
     () => ({
@@ -257,53 +257,7 @@ export function useGetGeoserver(request_body = {}) {
       geoserverMutation: mutate,
       geoserverValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
-  );
-  return memoizedValue;
-}
-
-export function useGetGeoServerLayers(request_body = {}) {
-  const queried_request_body = new URLSearchParams(request_body).toString();
-  const URL = endpoints.geoserver.geoserver(queried_request_body);
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    [URL, axiosInstance, "get"],
-    fetcher,
-    { shouldRetryOnError: false }
-  );
-  const memoizedValue = useMemo(
-    () => ({
-      layers: data?.results || [],
-      layersEmpty: !isLoading && !data?.results?.length,
-      layersError: error,
-      layersCount: data?.count || 0,
-      layersLoading: isLoading,
-      layersMutation: mutate,
-      layersValidating: isValidating,
-    }),
-    [data, error, isLoading, isValidating, mutate]
-  );
-  return memoizedValue;
-}
-
-export function useGetRules(request_body = {}) {
-  const queried_request_body = new URLSearchParams(request_body).toString();
-  const URL = endpoints.geoserver.style.rule.list(queried_request_body);
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    [URL, axiosInstance, "get"],
-    fetcher,
-    { shouldRetryOnError: false }
-  );
-  const memoizedValue = useMemo(
-    () => ({
-      rules: data?.results || [],
-      rulesEmpty: !isLoading && !data?.results?.length,
-      rulesError: error,
-      rulesCount: data?.count || 0,
-      rulesLoading: isLoading,
-      rulesMutation: mutate,
-      rulesValidating: isValidating,
-    }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
   return memoizedValue;
 }
@@ -314,7 +268,7 @@ export function useGetBaseLayers(request_body = {}) {
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     [URL, axiosInstance, "get"],
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
   const memoizedValue = useMemo(
     () => ({
@@ -326,7 +280,7 @@ export function useGetBaseLayers(request_body = {}) {
       baseLayersMutation: mutate,
       baseLayersValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
   return memoizedValue;
 }

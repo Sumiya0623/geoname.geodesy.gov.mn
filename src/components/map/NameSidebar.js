@@ -15,7 +15,6 @@ const NameSidebar = ({
   selectedName,
   onNameSelect,
   anchorPosition,
-  ordersMutation,
   onAnchorPositionChange,
 }) => {
   const dragStateRef = useRef({
@@ -125,7 +124,6 @@ const NameSidebar = ({
         {selectedName && (
           <NameDetailCard
             name={selectedName}
-            ordersMutation={ordersMutation}
             onSelect={onNameSelect}
             onAfterAction={onClose}
           />

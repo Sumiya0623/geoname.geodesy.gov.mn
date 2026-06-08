@@ -55,7 +55,7 @@ import Snap from "ol/interaction/Snap";
 import { boundingExtent } from "ol/extent";
 import NameSidebar from "../../components/map/NameSidebar";
 import LayerControl from "../../components/map/LayerControl";
-import ChatbotDialog from "../../components/map/chatbotDialog";
+
 import FeatureSelector from "../../components/map/FeatureSelector";
 
 import { buildLayersByName } from "./layers-wmts";
@@ -68,7 +68,6 @@ import ScaleBadge from "src/components/map/ScaleBadge";
 import { setViewportVar } from "src/utils/viewportHeight";
 import { initMap } from "./map-init";
 import { statusCheck } from "../utils/statusCheck";
-import { useGetOrders } from "src/api/order";
 import { useResponsive } from "src/hooks/use-responsive";
 
 const WMS_PARAMS = {
@@ -214,7 +213,6 @@ function Map2() {
   const [selectedName, setSelectedName] = useState(null);
   const [isMeasuring, setIsMeasuring] = useState(false);
   const [measureResult, setMeasureResult] = useState("");
-  const [hasActiveCqlLayer, setHasActiveCqlLayer] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [anchorPosition, setAnchorPosition] = useState({ top: 0, left: 0 });
   const [layerControlOpen, setLayerControlOpen] = useState(false);
@@ -232,25 +230,6 @@ function Map2() {
     number: "",
   });
   const [scaleDenom, setScaleDenom] = useState(0);
-
-  const [orderPage, setOrderPage] = useState(0);
-  const [orderRowsPerPage, setOrderRowsPerPage] = useState(5);
-
-  const orderRequestBody = useMemo(
-    () => ({
-      page: orderPage + 1,
-      page_size: orderRowsPerPage,
-      ordering: "-id",
-    }),
-    [orderPage, orderRowsPerPage],
-  );
-
-  const {
-    orders: orderData,
-    ordersLoading,
-    ordersCount,
-    ordersMutation,
-  } = useGetOrders(orderRequestBody);
 
   // const { constants: statusList } = useGetConstantsForStatus("POINTSTATUS")
 
@@ -1662,7 +1641,6 @@ function Map2() {
     });
 
     map.addLayer(cqlWmsLayerRef.current);
-    setHasActiveCqlLayer(true);
 
     return cqlWmsLayerRef.current;
   }, []);
@@ -1696,7 +1674,6 @@ function Map2() {
       map.removeLayer(cqlWmsLayerRef.current);
       cqlWmsLayerRef.current = null;
       cqlWmsSourceRef.current = null;
-      setHasActiveCqlLayer(false);
     }
   }, []);
 
@@ -2234,29 +2211,29 @@ function Map2() {
                     const bbox = it.lat == null ? geoJsonBbox(it.geom) : null;
                     const canFly = it.lat != null || bbox != null;
                     return (
-                    <TableRow
-                      key={it.id}
-                      hover
-                      onClick={() => {
-                        if (it.lat != null) {
-                          handleFlyTo({ center: [it.lon, it.lat], zoom: 14 });
-                        } else if (bbox) {
-                          handleFlyTo({ bbox });
-                        }
-                      }}
-                      sx={{ cursor: canFly ? "pointer" : "default" }}
-                    >
-                      <TableCell>{i + 1}</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>
-                        {it.name || "—"}
-                      </TableCell>
-                      <TableCell>{it.number}</TableCell>
-                      <TableCell>
-                        {it.lat != null
-                          ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}`
-                          : "—"}
-                      </TableCell>
-                    </TableRow>
+                      <TableRow
+                        key={it.id}
+                        hover
+                        onClick={() => {
+                          if (it.lat != null) {
+                            handleFlyTo({ center: [it.lon, it.lat], zoom: 14 });
+                          } else if (bbox) {
+                            handleFlyTo({ bbox });
+                          }
+                        }}
+                        sx={{ cursor: canFly ? "pointer" : "default" }}
+                      >
+                        <TableCell>{i + 1}</TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>
+                          {it.name || "—"}
+                        </TableCell>
+                        <TableCell>{it.number}</TableCell>
+                        <TableCell>
+                          {it.lat != null
+                            ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}`
+                            : "—"}
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
                 </TableBody>
@@ -2297,14 +2274,6 @@ function Map2() {
           forceTab={forceGeoserverTab}
           searchPointState={searchPointState}
           setSearchPointState={setSearchPointState}
-          orderPage={orderPage}
-          setOrderPage={setOrderPage}
-          orderRowsPerPage={orderRowsPerPage}
-          setOrderRowsPerPage={setOrderRowsPerPage}
-          orderData={orderData}
-          ordersLoading={ordersLoading}
-          ordersCount={ordersCount}
-          orderRequestBody={orderRequestBody}
           scaleDenom={scaleDenom}
         />
         <Box
@@ -2415,13 +2384,6 @@ function Map2() {
           </Tooltip>
         </Box>
 
-        <ChatbotDialog
-          onShowOnMap={handleShowOnMap}
-          onShowMultiplePoints={handleShowMultiplePointsWithCql}
-          onRemoveCqlLayer={removeCqlWmsLayer}
-          onShowFilteredPoints={showPointsWithCurrentFilters}
-        />
-
         {measureResult && (
           <Paper
             elevation={3}
@@ -2453,7 +2415,6 @@ function Map2() {
           selectedName={selectedName}
           anchorPosition={anchorPosition}
           onAnchorPositionChange={setAnchorPosition}
-          ordersMutation={ordersMutation}
         />
         <ScaleBadge scaleDenom={scaleDenom} mdUp={mdUp} />
 

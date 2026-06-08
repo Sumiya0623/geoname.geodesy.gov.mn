@@ -29,12 +29,7 @@ import RequestChangeForm from "src/sections/request/request-change-form";
 // NameSidebar болон FeatureSelector (олон нэрийн пейжер) хоёулаа ашиглана.
 // ----------------------------------------------------------------------
 
-export default function NameDetailCard({
-  name,
-  ordersMutation,
-  onSelect,
-  onAfterAction,
-}) {
+export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [typePath, setTypePath] = useState([]);
   const [approved, setApproved] = useState(undefined);
@@ -71,15 +66,11 @@ export default function NameDetailCard({
     };
   }, [name?.id]);
 
-  async function addToCart() {
-    try {
-      await axiosInstance.post(endpoints.order.add, { point_id: name?.id });
-      enqueueSnackbar("Картанд амжилттай нэмлээ", { variant: "success" });
-      ordersMutation && ordersMutation();
-      onAfterAction && onAfterAction();
-    } catch (error) {
-      enqueueSnackbar("Картанд нэмэхэд алдаа гарлаа", { variant: "error" });
-    }
+  // Худалдан авалтын дэд систем устсан тул "Сагсанд нэмэх" одоохондоо идэвхгүй.
+  function addToCart() {
+    enqueueSnackbar("Сагсны үйлдэл одоохондоо идэвхгүй байна", {
+      variant: "info",
+    });
   }
 
   if (!name) return null;
@@ -219,7 +210,6 @@ export default function NameDetailCard({
 
 NameDetailCard.propTypes = {
   name: PropTypes.object,
-  ordersMutation: PropTypes.func,
   onSelect: PropTypes.func,
   onAfterAction: PropTypes.func,
 };
