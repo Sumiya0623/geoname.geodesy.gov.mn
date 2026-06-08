@@ -16,6 +16,7 @@ from .userapiview import (
     ConstantViewSet,
     NotificationViewSet,
     MailLogViewSet,
+    AdminUnitViewSet,
     StatusView,
 )
 
@@ -23,6 +24,7 @@ router = DefaultRouter()
 router.register(r'constant', ConstantViewSet, basename='constant')
 router.register('notification', NotificationViewSet)
 router.register('maillog', MailLogViewSet)
+router.register('unit', AdminUnitViewSet)
 router.register(r'user', UserViewSet,basename='user')
 
 

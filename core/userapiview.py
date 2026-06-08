@@ -21,12 +21,15 @@ from core.models import (
 	Constant,
 	RemoteUser,
 	SubMenuPermission,
-	MailLog
+	MailLog,
+	AdminUnit
 	)
 
 from .serializers import (
 	NotificationSerializer,
 	MailLogSerializer,
+	AdminUnitSerializer,
+	AdminUnitDropDownSerializer,
 	ConstantSerializer,
 	ConstantUpdateOrCreateSerializer,
 	ConstantDropDownSerializer,
@@ -283,6 +286,51 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 				logging.getLogger(__name__).warning("geoname view drop failed", exc_info=True)
 		return result
 	
+class AdminUnitViewSet(PublicListMixin, viewsets.ModelViewSet):
+	"""Засаг захиргааны нэгж (AdminUnit) — мод (Аймаг→Сум→Баг), parent‑аар lazy ачаална.
+
+	- ?parent=<id> → тухайн нэгжийн дэд нэгжүүд (хоосон бол parent__isnull = язгуур)
+	- subcount     → хүүхдийн тоо (мод дэлгэх товч)
+	- /dropdown    → сонголтод (parent эсвэл түвшнээр)
+	"""
+	serializer_class = AdminUnitSerializer
+	queryset = AdminUnit.objects.all()
+	filterset_class = GlobalFilter
+	permission_classes = [IsAuthenticated]
+	parser_classes = [JSONParser, MultiPartParser, FormParser]
+	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+	ordering_fields = [f.name for f in AdminUnit._meta.fields]
+
+	def get_serializer_class(self):
+		if self.action == 'dropdown':
+			return AdminUnitDropDownSerializer
+		return AdminUnitSerializer
+
+	@action(detail=False, methods=['get'])
+	def dropdown(self, request):
+		qs = AdminUnit.objects.exclude(level_id=296)
+		parent_unit = request.query_params.get('parent')
+		filter_level = request.query_params.get('select__level')
+		if parent_unit:
+			qs = qs.filter(parent=parent_unit)
+		elif filter_level:
+			qs = qs.filter(level__in=[284, 285]).order_by('-level').distinct()
+		else:
+			qs = qs.filter(level__id=284).order_by('unit').distinct()
+		return Response({'results': self.get_serializer(qs, many=True).data}, status=200)
+
+	def get_queryset(self):
+		qs = AdminUnit.objects.exclude(level_id=296)
+		if self.action == 'list':
+			unit = self.request.query_params.get('parent')
+			if unit:
+				qs = qs.filter(parent=unit)
+			else:
+				qs = qs.filter(parent__isnull=True)
+			qs = qs.annotate(subcount=Count('children', distinct=True)).order_by('unit')
+		return qs
+
+
 class MailLogViewSet(PublicListMixin, viewsets.ModelViewSet):
 	"""Системээс илгээсэн имэйлүүдийн админ хяналт — /dashboard/notification."""
 	serializer_class = MailLogSerializer

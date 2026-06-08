@@ -15,6 +15,15 @@ class AdminUnitDropDownSerializer(serializers.ModelSerializer):
 		model = AdminUnit
 		fields = ['id','unit','level']
 
+class AdminUnitSerializer(serializers.ModelSerializer):
+	# Засаг захиргааны нэгжийн мод (Аймаг→Сум→Баг). subcount нь хүүхдийн тоо (lazy expand).
+	parent_id = serializers.PrimaryKeyRelatedField(
+		queryset=AdminUnit.objects.all(), source='parent', write_only=True, required=False)
+	subcount = serializers.IntegerField(read_only=True)
+	class Meta:
+		model = AdminUnit
+		fields = ['id', 'unit', 'parent_id', 'parent', 'subcount', 'level']
+
 class ConstantDropDownSerializer(serializers.ModelSerializer):
 	class Meta:
 		model = Constant
