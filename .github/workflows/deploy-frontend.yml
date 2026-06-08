@@ -1,0 +1,17 @@
+name: Deploy PROD frontend
+
+on:
+  push:
+    branches: [frontend]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-geoname-prod-frontend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted]
+    steps:
+      - name: Deploy
+        run: /var/www/geoname.geodesy.gov.mn/deploy-frontend.sh
