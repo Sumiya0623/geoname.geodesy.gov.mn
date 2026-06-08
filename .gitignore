@@ -1,0 +1,22 @@
+# Django #
+*.log
+*.pot
+*.pyc
+*.sql
+__pycache__
+db.sqlite3
+venv/
+*.bak 
+*.tar.gz
+.env
+celerylog
+base.py
+settings.py
+media/
+static/
+node_modules/
+staticfiles/
+production/
+node_modules
+org_data.json
+user_data.json

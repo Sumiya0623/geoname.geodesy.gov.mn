@@ -1,0 +1,120 @@
+
+import datetime, requests
+
+from django.conf import settings
+from django.utils import timezone
+from django.db import transaction
+from django.utils.dateparse import parse_datetime, parse_date
+
+from rest_framework import viewsets,filters
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
+
+from core.mixin import PublicListMixin
+from core.filters import GlobalFilter
+
+from .serializers import (
+    ProjectSerializer
+)
+from core.models import (
+    Project,    
+	RemoteUser
+)
+
+
+
+
+class ProjectViewSet(PublicListMixin, viewsets.ModelViewSet):
+	serializer_class =ProjectSerializer
+	queryset=Project.objects.all()
+	filterset_class = GlobalFilter
+	permission_classes = [IsAuthenticated]
+	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+	ordering_fields = [f.name for f in Project._meta.fields]+['projectId']
+	@transaction.atomic
+	@action(detail=False, methods=['post'], url_path='sync')
+	def sync(self, request, *args, **kwargs):
+		"""Регистрийн дугаараар (10 тэмдэгт) ХУР системээс иргэний мэдээлэл татна.
+		Хэрэглэгчийн token‑оор баталгаажуулж geodesy.gov.mn check-user руу дамжуулна."""
+		user = request.user
+		token = None
+		auth = request.headers.get('Authorization', '')
+		if auth.lower().startswith('bearer '):
+			token = auth.split(' ', 1)[1]
+		if not token:
+			token = request.COOKIES.get(
+				settings.SIMPLE_JWT.get('COOKIE_ACCESS', 'access_token'))
+		try:
+			headers = {
+				'Content-Type': 'application/json',
+				'Authorization': f'Bearer {token}' 
+			}
+			r = requests.post(
+				f'{settings.PROJECT_DOMAIN}/api/client/project/geoname/',
+				json={'register': user.register}, headers=headers, timeout=15)
+		except requests.RequestException:
+			return Response({'detail': 'ХУР системтэй холбогдож чадсангүй'}, status=502)
+		if r.status_code == 200:
+			try:
+				data = r.json()	
+				print(data)			
+				for row in data.get("results", []):
+					company = row.get("company") or {}
+					org = None
+					if company.get("register"):
+						org = RemoteUser.objects.filter(register=company["register"]).first()
+						signed_date = row.get("signed_date")
+						end_date = row.get("end_date")
+						if isinstance(signed_date, str):
+								dt = parse_datetime(signed_date)
+								if dt is None:
+										d = parse_date(signed_date)
+										if d:
+												dt = datetime.datetime.combine(d, datetime.datetime.min.time())
+								signed_date = dt
+						if isinstance(end_date, str):
+								dt = parse_datetime(end_date)
+								if dt is None:
+										d = parse_date(end_date)
+										if d:
+												dt = datetime.datetime.combine(d, datetime.datetime.min.time())
+								end_date = dt
+						if signed_date and timezone.is_naive(signed_date):
+								signed_date = timezone.make_aware(
+										signed_date,
+										timezone.get_current_timezone()
+								)
+
+						if end_date and timezone.is_naive(end_date):
+								end_date = timezone.make_aware(
+										end_date,
+										timezone.get_current_timezone()
+								)
+
+						proj, crtd = Project.objects.update_or_create(
+								org=org,
+								name=row.get("name") or "",
+								dugaar=row.get("dugaar") or "",
+								defaults={
+										"percent": row.get("total_percent") or 0,
+										"signed_date": signed_date,
+										"end_date": end_date,
+										"oldid": row.get("id"),
+								},
+						)
+				return Response({'status': 'success'}, status=200)
+			except ValueError:
+				return Response({'detail': 'Хариу буруу форматтай'}, status=502)
+		return Response({'detail': 'Гэрээт ажлын дэд системээс мэдээлэл олдсонгүй'}, status=r.status_code)
+
+	def get_queryset(self):
+		qs = super().get_queryset()
+		user = self.request.user
+		if not self.request.user.roles.filter(name__in=settings.ADMIN_LIST).exists():
+			if user.is_citizen:
+				qs = qs.filter(org=user.org)
+			else:
+				qs = qs.filter(org=user)
+		return qs

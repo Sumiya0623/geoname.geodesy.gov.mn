@@ -1,0 +1,32 @@
+# core
+setuptools
+wheel
+whitenoise
+django-cors-headers
+requests
+Django
+djangorestframework
+djangorestframework-gis
+djangorestframework-simplejwt
+django-filter
+psycopg2-binary
+python-dotenv
+colorama
+
+# report
+Pillow
+pdfkit
+# sudo apt install -y wkhtmltopdf-0.12.5
+celery
+redis
+qrcode
+django-browser-reload
+django-notifications-hq
+geoserver-rest
+
+# GIS (ашиглагдаж байгаа)
+geojson
+utm
+
+# deploy
+gunicorn

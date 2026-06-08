@@ -1,0 +1,58 @@
+<div class="row">
+    <div class="col-lg-6">
+        <p>Цэг тэмдэгтийн төлбөрийн баримтыг илгээж байна.</p>
+        <p>ДДТД: <strong class="strong">{{obj.ebarimt_bill_id}}</strong></p>
+        <p>Борлуулагч:<br>
+            ТТД: 9128921<br>
+            <strong>ГАЗАР ЗОХИОН БАЙГУУЛАЛТ ГЕОДЕЗИ ЗУРАГ ЗҮЙН ЕРӨНХИЙ ГАЗАР</strong>
+        </p>
+        <p>Худаллдан авагч: <br>
+            ТТД:{{obj.user.register}}<br>
+            <strong>{{obj.user.full_name}} </strong>
+        <p>
+        <div class="row justify-content-center">
+            <div class="col-lg-12 mt-3">
+                <table class="table table-bordered"
+                    style="border: 1px solid black; border-collapse: collapse;border-spacing: 0; width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="border: 1px solid black;">Т/Ш</th>
+                            <th style="border: 1px solid black;">Тоо</th>
+                            <th style="border: 1px solid black;">Дүн</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in obj.order.items.all %}
+                        <tr>
+                            <td style="border: 1px solid black;">{{item.point.point.number}}
+                            </td>
+                            <td style="border: 1px solid black; text-align:end;">1</td>
+                            <td style="border: 1px solid black; text-align:end;">{{item.unit_price}}</td>
+                        </tr>
+
+                        {% endfor %}
+                        <tr>
+                            <td style="border: 1px solid black;" colspan="2">НӨАТ</td>
+                            <td style="border: 1px solid black; text-align:end;">0</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid black;" colspan="2">Төлөх дүн:</td>
+                            <td style="border: 1px solid black; text-align:end;">{{obj.order.amount}}</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid black;" colspan="2">БАРИМТЫН ДҮН:</th>
+                            <td style="border: 1px solid black; text-align:end;">{{obj.order.amount}}</th>
+                        </tr>
+                    </tbody>
+                </table>
+
+            </div>
+            <div class="col-lg-12" style="text-align: center;">
+                <img src="data:image/png;base64, {{qr_code_base64}}" height="80px" /><br>
+                Сугалааны дугаар: {% if obj.ebarimt_lottery_id %} {{obj.ebarimt_lottery_id}} {% endif %} <br>
+                {% if obj.created_date %} {{obj.created_date|date:"Y/m/d"}} {% endif %}
+
+            </div>
+        </div>
+    </div>
+</div>
