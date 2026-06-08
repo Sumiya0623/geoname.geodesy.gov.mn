@@ -5,38 +5,12 @@ import axiosInstance, { fetcher, endpoints } from "src/utils/axios";
 
 // ----------------------------------------------------------------------
 
-export function useGetNavMenus() {
-  const URL = endpoints.public.menus();
-
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    [URL, axiosInstance, "get"],
-    fetcher,
-    { shouldRetryOnError: false }
-  );
-
-  const memoizedValue = useMemo(
-    () => ({
-      menus: data || [],
-      menusEmpty: !isLoading && !data?.length,
-      menusError: error,
-      menusLoading: isLoading,
-      menusMutation: mutate,
-      menusValidating: isValidating,
-    }),
-    [data, error, isLoading, isValidating, mutate]
-  );
-
-  return memoizedValue;
-}
-
-// ----------------------------------------------------------------------
-
 export function useGetStatus(year = "бүгд") {
   const URL = endpoints.public.status(year);
 
   const { data, isLoading, error, isValidating } = useSWR(
     year ? [URL, axiosInstance, "get"] : null,
-    fetcher
+    fetcher,
   );
 
   const memoizedValue = useMemo(
@@ -47,35 +21,13 @@ export function useGetStatus(year = "бүгд") {
       statusLoading: isLoading,
       statusValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;
 }
 
 // ----------------------------------------------------------------------
-
-export function useGetReportsList(year = 2025) {
-  const URL = endpoints.public.reports(year);
-
-  const { data, isLoading, error, isValidating } = useSWR(
-    year ? [URL, axiosInstance, "get"] : null,
-    fetcher
-  );
-
-  const memoizedValue = useMemo(
-    () => ({
-      reports: data?.results || {},
-      reportsEmpty: !isLoading && !Object.keys(data || {}).length,
-      reportsError: error,
-      reportsLoading: isLoading,
-      reportsValidating: isValidating,
-    }),
-    [data, error, isLoading, isValidating]
-  );
-
-  return memoizedValue;
-}
 
 // ----------------------------------------------------------------------
 
@@ -84,7 +36,7 @@ export function useGetStats(year) {
 
   const { data, isLoading, error, isValidating } = useSWR(
     [URL, axiosInstance, "get"],
-    fetcher
+    fetcher,
   );
 
   const memoizedValue = useMemo(
@@ -95,7 +47,7 @@ export function useGetStats(year) {
       statsLoading: isLoading,
       statsValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;
@@ -108,7 +60,7 @@ export function useGetTimeline(year) {
 
   const { data, isLoading, error, isValidating } = useSWR(
     year ? [URL, axiosInstance, "get"] : null,
-    fetcher
+    fetcher,
   );
 
   const memoizedValue = useMemo(
@@ -119,7 +71,7 @@ export function useGetTimeline(year) {
       timelineLoading: isLoading,
       timelineValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;
@@ -132,7 +84,7 @@ export function useGetPurchaseStats(year) {
 
   const { data, isLoading, error, isValidating } = useSWR(
     year ? [URL, axiosInstance, "get"] : null,
-    fetcher
+    fetcher,
   );
 
   const memoizedValue = useMemo(
@@ -142,7 +94,7 @@ export function useGetPurchaseStats(year) {
       purchaseError: error,
       purchaseValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;

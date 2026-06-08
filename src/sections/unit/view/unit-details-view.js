@@ -8,22 +8,22 @@ import { paths } from "src/routes/paths";
 import { useSettingsContext } from "src/components/settings";
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 
-import { useGetLevel, useGetLevelsFordropdown } from "src/api/level";
+import { useGetUnit, useGetUnitsFordropdown } from "src/api/unit";
 
 // ----------------------------------------------------------------------
 
 export default function UnitDetailsView({ id }) {
   const settings = useSettingsContext();
-  const { level } = useGetLevel(id);
-  const { menus } = useGetLevelsFordropdown(`parent=${level.id}`);
+  const { unit } = useGetUnit(id);
+  const { menus } = useGetUnitsFordropdown(`parent=${unit.id}`);
   return (
     <Container maxWidth={settings.themeStretch ? false : "xxl"}>
       <CustomBreadcrumbs
-        heading={`"${level?.name}" ангилалын дэлгэрэнгүй`}
+        heading={`"${unit?.name}" ангилалын дэлгэрэнгүй`}
         links={[
           {
             name: "Ангилал",
-            href: paths.dashboard.level.root,
+            href: paths.dashboard.unit.root,
           },
           { name: "Дэлгэрэнгүй" },
         ]}

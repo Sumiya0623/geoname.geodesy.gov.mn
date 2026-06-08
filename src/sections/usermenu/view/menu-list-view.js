@@ -72,7 +72,7 @@ export default function MenukListView({ iconOptions = [] }) {
     async (id) => {
       try {
         const response = await axiosInstance.delete(
-          endpoints.network.delete(id),
+          endpoints.constant.delete(id),
         );
         if (response?.status === 204) {
           menusMutation();

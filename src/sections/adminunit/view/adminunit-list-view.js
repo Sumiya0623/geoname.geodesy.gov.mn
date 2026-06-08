@@ -76,9 +76,7 @@ export default function AdminUnitListView() {
   const handleDeleteRow = useCallback(
     async (id) => {
       try {
-        const response = await axiosInstance.delete(
-          endpoints.network.delete(id),
-        );
+        const response = await axiosInstance.delete(endpoints.unit.delete(id));
         if (response?.status === 204) {
           constantsMutation();
           enqueueSnackbar(`Ангилал амжилттай устгагдлаа`);

@@ -1,7 +1,7 @@
-import useSWR from 'swr';
-import { useMemo } from 'react';
+import useSWR from "swr";
+import { useMemo } from "react";
 
-import axiosInstance, { fetcher, endpoints } from 'src/utils/axios';
+import axiosInstance, { fetcher, endpoints } from "src/utils/axios";
 
 // ----------------------------------------------------------------------
 
@@ -11,9 +11,9 @@ export function useGetMenus(request_body = {}) {
   const URL = endpoints.menu.list(queried_request_body);
 
   const { data, isLoading, error, isValidating, mutate } = useSWR(
-    [URL, axiosInstance, 'get'],
+    [URL, axiosInstance, "get"],
     fetcher,
-    { shouldRetryOnError: false }
+    { shouldRetryOnError: false },
   );
 
   const memoizedValue = useMemo(
@@ -26,7 +26,7 @@ export function useGetMenus(request_body = {}) {
       menusMutation: mutate,
       menusValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating, mutate]
+    [data, error, isLoading, isValidating, mutate],
   );
 
   return memoizedValue;
@@ -37,9 +37,13 @@ export function useGetMenus(request_body = {}) {
 export function useGetMenusFordropdown() {
   const URL = endpoints.menu.dropdown;
 
-  const { data, isLoading, error, isValidating } = useSWR([URL, axiosInstance, 'get'], fetcher, {
-    shouldRetryOnError: false,
-  });
+  const { data, isLoading, error, isValidating } = useSWR(
+    [URL, axiosInstance, "get"],
+    fetcher,
+    {
+      shouldRetryOnError: false,
+    },
+  );
 
   const memoizedValue = useMemo(
     () => ({
@@ -49,7 +53,7 @@ export function useGetMenusFordropdown() {
       menusLoading: isLoading,
       menusValidating: isValidating,
     }),
-    [data, error, isLoading, isValidating]
+    [data, error, isLoading, isValidating],
   );
 
   return memoizedValue;

@@ -9,8 +9,6 @@ import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 import { useAuthContext } from "src/auth/hooks";
 import ProfileCover from "../profile-cover";
 import { OrderListView } from "src/sections/order/view";
-import { ActListView } from "src/sections/champaign/act/view";
-import { CountListView } from "src/sections/count/view";
 import { ChampaignListView } from "src/sections/champaign/view";
 
 // --------------------------- Main Component ---------------------------
@@ -29,19 +27,8 @@ export default function UserProfileView() {
       icon: <Iconify icon="solar:user-id-bold" width={24} />,
     },
     {
-      value: "count",
-      label: "Тооллого, судалгаа",
-      icon: <Iconify icon="solar:user-id-bold" width={24} />,
-    },
-
-    {
       value: "agreement",
       label: "Гэрээт ажлууд",
-      icon: <Iconify icon="solar:user-id-bold" width={24} />,
-    },
-    {
-      value: "act",
-      label: "Акт",
       icon: <Iconify icon="solar:user-id-bold" width={24} />,
     },
   ];
@@ -117,8 +104,6 @@ export default function UserProfileView() {
       <Box sx={{ mt: 3 }}>
         {currentTab === "agreement" && <ChampaignListView user={user} />}
         {currentTab === "cart" && user && <OrderListView user={user} />}
-        {currentTab === "act" && <ActListView user={user} />}
-        {currentTab === "count" && <CountListView user={user} />}
       </Box>
     </Container>
   );

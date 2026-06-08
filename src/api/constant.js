@@ -236,30 +236,6 @@ export function useGetStatuses(key, pointId) {
   return memoizedValue;
 }
 
-export function useGetNumbers(request_body = {}) {
-  const queried_request_body = new URLSearchParams(request_body).toString();
-  const URL = endpoints.number.list(queried_request_body);
-  const { data, isLoading, error, isValidating, mutate } = useSWR(
-    request_body ? [URL, axiosInstance, "get"] : null,
-    fetcher,
-    { shouldRetryOnError: false }
-  );
-  const memoizedValue = useMemo(
-    () => ({
-      numbers: data?.results || [],
-      numbersEmpty: !isLoading && !data?.results?.length,
-      numbersError: error,
-      numbersCount: data?.count || 0,
-      numbersLoading: isLoading,
-      numbersMutation: mutate,
-      numbersValidating: isValidating,
-    }),
-    [data, error, isLoading, isValidating, mutate]
-  );
-
-  return memoizedValue;
-}
-
 export function useGetConstantsForStatus(key) {
   const request_body = { key };
   const queried_request_body = new URLSearchParams(request_body).toString();

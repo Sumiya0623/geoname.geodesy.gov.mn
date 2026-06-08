@@ -41,7 +41,6 @@ const TABLE_HEAD = [
 
 const defaultFilters = {
   name: "",
-  parent: 2,
 };
 
 export default function UnitListView() {
