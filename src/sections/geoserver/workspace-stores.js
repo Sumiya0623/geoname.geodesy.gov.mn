@@ -133,7 +133,7 @@ export default function WorkspaceStores({ workspaceId, canUpdate }) {
         ))
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-          Store алга. "Store нэмэх" дарж geoname DB‑тэй холбоно уу.
+          Store алга. &quot;Store нэмэх&quot; дарж geoname DB‑тэй холбоно уу.
         </Typography>
       )}
     </Card>

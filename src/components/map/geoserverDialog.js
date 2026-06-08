@@ -36,8 +36,6 @@ import { useTheme } from "@mui/material/styles";
 import {
   FilterList as FilterIcon,
   Layers as LayersIcon,
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
   FiberManualRecord as DotIcon,
   Close as CloseIcon,
   Satellite as SatelliteIcon,
@@ -48,7 +46,6 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Link as LinkIcon,
-  TravelExplore as TravelExploreIcon,
   LayersClearRounded as ClearLayersIcon,
 } from "@mui/icons-material";
 

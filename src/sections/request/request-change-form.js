@@ -1,7 +1,7 @@
 import PropTypes from "prop-types";
 import { useState, useEffect } from "react";
 
-import { Box, Chip, Stack, Button, Divider, Typography } from "@mui/material";
+import { Box, Stack, Button, Divider, Typography } from "@mui/material";
 import LoadingButton from "@mui/lab/LoadingButton";
 
 import { useGetGeonames } from "src/api/request";

@@ -427,8 +427,8 @@ function SubmenuActions({ submenuId }) {
         <DialogTitle>Үйлдэл хасах</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            "{confirmPerm?.name || confirmPerm?.key}" үйлдлийг энэ дэд цэснээс
-            хасах уу?
+            &quot;{confirmPerm?.name || confirmPerm?.key}&quot; үйлдлийг энэ дэд
+            цэснээс хасах уу?
           </Typography>
           {confirmPerm?.role_count > 0 && (
             <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>

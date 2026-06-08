@@ -10,7 +10,6 @@ import {
   Chip,
   Button,
   Divider,
-  MenuItem,
   Typography,
 } from "@mui/material";
 import LoadingButton from "@mui/lab/LoadingButton";
@@ -21,7 +20,6 @@ import { useSnackbar } from "src/components/snackbar";
 import { useGetConstantsFordropdown } from "src/api/constant";
 import FormProvider, {
   RHFSwitch,
-  RHFSelect,
   RHFTextField,
 } from "src/components/hook-form";
 

@@ -206,7 +206,7 @@ export default function WorkspaceStoreRow({
           ) : (
             !addOpen && (
               <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                Layer алга. "+" дарж view‑ээс layer үүсгэнэ үү.
+                Layer алга. &quot;+&quot; дарж view‑ээс layer үүсгэнэ үү.
               </Typography>
             )
           )}
