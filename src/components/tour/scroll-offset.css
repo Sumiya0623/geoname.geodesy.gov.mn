@@ -1,0 +1,22 @@
+html {
+  scroll-padding-top: 100px;
+}
+
+.nextstep-scroll-offset {
+  scroll-margin-top: 100px;
+}
+
+#access-tour1,
+#access-tour2, 
+#access-tour3 {
+  scroll-margin-top: 120px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+.nextstep-tour-element {
+  scroll-margin-top: 150px;
+  scroll-margin-bottom: 50px;
+}
