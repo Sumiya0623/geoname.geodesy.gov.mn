@@ -107,6 +107,13 @@ class ConstantMiniSerializer(serializers.ModelSerializer):
 		fields = ['id', 'name', 'code', 'color']
 
 
+class GeoNameDropSerializer(serializers.ModelSerializer):
+	"""Газар зүйн нэр сонголт (FK dropdown) — хөнгөн."""
+	class Meta:
+		model = GeoName
+		fields = ['id', 'name', 'number']
+
+
 class GeoNameTypeCardSerializer(serializers.ModelSerializer):
 	"""GEONAME_TYPES үндсэн төрөл (карт). geoname_count = удам дахь GeoName тоо."""
 	geoname_count = serializers.IntegerField(read_only=True, default=0)

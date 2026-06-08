@@ -11,7 +11,7 @@ from core.mixin import PublicListMixin
 from core.filters import GlobalFilter
 from portal.auth import function_permission
 
-from .serializers import GeoNameSerializer, GeoNameFullSerializer
+from .serializers import GeoNameSerializer, GeoNameFullSerializer, GeoNameDropSerializer
 
 
 def descendant_type_ids(type_id):
@@ -212,3 +212,14 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 				'geoname_count': GeoName.objects.filter(type_id__in=ids).count(),
 			})
 		return Response({'results': cards}, status=200)
+
+	@action(detail=False, methods=['get'], url_path='dropdown',
+			permission_classes=[IsAuthenticated])
+	def dropdown(self, request, *args, **kwargs):
+		"""Газар зүйн нэр сонголт (FK dropdown) — нэр/дугаараар хайна."""
+		qs = GeoName.objects.all().order_by('name')
+		search = request.query_params.get('search')
+		if search:
+			qs = qs.filter(Q(name__icontains=search) | Q(number__icontains=search))
+		return Response(
+			{'results': GeoNameDropSerializer(qs, many=True).data}, status=200)

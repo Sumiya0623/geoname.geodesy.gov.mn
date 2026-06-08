@@ -18,7 +18,7 @@ from portal.auth import function_permission
 
 from .serializers import (
 	LegalTypeSerializer, LegalOrderSerializer, UnitDropSerializer,
-	RequestNameSerializer, GeoNameDropSerializer,
+	RequestNameSerializer,
 )
 
 class LegalTypeViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
@@ -89,7 +89,6 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 class LegalUnitViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
 	serializer_class = UnitDropSerializer
 	permission_classes = function_permission('legal')
-
 	def get_queryset(self):
 		# level = UNITLEVEL Constant‑ийн нэр (ж: 'Аймаг/Нийслэл', 'Сум/Дүүрэг')
 		level = self.request.query_params.get('level', None)
@@ -213,10 +212,3 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		return Response({'found': True, 'chain': chain}, status=200)
 
 
-class GeoNameDropViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
-	"""Газар зүйн нэр (GeoName) сонголт — нэрийн FK‑д ашиглана."""
-	serializer_class = GeoNameDropSerializer
-	queryset = GeoName.objects.all().order_by('name')
-	permission_classes = function_permission('request')
-	filter_backends = [filters.SearchFilter]
-	search_fields = ['name', 'number']
