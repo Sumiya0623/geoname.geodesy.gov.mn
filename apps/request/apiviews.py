@@ -87,12 +87,6 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 
 
 class LegalUnitViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
-	"""Тогтоолын нэгж (AdminUnit) сонголт — түвшнээр шүүнэ.
-
-	- ?level=aimag             → Аймаг/Нийслэл түвшний нэгжүүд
-	- ?level=sum&parent=<id>   → тухайн аймагт харьяалагдах Сум/Дүүрэг түвшний нэгжүүд
-	(аймаг сонгоогүй бол сум хоосон буцна)
-	"""
 	serializer_class = UnitDropSerializer
 	permission_classes = function_permission('legal')
 
