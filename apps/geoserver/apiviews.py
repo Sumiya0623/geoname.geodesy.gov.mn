@@ -82,6 +82,48 @@ def _gs_rest_auth():
     return f"{_st.GEOSERVER_URL}/rest", HTTPBasicAuth(_st.GEOSERVER_USER, _st.GEOSERVER_PASSWORD)
 
 
+# ======================================================================
+# SLD style‑ийг GeoServer REST (HTTP)‑ээр унших/бичих. GeoServer тусдаа сервер
+# дээр (алсын) байж болох тул локал GEOSERVER_DATA_DIR файл системд хандахгүй.
+# ======================================================================
+
+def _gs_style_read_sld(ws, style_name):
+    """Workspace‑scoped style‑ийн SLD XML‑ийг REST‑ээр уншина."""
+    rest, auth = _gs_rest_auth()
+    r = requests.get(f"{rest}/workspaces/{ws}/styles/{style_name}.sld",
+                     auth=auth, timeout=30)
+    r.raise_for_status()
+    return r.text
+
+
+def _gs_style_write_sld(ws, style_name, sld_xml):
+    """Засагдсан SLD XML‑ийг GeoServer‑т REST‑ээр PUT хийж шинэчилнэ (reload шаардахгүй)."""
+    rest, auth = _gs_rest_auth()
+    r = requests.put(
+        f"{rest}/workspaces/{ws}/styles/{style_name}",
+        data=sld_xml.encode("utf-8"),
+        headers={"Content-Type": "application/vnd.ogc.sld+xml"},
+        auth=auth, timeout=30,
+    )
+    r.raise_for_status()
+    return r
+
+
+def _gs_upload_style_symbol(ws, basename, src_path):
+    """Icon (external graphic) файлыг GeoServer‑ийн styles/symbols/ дотор REST
+    resource API‑ээр байршуулна. SLD доторх href нь 'symbols/<basename>'
+    (style‑ийн байрлалд харьцангуй) болж буцна."""
+    rest, auth = _gs_rest_auth()
+    with open(src_path, "rb") as f:
+        data = f.read()
+    r = requests.put(
+        f"{rest}/resource/workspaces/{ws}/styles/symbols/{basename}",
+        data=data, auth=auth, timeout=60,
+    )
+    r.raise_for_status()
+    return f"symbols/{basename}"
+
+
 def geoname_type_view_name(const):
     """Ангиллын замын (root→leaf) .code‑уудыг нийлүүлж '_view' залгана.
     Жишээ: top.code + level2.code + level3.code + '_view' → 'B0101_view'.
@@ -1347,28 +1389,23 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 		rule.save()
 		layer = rule.layer
 		ws = layer.store.parent.name
-		sld_file = Path(f"{settings.GEOSERVER_DATA_DIR}/workspaces/{ws}/styles/{layer.name}.sld")
+		style_name = layer.name
 
-		with open(sld_file, "r", encoding="utf-8") as f:
-			sld_xml = f.read()
+		# SLD‑г GeoServer‑ээс REST‑ээр уншина (локал файл системгүй)
+		try:
+			sld_xml = _gs_style_read_sld(ws, style_name)
+		except requests.RequestException as e:
+			return Response({"error": "GeoServer‑ээс SLD уншиж чадсангүй",
+							 "detail": str(e)}, status=502)
 
-		# --- icon файлыг GeoServer styles/symbols руу хуулна ---
-		styles_dir = Path(settings.GEOSERVER_DATA_DIR) / "workspaces" / ws / "styles"
-		target_dir = styles_dir / "symbols"
-		target_dir.mkdir(parents=True, exist_ok=True)
-
+		# --- icon файлыг GeoServer styles/symbols руу REST‑ээр байршуулна ---
 		icon_abs = None
 		if rule.icon and getattr(rule.icon, "path", None):
-			basename = os.path.basename(rule.icon.name)
-			dst = target_dir / basename
 			try:
-				if dst.exists():
-					dst.unlink()
-				shutil.copy2(rule.icon.path, dst)
-				# GeoServer-д зөв: absolute file:// URL
-				icon_abs = f"file://{dst.as_posix()}"
+				icon_abs = _gs_upload_style_symbol(
+					ws, os.path.basename(rule.icon.name), rule.icon.path)
 			except Exception as e:
-				print(f"[WARN] icon copy failed: {e}")
+				print(f"[WARN] icon upload failed: {e}")
 		def _filters_as_list_local(filters_json):
 			try:
 				if isinstance(filters_json, list):
@@ -1489,14 +1526,13 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 				max_scale=rule.max_scale_denom,
 				min_scale=rule.min_scale_denom,
 			)
-		with open(sld_file, "w", encoding="utf-8") as f:
-			f.write(new_xml)
+		# Засагдсан SLD‑г GeoServer‑т REST‑ээр PUT хийнэ (reload шаардахгүй)
 		try:
-			status_resp = geo.reload()
+			_gs_style_write_sld(ws, style_name, new_xml)
 		except requests.RequestException as e:
 			return Response(
 				{
-					"error": "GeoServer reload failed",
+					"error": "GeoServer‑т SLD хадгалж чадсангүй",
 					"detail": str(e),
 					"body": getattr(e, "response", None) and e.response.text,
 				},
@@ -1513,24 +1549,21 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 		rule = ser.save()
 		layer = rule.layer
 		ws = layer.store.parent.name
-		sld_file = Path(f"{settings.GEOSERVER_DATA_DIR}/workspaces/{ws}/styles/{layer.name}.sld")
-		with open(sld_file, "r", encoding="utf-8") as f:
-			sld_xml = f.read()
-		styles_dir = Path(settings.GEOSERVER_DATA_DIR) / "workspaces" / ws / "styles"
-		target_dir = styles_dir / "symbols"
-		target_dir.mkdir(parents=True, exist_ok=True)
+		style_name = layer.name
+		# SLD‑г GeoServer‑ээс REST‑ээр уншина (локал файл системгүй)
+		try:
+			sld_xml = _gs_style_read_sld(ws, style_name)
+		except requests.RequestException as e:
+			return Response({"error": "GeoServer‑ээс SLD уншиж чадсангүй",
+							 "detail": str(e)}, status=502)
+		# --- icon файлыг GeoServer styles/symbols руу REST‑ээр байршуулна ---
 		icon_abs = None
 		if rule.icon and getattr(rule.icon, "path", None):
-			basename = os.path.basename(rule.icon.name)
-			dst = target_dir / basename
 			try:
-				if dst.exists():
-					dst.unlink()
-				shutil.copy2(rule.icon.path, dst)
-				# GeoServer-д зөв: absolute file:// URL
-				icon_abs = f"file://{dst.as_posix()}"
+				icon_abs = _gs_upload_style_symbol(
+					ws, os.path.basename(rule.icon.name), rule.icon.path)
 			except Exception as e:
-				print(f"[WARN] icon copy failed: {e}")
+				print(f"[WARN] icon upload failed: {e}")
 
 		# --- фильтрийг JSON -> list[dict] болгоно ---
 		def _filters_as_list_local(filters_json):
@@ -1550,14 +1583,11 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 				lit_val = it.get("value")
 				break
 		if rule.render_mode == "text":
-			new_xml, removed = delete_rule_in_sld_xml(
+			sld_xml, removed = delete_rule_in_sld_xml(
 				sld_xml,
 				rule_name=str(rule.id).strip(),  # SLD дээр <sld:Name> нь rule.id байгааг та хэлсэн
 				prune_empty=True,
 			)
-			sld_file.write_text(new_xml, encoding="utf-8")
-			with open(sld_file, "r", encoding="utf-8") as f:
-				sld_xml = f.read()
 			new_xml = update_rule_in_sld_xml_safe(
 				sld_xml,
 				rule_name=rule.id,
@@ -1665,10 +1695,14 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 				min_scale=rule.min_scale_denom,
 			)
 
-		# --- SLD хадгалах ---
-		with open(sld_file, "w", encoding="utf-8") as f:
-			f.write(new_xml)
-
+		# --- Засагдсан SLD‑г GeoServer‑т REST‑ээр хадгалах ---
+		try:
+			_gs_style_write_sld(ws, style_name, new_xml)
+		except requests.RequestException as e:
+			return Response({"error": "GeoServer‑т SLD хадгалж чадсангүй",
+							 "detail": str(e),
+							 "body": getattr(e, "response", None) and e.response.text},
+							status=502)
 
 		return Response(self.get_serializer(rule).data, status=status.HTTP_200_OK)
 
@@ -1677,21 +1711,21 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 		rule = self.get_object()
 		layer = rule.layer
 		ws = layer.store.parent.name
-		sld_file = Path(f"{settings.GEOSERVER_DATA_DIR}/workspaces/{ws}/styles/{layer.name}.sld")
+		style_name = layer.name
 		removed = 0
-		if sld_file.exists():
-			sld_xml = sld_file.read_text(encoding="utf-8")
+		# SLD‑г GeoServer‑ээс REST‑ээр уншиж, rule‑г хасаад буцаан PUT хийнэ
+		try:
+			sld_xml = _gs_style_read_sld(ws, style_name)
 			new_xml, removed = delete_rule_in_sld_xml(
 				sld_xml,
 				rule_name=str(rule.id).strip(),  # SLD дээр <sld:Name> нь rule.id байгааг та хэлсэн
 				prune_empty=True,
 			)
-			sld_file.write_text(new_xml, encoding="utf-8")
-			try:
-				geo.reload()
-			except Exception as exc:
-				import logging
-				logging.getLogger(__name__).warning("GeoServer reload failed during StyleRule destroy", exc_info=exc)
+			_gs_style_write_sld(ws, style_name, new_xml)
+		except requests.RequestException as exc:
+			import logging
+			logging.getLogger(__name__).warning(
+				"GeoServer SLD update failed during StyleRule destroy", exc_info=exc)
 		rule.delete()
 		return Response({"result": "success", "removed": removed}, status=204)
 		

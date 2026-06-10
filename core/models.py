@@ -19,9 +19,13 @@ class OverwriteStorage(FileSystemStorage):
         if self.exists(name):
             self.delete(name)
         return name
+# GEOSERVER_DATA_DIR нь зөвхөн geoserver локал (нэг сервер) үед тохируулагдана.
+# Production дээр geoserver тусдаа сервер дээр (алсын REST) тул энэ нь None байж
+# болно — тэр үед локал media зам руу буулгаж, import‑ийн үед унахаас сэргийлнэ.
+# (Алсын geoserver руу style нийтлэх нь geoserver‑rest REST‑ээр тусад нь хийгдэнэ.)
+_gs_style_dir = settings.GEOSERVER_DATA_DIR or os.path.join(settings.MEDIA_ROOT, "geoserver_data")
 geoserver_style_storage = OverwriteStorage(
-	
-    location=os.path.join(settings.GEOSERVER_DATA_DIR, "workspaces")
+    location=os.path.join(_gs_style_dir, "workspaces")
 )
 
 HEX_COLOR_RE = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
