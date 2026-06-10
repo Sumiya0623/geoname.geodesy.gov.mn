@@ -11,7 +11,11 @@ import { requiredMsg } from "src/utils/regex";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useSnackbar } from "src/components/snackbar";
 import { useGetConstantsFordropdown } from "src/api/constant";
-import FormProvider, { RHFSelect, RHFTextField } from "src/components/hook-form";
+import FormProvider, {
+  RHFSelect,
+  RHFSwitch,
+  RHFTextField,
+} from "src/components/hook-form";
 
 // ----------------------------------------------------------------------
 // Дэвсгэр нэрийн дэд ангилал нэмэх / засах inline форм.
@@ -45,6 +49,9 @@ export default function NameClassInlineForm({
       name: currentItem?.name || "",
       code: currentItem?.code || "",
       desc: currentItem?.desc || "",
+      // Level‑3 навч — GeoServer view идэвхтэй эсэх. Засахад одоогийн төлвөөр
+      // (gs_exists), шинэ навчид анхдагчаар идэвхтэй.
+      is_active: currentItem ? !!currentItem.gs_exists : true,
     }),
     [currentItem]
   );
@@ -66,6 +73,8 @@ export default function NameClassInlineForm({
       ...rest,
       // Геометр зөвхөн 3‑р түвшинд; бусдад desc хоосон
       desc: showGeom ? data.desc : "",
+      // is_active зөвхөн 3‑р түвшний навчид утгатай (GeoServer view үүсгэх/устгах)
+      is_active: showGeom ? !!data.is_active : false,
       key: currentItem?.key || parentKey || "GEONAME_TYPES",
       parent_id: currentItem?.parent ?? (parentId !== null ? parentId : null),
     };
@@ -125,6 +134,13 @@ export default function NameClassInlineForm({
           </RHFSelect>
         )}
       </Box>
+      {showGeom && (
+        <RHFSwitch
+          name="is_active"
+          label="GeoServer view идэвхтэй (geoname workspace‑д үүсгэх)"
+          sx={{ mb: 1 }}
+        />
+      )}
       <Stack direction="row" spacing={1} justifyContent="flex-start">
         <LoadingButton
           type="submit"

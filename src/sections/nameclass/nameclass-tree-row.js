@@ -127,23 +127,42 @@ export default function NameClassTreeRow({
               label={`${childCount} дэд`}
             />
           ) : (
-            item.desc && (
-              <Tooltip title={item.desc}>
-                <Box
-                  component="span"
-                  sx={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    color: GEOM_COLOR[item.desc] || "text.secondary",
-                  }}
+            <>
+              {item.desc && (
+                <Tooltip title={item.desc}>
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      color: GEOM_COLOR[item.desc] || "text.secondary",
+                    }}
+                  >
+                    <Icon
+                      icon={GEOM_ICON[item.desc] || "mdi:shape-outline"}
+                      width={22}
+                    />
+                  </Box>
+                </Tooltip>
+              )}
+              {/* Level‑3 навч — GeoServer‑т view нийтлэгдсэн эсэх. Алга бол засаж үүсгэнэ. */}
+              {item.is_leaf && (
+                <Tooltip
+                  title={
+                    item.gs_exists
+                      ? `GeoServer view: ${item.view_name}`
+                      : "GeoServer view үүсээгүй — засаж хадгалахад автоматаар үүснэ"
+                  }
                 >
-                  <Icon
-                    icon={GEOM_ICON[item.desc] || "mdi:shape-outline"}
-                    width={22}
+                  <Chip
+                    size="small"
+                    variant="soft"
+                    color={item.gs_exists ? "success" : "warning"}
+                    label={item.gs_exists ? "View ✓" : "View алга"}
                   />
-                </Box>
-              </Tooltip>
-            )
+                </Tooltip>
+              )}
+            </>
           )}
         </Stack>
 
