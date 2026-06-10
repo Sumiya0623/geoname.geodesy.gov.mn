@@ -920,7 +920,8 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 	@action(detail=False, methods=['get'], url_path='tree')
 	def tree(self, request):
 		"""Нэрийн ангиллын мод — key‑ээр үндсэн төрөл, parent‑аар дэд ангилал.
-		Мөр бүрт child_count."""
+		Мөр бүрт child_count. Level‑3 навч мөрт GeoServer‑т view нийтлэгдсэн
+		эсэх (gs_exists) + view нэрийг (view_name) нэмж буцаана."""
 		parent = request.query_params.get('parent', None)
 		key = request.query_params.get('key', None)
 		qs = Constant.objects.annotate(child_count=Count('children', distinct=True))
@@ -931,12 +932,45 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 		else:
 			qs = qs.none()
 		qs = qs.order_by('code', 'id')
-		data = [{
-			'id': c.id, 'name': c.name, 'key': c.key, 'code': c.code,
-			'label': c.label, 'color': c.color, 'desc': c.desc,
-			'parent': c.parent_id, 'child_count': c.child_count,
-		} for c in qs]
+
+		# Энэ түвшний хүүхдүүд level‑3 (навч) байж болох эсэх: parent нь өвөгтэй
+		# (level‑2) бол түүний хүүхэд = level‑3. key‑ээр (язгуур) ачаалсан бол үгүй.
+		parent_obj = Constant.objects.filter(id=parent).first() if parent else None
+		level_has_leaves = bool(parent_obj and parent_obj.parent_id)
+		published = self._published_featuretypes() if level_has_leaves else set()
+
+		data = []
+		for c in qs:
+			row = {
+				'id': c.id, 'name': c.name, 'key': c.key, 'code': c.code,
+				'label': c.label, 'color': c.color, 'desc': c.desc,
+				'parent': c.parent_id, 'child_count': c.child_count,
+			}
+			# Level‑3 навч (хүүхэдгүй) → GeoServer view байгаа эсэхийг шалгана
+			if level_has_leaves and c.child_count == 0:
+				vname = geoname_type_view_name(c)
+				row['is_leaf'] = True
+				row['view_name'] = vname
+				row['gs_exists'] = vname in published
+			else:
+				row['is_leaf'] = False
+				row['gs_exists'] = None
+			data.append(row)
 		return Response({"results": data}, status=200)
+
+	def _published_featuretypes(self):
+		"""geoname workspace‑ийн geoname store доторх нийтлэгдсэн featuretype нэрс."""
+		rest, auth = _gs_rest_auth()
+		try:
+			r = requests.get(
+				f"{rest}/workspaces/{GEONAME_WS}/datastores/{GEONAME_STORE}/featuretypes.json",
+				auth=auth, timeout=8)
+			if r.status_code == 200:
+				return {f['name'] for f in
+						(r.json().get('featureTypes') or {}).get('featureType') or []}
+		except requests.RequestException:
+			pass
+		return set()
 
 	# --- GeoServer view sync helpers (node‑local) ---
 	def _sync_one_geoname(self, node, old_name=None):
@@ -964,18 +998,52 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 		except Exception:
 			pass
 
+	def _is_active_flag(self):
+		"""Хүсэлтийн is_active талбар → bool эсвэл None (ирээгүй бол)."""
+		v = self.request.data.get('is_active', None)
+		if v is None:
+			return None
+		if isinstance(v, bool):
+			return v
+		return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
+
+	def _apply_active(self, node, active, old_name=None):
+		"""is_active сонголтоор GeoServer view‑г зохицуулна. active=True БА навч бол
+		view үүсгэ/шинэчил; эс бөгөөс (False эсвэл навч биш) view‑г устга. Нэр
+		өөрчлөгдсөн бол хуучин view‑г бас устга."""
+		try:
+			new_name = geoname_type_view_name(node)
+			if old_name and old_name != new_name:
+				_drop_featuretype_and_view(old_name)
+			if active and is_geoname_leaf(node):
+				sync_geoname_type_view(node)
+			else:
+				_drop_featuretype_and_view(new_name)
+		except Exception:
+			import logging
+			logging.getLogger(__name__).warning("geoname view apply_active failed", exc_info=True)
+
 	def perform_create(self, serializer):
 		parent = serializer.validated_data.get('parent')
 		instance = serializer.save(key='GEONAME_TYPES')
-		# Шинэ зангилаа навч → view үүснэ; parent нь навч биш боллоо → view устна
-		self._sync_one_geoname(instance)
+		active = self._is_active_flag()
+		# is_active сонголтоор view үүсгэ/устга; ирээгүй бол хуучин зан (навч→синк)
+		if active is None:
+			self._sync_one_geoname(instance)
+		else:
+			self._apply_active(instance, active)
+		# parent нь навч биш боллоо → түүний view устна
 		self._drop_parent_view(parent)
 
 	def perform_update(self, serializer):
 		node = serializer.instance
 		old_name = geoname_type_view_name(node) if node else None  # хуучин код‑оор
 		instance = serializer.save()
-		self._sync_one_geoname(instance, old_name=old_name)
+		active = self._is_active_flag()
+		if active is None:
+			self._sync_one_geoname(instance, old_name=old_name)
+		else:
+			self._apply_active(instance, active, old_name=old_name)
 
 	def perform_destroy(self, instance):
 		# Устгахаас өмнө холбоотой навч view нэрс + parent‑ийг цуглуулна (CASCADE‑д устахаас)
