@@ -17,7 +17,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters,status
 from django.conf import settings
 from rest_framework.parsers import MultiPartParser, FormParser,JSONParser
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Count
+from portal.auth import function_permission
 from collections import OrderedDict
 from rest_framework.decorators import action
 from portal.utils.rulestyle import update_rule_in_sld_xml_safe,delete_rule_in_sld_xml, _strip_geometry_symbolizers
@@ -899,6 +900,99 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if page is not None:
 			return self.get_paginated_response(page)
 		return Response(out)
+
+class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
+	"""Дэвсгэр нэрийн ангилал (GEONAME_TYPES) удирдлага + GeoServer view автомат синк.
+
+	Навч (3‑р түвшний: хүүхэдгүй БА өвөгтэй) ангилал нэмэх/засах/устгахад geoname
+	workspace‑ийн geoname store дотор тухайн ангиллын геонэрүүдийг шүүсэн PG view
+	үүсч/шинэчлэгдэж/устаж GeoServer‑т нийтлэгдэнэ. View ЗӨВХӨН навчид үүснэ;
+	хүүхэдтэй (parent) зангилаанд үүсэхгүй. Логик нь node‑local: зөвхөн зассан/нэмсэн
+	зангилаагаа л хөнддөг."""
+	serializer_class = ConstantSerializer
+	queryset = Constant.objects.filter(key='GEONAME_TYPES')
+	filterset_class = GlobalFilter
+	permission_classes = function_permission('nameclass')
+	parser_classes = [JSONParser, MultiPartParser, FormParser]
+	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+	ordering_fields = [f.name for f in Constant._meta.fields] + ['parent']
+
+	@action(detail=False, methods=['get'], url_path='tree')
+	def tree(self, request):
+		"""Нэрийн ангиллын мод — key‑ээр үндсэн төрөл, parent‑аар дэд ангилал.
+		Мөр бүрт child_count."""
+		parent = request.query_params.get('parent', None)
+		key = request.query_params.get('key', None)
+		qs = Constant.objects.annotate(child_count=Count('children', distinct=True))
+		if parent:
+			qs = qs.filter(parent_id=parent)
+		elif key:
+			qs = qs.filter(key=key, parent__isnull=True)
+		else:
+			qs = qs.none()
+		qs = qs.order_by('code', 'id')
+		data = [{
+			'id': c.id, 'name': c.name, 'key': c.key, 'code': c.code,
+			'label': c.label, 'color': c.color, 'desc': c.desc,
+			'parent': c.parent_id, 'child_count': c.child_count,
+		} for c in qs]
+		return Response({"results": data}, status=200)
+
+	# --- GeoServer view sync helpers (node‑local) ---
+	def _sync_one_geoname(self, node, old_name=None):
+		"""Тухайн зангилааны view‑г л зохицуулна. Навч бол үүсгэ/шинэчил,
+		хүүхэдтэй бол өөрийнх нь хуучин view‑г устга."""
+		try:
+			if is_geoname_leaf(node):
+				new_name = sync_geoname_type_view(node)
+				if old_name and old_name != new_name:
+					_drop_featuretype_and_view(old_name)
+			else:
+				_drop_featuretype_and_view(geoname_type_view_name(node))
+				if old_name:
+					_drop_featuretype_and_view(old_name)
+		except Exception:
+			import logging
+			logging.getLogger(__name__).warning("geoname view sync failed", exc_info=True)
+
+	def _drop_parent_view(self, parent):
+		"""Хүүхэд нэмэгдсэн parent навч биш боллоо → parent‑ийн view‑г устга."""
+		if not parent:
+			return
+		try:
+			_drop_featuretype_and_view(geoname_type_view_name(parent))
+		except Exception:
+			pass
+
+	def perform_create(self, serializer):
+		parent = serializer.validated_data.get('parent')
+		instance = serializer.save(key='GEONAME_TYPES')
+		# Шинэ зангилаа навч → view үүснэ; parent нь навч биш боллоо → view устна
+		self._sync_one_geoname(instance)
+		self._drop_parent_view(parent)
+
+	def perform_update(self, serializer):
+		node = serializer.instance
+		old_name = geoname_type_view_name(node) if node else None  # хуучин код‑оор
+		instance = serializer.save()
+		self._sync_one_geoname(instance, old_name=old_name)
+
+	def perform_destroy(self, instance):
+		# Устгахаас өмнө холбоотой навч view нэрс + parent‑ийг цуглуулна (CASCADE‑д устахаас)
+		names = [geoname_type_view_name(c) for c in geoname_leaf_descendants(instance)]
+		names.append(geoname_type_view_name(instance))  # өөрийн (stale) view ч устга
+		parent = instance.parent
+		super().perform_destroy(instance)
+		try:
+			for n in names:
+				_drop_featuretype_and_view(n)
+			# parent сүүлийн хүүхдээ алдаж навч болсон бол view авна
+			if parent:
+				self._sync_one_geoname(parent)
+		except Exception:
+			import logging
+			logging.getLogger(__name__).warning("geoname view drop failed", exc_info=True)
+
 
 class StoreViewSet(PublicListMixin, viewsets.ModelViewSet):
 	serializer_class =StoreSerializer

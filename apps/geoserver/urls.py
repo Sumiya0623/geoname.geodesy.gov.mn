@@ -1,11 +1,12 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path
 
-from .apiview import (
+from .apiviews import (
     WorkSpaceViewSet,
+    NameClassViewSet,
     StoreViewSet,
     LayerViewSet,
-    # StyleViewSet, 
+    # StyleViewSet,
     StyleRuleViewSet,
     LayerGroupViewSet,
     LayerGroupItemViewSet
@@ -13,6 +14,7 @@ from .apiview import (
 
 router = DefaultRouter()
 router.register('ws', WorkSpaceViewSet,basename='workspace')
+router.register('nameclass', NameClassViewSet, basename='nameclass')
 router.register('st', StoreViewSet)
 router.register('fs', LayerViewSet)
 # router.register(r"style", StyleViewSet, basename="style")

@@ -73,8 +73,6 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 			perms = function_permission('menus')
 		elif getattr(self, "action", None) == "submenus":
 			perms = function_permission('submenus')
-		elif getattr(self, "action", None) == "nameclass":
-			perms = function_permission('nameclass')
 		else:
 			perms = function_permission('constant')
 		return [perm() for perm in perms]
@@ -98,27 +96,6 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 			menus = Constant.objects.filter(key='PARENT_MENUS').order_by('id')
 		serializer = MenuSerializer(menus, many=True)
 		return Response({"results": serializer.data}, status=200)
-
-	@action(detail=False, methods=['get'], url_path='nameclass', permission_classes=function_permission('nameclass'))
-	def nameclass(self, request):
-		# Дэвсгэр нэрийн ангилал — key‑ээр үндсэн төрөл, parent‑аар дэд ангилал.
-		# Мөр бүрт child_count. CRUD нь энгийн constant endpoint‑оор хийгдэнэ.
-		parent = request.query_params.get('parent', None)
-		key = request.query_params.get('key', None)
-		qs = Constant.objects.annotate(child_count=Count('children', distinct=True))
-		if parent:
-			qs = qs.filter(parent_id=parent)
-		elif key:
-			qs = qs.filter(key=key, parent__isnull=True)
-		else:
-			qs = qs.none()
-		qs = qs.order_by('code', 'id')
-		data = [{
-			'id': c.id, 'name': c.name, 'key': c.key, 'code': c.code,
-			'label': c.label, 'color': c.color, 'desc': c.desc,
-			'parent': c.parent_id, 'child_count': c.child_count,
-		} for c in qs]
-		return Response({"results": data}, status=200)
 
 	@action(detail=True, methods=['get'], url_path='submenu-actions')
 	def submenu_actions(self, request, *args, **kwargs):
@@ -166,41 +143,6 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 			menus = menus.filter(parent=self.request.query_params.get('parent'))
 		serializer = MenuSerializer(menus, many=True)
 		return Response({"results": serializer.data}, status=200)
-	# --- GEONAME_TYPES навч ангилал ↔ GeoServer view автомат синк ---
-	# View ЗӨВХӨН хүүхэдгүй (навч) ангилалд үүснэ. Зангилаа хүүхэдтэй (parent)
-	# бол view үүсэхгүй. Логик нь node‑local: тухайн зассан/нэмсэн зангилаагаа л
-	# хөнддөг (удам руугаа дамждаггүй), parent засахад view үүсгэхгүй.
-	def _sync_one_geoname(self, node, old_name=None):
-		"""Тухайн зангилааны view‑г л зохицуулна. Навч бол үүсгэ/шинэчил,
-		хүүхэдтэй бол өөрийнх нь хуучин view‑г устга."""
-		try:
-			from apps.geoserver.apiview import (
-				is_geoname_leaf, sync_geoname_type_view,
-				geoname_type_view_name, _drop_featuretype_and_view)
-			if is_geoname_leaf(node):
-				new_name = sync_geoname_type_view(node)
-				if old_name and old_name != new_name:
-					_drop_featuretype_and_view(old_name)
-			else:
-				# хүүхэдтэй → view байх ёсгүй
-				_drop_featuretype_and_view(geoname_type_view_name(node))
-				if old_name:
-					_drop_featuretype_and_view(old_name)
-		except Exception:
-			import logging
-			logging.getLogger(__name__).warning("geoname view sync failed", exc_info=True)
-
-	def _drop_parent_view(self, parent):
-		"""Хүүхэд нэмэгдсэн parent навч биш боллоо → parent‑ийн view‑г устга."""
-		if not parent:
-			return
-		try:
-			from apps.geoserver.apiview import (
-				geoname_type_view_name, _drop_featuretype_and_view)
-			_drop_featuretype_and_view(geoname_type_view_name(parent))
-		except Exception:
-			pass
-
 	def perform_update(self, serializer):
 		data = serializer.validated_data
 		if data.get("key") == "SUBMENUS":
@@ -208,20 +150,8 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 			perm = FuncPerm()
 			if not perm.has_permission(self.request, self):
 				raise PermissionDenied("Танд меню засах эрх байхгүй байна.")
-		node = serializer.instance
-		old_name = None
-		if node and node.key == 'GEONAME_TYPES':
-			try:
-				from apps.geoserver.apiview import geoname_type_view_name
-				old_name = geoname_type_view_name(node)  # хуучин код‑оор
-			except Exception:
-				old_name = None
-		instance = serializer.save()
-		if instance.key == 'GEONAME_TYPES':
-			self._sync_one_geoname(instance, old_name=old_name)
-		return instance
+		serializer.save()
 	def perform_create(self, serializer):
-		parent = serializer.validated_data.get('parent')
 		instance=serializer.save()
 		if instance.key=='SUBMENUS':
 			actions=self.queryset.filter(key='ACTION_TYPES')
@@ -231,10 +161,6 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 					action=action,
 				)
 				instance.actions.add(act)
-		if instance.key == 'GEONAME_TYPES':
-			# Шинэ зангилаа навч → view үүснэ; parent нь навч биш боллоо → view устна
-			self._sync_one_geoname(instance)
-			self._drop_parent_view(parent)
 	def get_queryset(self):
 		qs=self.queryset.exclude(key__in=['create', 'delete', 'update', 'list','detail']).distinct()
 		if self.request.query_params.get('type') == 'dropdown' and self.request.query_params.get('parent'):
@@ -260,31 +186,7 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 			perm = FuncPerm()
 			if not perm.has_permission(self.request, self):
 				raise PermissionDenied("Танд меню устгах эрх байхгүй байна.")
-		# Устгахаас өмнө холбоотой навч view нэрс + parent‑ийг цуглуулна (CASCADE‑д устахаас)
-		names, parent = [], None
-		if instance.key == 'GEONAME_TYPES':
-			try:
-				from apps.geoserver.apiview import (
-					geoname_leaf_descendants, geoname_type_view_name)
-				names = [geoname_type_view_name(c)
-						 for c in geoname_leaf_descendants(instance)]
-				names.append(geoname_type_view_name(instance))  # өөрийн (stale) view ч устга
-			except Exception:
-				names = []
-			parent = instance.parent
-		result = super().perform_destroy(instance)
-		if instance.key == 'GEONAME_TYPES':
-			try:
-				from apps.geoserver.apiview import _drop_featuretype_and_view
-				for n in names:
-					_drop_featuretype_and_view(n)
-				# parent сүүлийн хүүхдээ алдаж навч болсон бол view авна
-				if parent:
-					self._sync_one_geoname(parent)
-			except Exception:
-				import logging
-				logging.getLogger(__name__).warning("geoname view drop failed", exc_info=True)
-		return result
+		super().perform_destroy(instance)
 	
 class AdminUnitViewSet(PublicListMixin, viewsets.ModelViewSet):
 	"""Засаг захиргааны нэгж (AdminUnit) — мод (Аймаг→Сум→Баг), parent‑аар lazy ачаална.
