@@ -1,8 +1,8 @@
 {
-  "name": "point",
+  "name": "geoname",
   "author": "NextGIS",
   "version": "5.7.0",
-  "description": "point.geodesy.gov.mn",
+  "description": "geoname.geodesy.gov.mn",
   "private": true,
   "lint-staged": {
     "*.{js,jsx,ts,tsx}": [
