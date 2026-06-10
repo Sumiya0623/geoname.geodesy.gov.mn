@@ -136,11 +136,11 @@ export const endpoints = {
   },
 
   nameclass: {
-    list: (request_body) => `/api/core/constant/nameclass/?${request_body}`,
-    create: `/api/core/constant/`,
-    edit: (id) => `/api/core/constant/${id}/`,
-    delete: (id) => `/api/core/constant/${id}/`,
-    details: (id) => `/api/core/constant/${id}/`,
+    list: (request_body) => `/api/g/nameclass/tree/?${request_body}`,
+    create: `/api/g/nameclass/`,
+    edit: (id) => `/api/g/nameclass/${id}/`,
+    delete: (id) => `/api/g/nameclass/${id}/`,
+    details: (id) => `/api/g/nameclass/${id}/`,
   },
 
   request: {
