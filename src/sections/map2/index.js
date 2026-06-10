@@ -955,6 +955,10 @@ function Map2() {
           ...(filterData && filterData.cql_filter
             ? { CQL_FILTER: filterData.cql_filter }
             : {}),
+          // Навчид per‑type view (GeoStyler) style байвал түүгээр рендерлэнэ.
+          ...(filterData && filterData.styles
+            ? { STYLES: filterData.styles }
+            : {}),
         });
 
         // Debug: WMS URL + CQL_FILTER (geoserver filters)

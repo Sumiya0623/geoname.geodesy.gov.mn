@@ -141,6 +141,7 @@ export const endpoints = {
     edit: (id) => `/api/g/nameclass/${id}/`,
     delete: (id) => `/api/g/nameclass/${id}/`,
     details: (id) => `/api/g/nameclass/${id}/`,
+    sld: (id) => `/api/g/nameclass/${id}/sld/`,
   },
 
   request: {
@@ -218,7 +219,7 @@ export const endpoints = {
       remove: (id) => `/api/g/fs/remove/${id}/`,
       geoserver: (request_body) => `/api/g/fs/geoserver/?${request_body}`,
       attributes: (request_body) => `/api/g/fs/attributes/?${request_body}`,
-      stylefields: (request_body) => `/api/g/fs/stylefields/?${request_body}`,
+      stylefields: (request_body) => `/api/g/nameclass/style-fields/?${request_body}`,
       baseLayers: `/api/g/fs/baselayers/`,
     },
     style: {
@@ -234,6 +235,7 @@ export const endpoints = {
         delete: (id) => `/api/g/rule/${id}/`,
         details: (id) => `/api/g/rule/${id}/`,
         iconPreview: (svg) => `/api/g/rule/icon/${encodeURIComponent(svg)}`,
+        importDefault: `/api/g/rule/import-default/`,
       },
     },
     group: {

@@ -189,6 +189,26 @@ export default function NameClassTreeRow({
           </IconButton>
         )}
 
+        {/* Level‑3 навч — view GeoServer‑т нийтлэгдсэн (gs_exists) үед л style засах
+            боломжтой. View байхгүй бол style гэж байхгүй тул товчийг харуулахгүй. */}
+        {item.is_leaf && item.gs_exists && (
+          <Tooltip title="Style (дүрэм) засах">
+            <IconButton
+              size="small"
+              color="primary"
+              onClick={() =>
+                window.open(
+                  `/dashboard/geoserver/nameclass/${item.id}/style/`,
+                  "_blank",
+                  "noopener,noreferrer"
+                )
+              }
+            >
+              <Icon icon="mdi:palette-outline" />
+            </IconButton>
+          </Tooltip>
+        )}
+
         {(menuPermissions?.update || menuPermissions?.delete) && (
           <IconButton size="small" onClick={popover.onOpen}>
             <Icon icon="mdi:dots-vertical" />

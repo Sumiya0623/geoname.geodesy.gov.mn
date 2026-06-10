@@ -1,0 +1,18 @@
+diff --git a/node_modules/geostyler/dist/Component/ScaleDenominator/InputScaleDenominator.js b/node_modules/geostyler/dist/Component/ScaleDenominator/InputScaleDenominator.js
+index 04ba348..ed5bab6 100644
+--- a/node_modules/geostyler/dist/Component/ScaleDenominator/InputScaleDenominator.js
++++ b/node_modules/geostyler/dist/Component/ScaleDenominator/InputScaleDenominator.js
+@@ -1,4 +1,5 @@
+ import { jsx as n, jsxs as S } from "react/jsx-runtime";
++import { useEffect as _ue } from "react";
+ import { Form as a, Row as v, Col as s, InputNumber as t } from "antd";
+ import c from "../../_virtual/cloneDeep.js";
+ /* empty css                          */
+@@ -14,6 +15,7 @@ const b = ({
+     let o = c(e);
+     o || (o = {}), o.max = r, l && l(o);
+   }, [h] = a.useForm();
++  _ue(() => { h.setFieldsValue({ "min-scale-denominator": m, "max-scale-denominator": u }); }, [m, u, h]);
+   return /* @__PURE__ */ n("div", { className: "gs-scaledenominator", children: /* @__PURE__ */ n(a, { form: h, children: /* @__PURE__ */ S(v, { gutter: 4, children: [
+     /* @__PURE__ */ n(s, { span: 12, className: "gs-small-col", children: /* @__PURE__ */ n(
+       a.Item,

@@ -239,11 +239,11 @@ export function useGetStyle(id) {
   return memoizedValue;
 }
 
-export function useGetGeoserver(request_body = {}) {
-  const queried_request_body = new URLSearchParams(request_body).toString();
-  const URL = endpoints.geoserver.geoserver(queried_request_body);
+export function useGetGeoserver() {
+  // Layer model устгагдсан тул /api/g/fs/geoserver/ endpoint байхгүй (404).
+  // Fetch хийхгүй — хоосон жагсаалт буцаана.
   const { data, isLoading, error, isValidating, mutate } = useSWR(
-    [URL, axiosInstance, "get"],
+    null,
     fetcher,
     { shouldRetryOnError: false },
   );
@@ -262,11 +262,11 @@ export function useGetGeoserver(request_body = {}) {
   return memoizedValue;
 }
 
-export function useGetBaseLayers(request_body = {}) {
-  const queried_request_body = new URLSearchParams(request_body).toString();
-  const URL = endpoints.geoserver.layer.baseLayers;
+export function useGetBaseLayers() {
+  // Layer model устгагдсан тул /api/g/fs/baselayers/ endpoint байхгүй (404).
+  // Fetch хийхгүй — хоосон жагсаалт буцаана.
   const { data, isLoading, error, isValidating, mutate } = useSWR(
-    [URL, axiosInstance, "get"],
+    null,
     fetcher,
     { shouldRetryOnError: false },
   );
