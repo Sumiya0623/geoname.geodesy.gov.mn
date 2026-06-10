@@ -533,24 +533,35 @@ class Passport(models.Model):
 	link=models.URLField(blank=True, null=True,max_length=3000)
 	desc=models.CharField(max_length=5000, blank=True, null=True)
 
-class Layer(models.Model):
-	ws=models.ForeignKey(Constant, on_delete=models.CASCADE, related_name='wsfeatures',blank=True, null=True)
-	store=models.ForeignKey(Constant, on_delete=models.CASCADE, related_name='storefeatures',blank=True, null=True)
-	table=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'GeomDatas'}, verbose_name='Төрөл', related_name='features',blank=True, null=True)
-	map=models.FileField(upload_to=file_upload_path, verbose_name='Maps',blank=True, null=True)
-	is_raster=models.BooleanField(default=False)
-	is_published=models.BooleanField(default=True)
-	url=models.URLField(blank=True, null=True,max_length=3000)
-	name = models.CharField(max_length=200, blank=True, null=True)
-	geom_type=models.CharField(max_length=50, blank=True, null=True)
-	order=models.PositiveIntegerField(default=1)
+class MailLog(models.Model):
+	"""Системээс илгээсэн имэйл бүрийн бүртгэл — админ хяналт, мэдэгдлийн цэс."""
+	STATUS_CHOICES = (
+		('sent', 'Амжилттай'),
+		('failed', 'Амжилтгүй'),
+	)
+	category = models.ForeignKey(
+		Constant,
+		on_delete=models.SET_NULL,
+		blank=True,
+		null=True,
+		limit_choices_to={'key': 'MAIL_CATEGORIES'},
+		related_name='maillogs',
+		verbose_name='Ангилал',
+	)
+	to_email = models.CharField(max_length=300, blank=True, null=True, verbose_name='Хүлээн авагч имэйл')
+	to_user = models.CharField(max_length=300, blank=True, null=True, verbose_name='Хүлээн авагч')
+	subject = models.CharField(max_length=1000, blank=True, null=True, verbose_name='Гарчиг')
+	body = models.TextField(blank=True, null=True, verbose_name='Агуулга')
+	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='sent', verbose_name='Төлөв')
+	error = models.TextField(blank=True, null=True, verbose_name='Алдаа')
+	created_at = models.DateTimeField(auto_now_add=True, verbose_name='Огноо')
+
 	class Meta:
-		indexes = [
-			models.Index(fields=["is_published"]),
-		]
-		ordering = ["id"]
+		ordering = ['-created_at']
+		verbose_name_plural = 'Мэдэгдэл (имэйл)'
+
 	def __str__(self):
-		return self.title or (self.table.name if self.table else f"Feature #{self.pk}")
+		return f'{self.to_email} - {self.subject}'
 
 class StyleRule(models.Model):
 	class Symbolizer(models.TextChoices):
@@ -582,14 +593,14 @@ class StyleRule(models.Model):
 		AND = "AND", "AND"
 		OR = "OR", "OR"
 
-	layer = models.ForeignKey(Layer, on_delete=models.CASCADE, related_name="rules")
-	name = models.CharField(max_length=100, blank=True, help_text="Легендийн нэр/эсвэл тоон ID-г Name-д ашиглаж болно")
-	is_visible = models.BooleanField(default=True)
+	# layer нь nameclass leaf (GEONAME_TYPES Constant) — тухайн view‑ийн "давхарга".
+	# Нэг навч (view) олон дүрэмтэй; SLD дээр дүрэм бүр rule.id‑гээр нэрлэгдэнэ.
+	layer = models.ForeignKey(Constant, on_delete=models.CASCADE, related_name="rules",
+							  limit_choices_to={'key': 'GEONAME_TYPES'})
 	order = models.PositiveIntegerField(default=0, help_text="Дүрмийн эрэмбэ (бага → түрүүнд)")
 	join_op = models.CharField(max_length=3, choices=JoinOp.choices, default=JoinOp.AND)
 	min_scale_denom = models.BigIntegerField(blank=True, null=True, validators=[MinValueValidator(1)])
 	max_scale_denom = models.BigIntegerField(blank=True, null=True, validators=[MinValueValidator(1)])
-
 	# Ерөнхий харагдац
 	opacity = models.FloatField(
 		default=1.0, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
@@ -597,10 +608,8 @@ class StyleRule(models.Model):
 	)
 	z_index = models.IntegerField(default=0)
 	blend_mode = models.CharField(max_length=16, choices=BlendMode.choices, default=BlendMode.NORMAL)
-
 	# Геометр төрөл
 	symbolizer = models.CharField(max_length=16, choices=Symbolizer.choices, default=Symbolizer.POLYGON)
-
 	# Stroke
 	stroke_color = models.CharField(max_length=32, blank=True,null=True, validators=[validate_hex_color])
 	stroke_width = models.FloatField(blank=True, null=True)
@@ -646,17 +655,17 @@ class StyleRule(models.Model):
 		verbose_name = "SymbolRules"
 		indexes = [
 			models.Index(fields=["layer", "order"]),
-			models.Index(fields=["is_visible"]),
 		]
 	def __str__(self):
-		return self.name or f"rule:{self.pk}"
+		# Легендийн нэр нь nameclass leaf (layer)‑ийн нэр.
+		return (self.layer.name if self.layer_id else None) or f"rule:{self.pk}"
 	
 class LayerGroup(models.Model):
 	name = models.CharField(max_length=100)
 
 class LayerGroupItem(models.Model):
 	group = models.ForeignKey(LayerGroup, on_delete=models.CASCADE, related_name='items')
-	layer = models.ForeignKey(Layer, on_delete=models.CASCADE, related_name='group_items')
+	layer = models.ForeignKey(Constant, on_delete=models.CASCADE, related_name='group_items')
 	order = models.PositiveIntegerField(default=0)
 	visible = models.BooleanField(default=True)
 	class Meta:
@@ -664,34 +673,5 @@ class LayerGroupItem(models.Model):
 		ordering = ['order', 'id']
 
 
-class MailLog(models.Model):
-	"""Системээс илгээсэн имэйл бүрийн бүртгэл — админ хяналт, мэдэгдлийн цэс."""
-	STATUS_CHOICES = (
-		('sent', 'Амжилттай'),
-		('failed', 'Амжилтгүй'),
-	)
-	category = models.ForeignKey(
-		Constant,
-		on_delete=models.SET_NULL,
-		blank=True,
-		null=True,
-		limit_choices_to={'key': 'MAIL_CATEGORIES'},
-		related_name='maillogs',
-		verbose_name='Ангилал',
-	)
-	to_email = models.CharField(max_length=300, blank=True, null=True, verbose_name='Хүлээн авагч имэйл')
-	to_user = models.CharField(max_length=300, blank=True, null=True, verbose_name='Хүлээн авагч')
-	subject = models.CharField(max_length=1000, blank=True, null=True, verbose_name='Гарчиг')
-	body = models.TextField(blank=True, null=True, verbose_name='Агуулга')
-	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='sent', verbose_name='Төлөв')
-	error = models.TextField(blank=True, null=True, verbose_name='Алдаа')
-	created_at = models.DateTimeField(auto_now_add=True, verbose_name='Огноо')
-
-	class Meta:
-		ordering = ['-created_at']
-		verbose_name_plural = 'Мэдэгдэл (имэйл)'
-
-	def __str__(self):
-		return f'{self.to_email} - {self.subject}'
 
 

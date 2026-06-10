@@ -5,7 +5,6 @@ from .apiviews import (
     WorkSpaceViewSet,
     NameClassViewSet,
     StoreViewSet,
-    LayerViewSet,
     # StyleViewSet,
     StyleRuleViewSet,
     LayerGroupViewSet,
@@ -16,7 +15,6 @@ router = DefaultRouter()
 router.register('ws', WorkSpaceViewSet,basename='workspace')
 router.register('nameclass', NameClassViewSet, basename='nameclass')
 router.register('st', StoreViewSet)
-router.register('fs', LayerViewSet)
 # router.register(r"style", StyleViewSet, basename="style")
 router.register(r"rule", StyleRuleViewSet, basename="style-rule")
 router.register(r"group", LayerGroupViewSet, basename="layer-group")

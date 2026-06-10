@@ -31,7 +31,6 @@ from .default_style import create_default_style_and_assign ,_safe_read_text,_nor
 
 from core.models import (
 	Constant,
-	Layer,
 	StyleRule,
 	LayerGroupItem,
 	LayerGroup,
@@ -43,8 +42,6 @@ from core.userapiview import (
 from .serializer import (
 	WorkspaceSerializer,
 	StoreSerializer,
-	LayerSerializer,
-	LayerCreateOrUpdateSerializer,
 	StyleRuleSerializer,
 	LayerGroupSerializer,
 	LayerGroupItemSerializer
@@ -959,6 +956,58 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
 	ordering_fields = [f.name for f in Constant._meta.fields] + ['parent']
 
+	@action(detail=True, methods=['get', 'put'], url_path='sld')
+	def sld(self, request, *args, **kwargs):
+		"""GeoStyler‑т зориулсан raw SLD унших/бичих. GET → тухайн навчийн view‑ийн
+		одоогийн SLD‑г GeoServer‑ээс. PUT → засагдсан SLD‑г GeoServer‑т (REST)."""
+		leaf = self.get_object()
+		if not is_geoname_leaf(leaf):
+			return Response({'detail': 'Зөвхөн 3‑р түвшний навчид style байна'}, status=400)
+		ws = GEONAME_WS
+		style_name = geoname_type_view_name(leaf)
+		if request.method == 'GET':
+			try:
+				sld = _gs_style_read_sld(ws, style_name)
+			except requests.RequestException as e:
+				return Response({'detail': f'GeoServer SLD уншиж чадсангүй: {e}'}, status=502)
+			return Response({'sld': sld, 'style_name': style_name, 'ws': ws}, status=200)
+		# PUT
+		sld = request.data.get('sld')
+		if not sld:
+			return Response({'detail': 'sld хоосон'}, status=400)
+		try:
+			_gs_style_write_sld(ws, style_name, sld)
+		except requests.RequestException as e:
+			return Response({'detail': f'GeoServer‑т SLD хадгалж чадсангүй: {e}',
+							 'body': getattr(e, 'response', None) and e.response.text}, status=502)
+		return Response({'style_name': style_name, 'ws': ws, 'saved': True}, status=200)
+
+	@action(detail=False, methods=['get'], url_path='style-fields')
+	def style_fields(self, request):
+		"""Style/rule филтерт ашиглах талбарууд — тухайн навч (layerId)‑ийн view‑ийн
+		баганууд. PG view‑ийн бодит баганаас (information_schema) уншина; геометр
+		(geoloc) баганыг хасна."""
+		layer_id = request.query_params.get('layerId') or request.query_params.get('layer')
+		leaf = Constant.objects.filter(id=layer_id, key='GEONAME_TYPES').first() if layer_id else None
+		if not leaf:
+			return Response({'results': []}, status=200)
+		view_name = geoname_type_view_name(leaf)
+		rows = []
+		try:
+			with connection.cursor() as cur:
+				cur.execute(
+					"SELECT column_name, data_type FROM information_schema.columns "
+					"WHERE table_schema='public' AND table_name=%s ORDER BY ordinal_position",
+					[view_name])
+				for col, dtype in cur.fetchall():
+					if col == 'geoloc':
+						continue
+					rows.append({'name': col, 'label': col, 'type': dtype})
+		except Exception:
+			import logging
+			logging.getLogger(__name__).warning("style_fields introspect failed", exc_info=True)
+		return Response({'results': rows}, status=200)
+
 	@action(detail=False, methods=['get'], url_path='tree')
 	def tree(self, request):
 		"""Нэрийн ангиллын мод — key‑ээр үндсэн төрөл, parent‑аар дэд ангилал.
@@ -1141,220 +1190,63 @@ class StoreViewSet(PublicListMixin, viewsets.ModelViewSet):
 		instance.delete()
 		return Response(status=204)
 
-class LayerViewSet(PublicListMixin, viewsets.ModelViewSet):
-	queryset = Layer.objects.select_related("table", "store").all()
-	serializer_class = LayerSerializer
-	filterset_class = GlobalFilter
-	permission_classes = [IsAuthenticated]
-	filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-	parser_classes = [JSONParser, MultiPartParser, FormParser]
-	ordering_fields = [f.name for f in Layer._meta.fields]+['table__name']
-	def get_serializer_class(self):
-		if self.action in ('create', 'update', 'partial_update'):
-			return LayerCreateOrUpdateSerializer
-		return LayerSerializer
-	@transaction.atomic
-	def create(self, request, *args, **kwargs):
-		serializer=self.get_serializer(data=request.data)
-		serializer.is_valid(raise_exception=True)
-		instance=serializer.save()
-		instance.name=instance.table.desc
-		workspace = instance.store.parent.name
-		store=instance.store.name
-		layer_name = instance.table.desc  # layer нэр
-		instance.url = (
-			f"{settings.GEOSERVER_URL}/{workspace}/wms?"
-			f"service=WMS&version=1.1.0&request=GetMap&bbox=97.5,41,120,52"
-			f"&layers={workspace}:{layer_name}"
-			f"&srs=EPSG:4326&width=768&height=330&format=image/png"
-		)
-		instance.save()
-		if instance.is_published:
-			try:
-				geo.delete_layer(layer_name=layer_name, workspace=instance.store.parent.name)
-			except Exception as e:
-				import logging
-				logging.getLogger(__name__).warning("Failed to delete existing layer before publish", exc_info=e)
-		try:
-			if instance.is_raster:
-				geo.create_coveragestore(workspace=workspace, layer_name=instance.name, path=r'/var/monpos/geoserver/data_dir/workspaces/point/tif/l48.tif')
-			geo.publish_featurestore(workspace=workspace, store_name=store,title=instance.name, pg_table=instance.table.desc)
-		except Exception as e:
-			# pass
-			return Response({'result': f'Геосерверт {e} алдаа гарлаа.'}, status=400)
-		try:
-			geom_type = (instance.table.code or "").lower()
-			style_name = create_default_style_and_assign(
-				workspace=workspace, layer_name=layer_name, geom_type=geom_type
-			)
-			print("Created/updated style:", style_name, geom_type)
-		except Exception as e:
-			return Response({"result": f"Default style үүсгэхэд алдаа: {e}"}, status=400)
-		return Response({'results': serializer.data}, status=200)
+def _sld_num(v):
+	try:
+		return float(v)
+	except (TypeError, ValueError):
+		return None
 
-	@action(detail=False, methods=['get'], url_path='geoserver')
-	def geoserver(self, request, *args, **kwargs):
-		features = Layer.objects.filter(is_published=True,name="point").order_by("id")
-		results = []
-		for feat in features:
-			node = OrderedDict()
-			node["name"] = (
-				feat.table.name if getattr(feat, "table", None) and feat.table
-				else (feat.store.name if getattr(feat, "store", None) and feat.store else "Layer")
-			)
-			node["url"] = feat.url or ""
-			node["id"]  = feat.id
 
-			children = []
-			if feat.rules.exists():
-				total = 0
-				qs = feat.rules.filter(is_visible=True).exclude(render_mode='text')
-				for rule in qs:
-					rule_name = rule.name.split("-symbol")[0] or "Rule"
-					item = {"name": rule_name, "id": rule.id}
-					count = 0
-					filters = getattr(rule, "filters", None) or []
-					if filters and isinstance(filters, list) and len(filters) > 0:
-						first = filters[0] or {}
-						const_id = first.get("value")
-						const = Constant.objects.filter(id=const_id).first()
-						count = 0  # Measurement модель энэ project‑д байхгүй
-						if const and const.desc and feat.name == "point" and count > 0:						
-							total += count
-							item["parent"] = const.parent.name if const and const.parent else None
-							item["count"] = count
-							item['layer']=const.desc
-					cql = _build_cql_from_filters_json(getattr(rule, "filters", None), getattr(rule, "join_op", "AND"))
-					if cql:
-						item["cql_filter"] = cql
-					if item.get("layer"):
-						children.append(item)
-				if children:
-					node["count"] = total
-					grouped = defaultdict(list)
-					for it in children:
-						key = it.pop("parent", None)
-						grouped[key or None].append(it)
-					new_children = []
-					has_parent_groups = any(k is not None for k in grouped.keys())
-					if has_parent_groups:
-						for key, items in grouped.items():
-							if key is not None:
-								new_children.append({
-									"type": "group",
-									"name": key,
-									"children": items,
-								})
-						if grouped.get(None):
-							new_children.extend(grouped[None])
-					else:
-						new_children = grouped.get(None, children)
-					new_children.sort(key=lambda x: (0 if x.get("type") == "group" else 1, x.get("name", "")))
-					node["children"] = new_children
-			results.append(node)
-		return Response({"results": results})
-	@action(detail=False, methods=['get'], url_path='baselayers')
-	def baselayers(self, request, *args, **kwargs):
-		features = Layer.objects.filter(is_published=True).exclude(name="point").order_by("id")
-		results = []
-		for feat in features:
-			node = OrderedDict()
-			node["name"] = (
-				feat.table.name if getattr(feat, "table", None) and feat.table
-				else (feat.store.name if getattr(feat, "store", None) and feat.store else "Layer")
-			)
-			node["url"] = feat.url or ""
-			node["id"]  = feat.id
-			children = []
-			if feat.rules.exists():
-				total = 0
-				qs = feat.rules.filter(is_visible=True).exclude(render_mode='text')
-				for rule in qs:
-					rule_name = rule.name.split("-symbol")[0] or "Rule"
-					item = {"name": rule_name, "id": rule.id}
+def _parse_sld_rules(sld_xml):
+	"""SLD XML‑ээс <Rule>‑үүдийг уншиж энгийн dict жагсаалт болгоно (namespace‑agnostic).
+	GeoServer‑т default style‑ийг DB StyleRule болгон импортлоход хэрэглэнэ."""
+	import xml.etree.ElementTree as ET
+	def lname(t):
+		return t.rsplit('}', 1)[-1]
+	try:
+		root = ET.fromstring(sld_xml)
+	except Exception:
+		return []
+	out = []
+	for rule_el in root.iter():
+		if lname(rule_el.tag) != 'Rule':
+			continue
+		r = {'name': None, 'symbolizer': None, 'fill_color': None, 'fill_opacity': None,
+			 'stroke_color': None, 'stroke_width': None, 'stroke_opacity': None,
+			 'stroke_linecap': None, 'stroke_linejoin': None, 'size': None}
+		for ch in rule_el.iter():
+			lt = lname(ch.tag)
+			if lt == 'Name' and ch is not rule_el and r['name'] is None and ch.text:
+				r['name'] = ch.text.strip()
+			elif lt == 'PointSymbolizer':
+				r['symbolizer'] = 'point'
+			elif lt == 'LineSymbolizer':
+				r['symbolizer'] = 'line'
+			elif lt == 'PolygonSymbolizer':
+				r['symbolizer'] = 'polygon'
+			elif lt == 'TextSymbolizer' and not r['symbolizer']:
+				r['symbolizer'] = 'text'
+			elif lt == 'CssParameter':
+				nm, val = ch.get('name'), (ch.text or '').strip()
+				if nm == 'fill':
+					r['fill_color'] = val
+				elif nm == 'fill-opacity':
+					r['fill_opacity'] = _sld_num(val)
+				elif nm == 'stroke':
+					r['stroke_color'] = val
+				elif nm == 'stroke-width':
+					r['stroke_width'] = _sld_num(val)
+				elif nm == 'stroke-opacity':
+					r['stroke_opacity'] = _sld_num(val)
+				elif nm == 'stroke-linecap':
+					r['stroke_linecap'] = val
+				elif nm == 'stroke-linejoin':
+					r['stroke_linejoin'] = val
+			elif lt == 'Size' and ch.text:
+				r['size'] = _sld_num(ch.text.strip())
+		out.append(r)
+	return out
 
-					# parent / count
-					filters = getattr(rule, "filters", None) or []
-					if filters and isinstance(filters, list) and len(filters) > 0:
-						first = filters[0] or {}
-						const_id = first.get("value")
-						if const_id and feat.name == "point":
-							const = Constant.objects.filter(id=const_id).first()
-							count = 0  # Measurement модель энэ project‑д байхгүй
-							total += count
-							item["parent"] = const.parent.name if const and const.parent else None
-							item["count"] = count
-
-					cql = _build_cql_from_filters_json(getattr(rule, "filters", None), getattr(rule, "join_op", "AND"))
-					if cql:
-						item["cql_filter"] = cql
-
-					children.append(item)
-				if children:
-					node["count"] = total
-					grouped = defaultdict(list)
-					for it in children:
-						key = it.pop("parent", None)
-						grouped[key or None].append(it)
-					new_children = []
-					has_parent_groups = any(k is not None for k in grouped.keys())
-					if has_parent_groups:
-						for key, items in grouped.items():
-							if key is not None:
-								new_children.append({
-									"type": "group",
-									"name": key,
-									"children": items,
-								})
-						if grouped.get(None):
-							# 'Бүлэггүй' групп үүсгэхгүй, шулуугаараа нэмнэ
-							new_children.extend(grouped[None])
-					else:
-						new_children = grouped.get(None, children)
-
-					new_children.sort(key=lambda x: (0 if x.get("type") == "group" else 1, x.get("name", "")))
-					node["children"] = new_children
-
-			results.append(node)
-		return Response({"results": results})
-	@action(detail=False, methods=['get'], url_path='attributes')
-	def attributes(self, request, *args, **kwargs):
-		layerId=request.query_params.get('layerId')
-		layer=Layer.objects.get(id=layerId)
-		feature_type_name = layer.table.desc
-		workspace = layer.store.parent.name
-		store_name = layer.store.name
-		attrs=geo.get_feature_attribute(feature_type_name, workspace, store_name)
-		contants=Constant.objects.filter(key='GSCONSTANTS', name__in=attrs).order_by('parent__id')
-		data=ConstantSerializer(contants, many=True).data
-		return Response({'results': attrs}, status=200)
-	
-	@action(detail=False, methods=['get'], url_path='stylefields')
-	def stylefields(self, request, *args, **kwargs):
-		layerId=request.query_params.get('layerId')
-		layer=Layer.objects.get(id=layerId)
-		feature_type_name = layer.table.desc
-		workspace = layer.store.parent.name
-		store_name = layer.store.name
-		attrs=geo.get_feature_attribute(feature_type_name, workspace, store_name)
-		return Response({'results': attrs}, status=200)
-	@action(detail=False, methods=['get'], url_path='layers')
-	def layers(self, request, *args, **kwargs):
-		stId=request.query_params.get('stId')
-		store=Constant.objects.get(id=stId)
-		workspace = store.parent.name
-		store_name =store.name
-		layers=geo.get_featurestore(store_name,workspace)
-		return Response({'results': layers}, status=200)
-	def destroy(self, request, *args, **kwargs):
-		instance = self.get_object()
-		try:
-			geo.delete_layer(layer_name=instance.table.desc, workspace=instance.store.parent.name)
-		except Exception as e:
-			import logging
-			logging.getLogger(__name__).warning("Failed to delete layer in GeoServer", exc_info=e)
-		instance.delete()
-		return Response(status=status.HTTP_204_NO_CONTENT)
 
 class StyleRuleViewSet(viewsets.ModelViewSet):
 	queryset = (
@@ -1367,29 +1259,81 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated]
 	filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
 	parser_classes = [JSONParser, MultiPartParser, FormParser]
-	ordering_fields = [f.name for f in StyleRule._meta.fields] + ["style_id"]
+	ordering_fields = [f.name for f in StyleRule._meta.fields] + ["layer_id"]
 	def get_queryset(self):
 		qs = super().get_queryset()
-		style_id = self.request.query_params.get("style")
-		return qs.filter(style_id=style_id) if style_id else qs
+		# layer нь nameclass leaf (Constant) id — view‑ийн rule‑уудыг шүүнэ.
+		layer_id = self.request.query_params.get("layer") or self.request.query_params.get("style")
+		return qs.filter(layer_id=layer_id) if layer_id else qs
+
+	@action(detail=False, methods=['post'], url_path='import-default')
+	def import_default(self, request):
+		"""Тухайн layer (nameclass leaf)‑д DB StyleRule байхгүй бол GeoServer дээрх
+		одоогийн style (B…view)‑ийн SLD‑г уншиж, дүрмийг нь StyleRule болгон импортлоно.
+		Импортлосон дүрмийг SLD дотор rule.id‑ээр дахин нэрлэж (default→id) бичнэ —
+		ингэснээр цаашид засагчаас зөв засагдана."""
+		layer_id = request.data.get('layer') or request.query_params.get('layer')
+		leaf = Constant.objects.filter(id=layer_id, key='GEONAME_TYPES').first() if layer_id else None
+		if not leaf:
+			return Response({'detail': 'layer буруу'}, status=400)
+		if StyleRule.objects.filter(layer=leaf).exists():
+			return Response({'detail': 'Дүрэм аль хэдийн байна', 'imported': 0}, status=200)
+		ws = GEONAME_WS
+		style_name = geoname_type_view_name(leaf)
+		try:
+			sld_xml = _gs_style_read_sld(ws, style_name)
+		except requests.RequestException as e:
+			return Response({'detail': f'GeoServer SLD уншиж чадсангүй: {e}'}, status=502)
+		parsed = _parse_sld_rules(sld_xml)
+		if not parsed:
+			return Response({'detail': 'SLD дотор дүрэм олдсонгүй', 'imported': 0}, status=200)
+		geom_default = GEOM_STYLE.get((leaf.desc or '').strip(), 'polygon')
+		new_sld, created = sld_xml, []
+		for p in parsed:
+			sym = p.get('symbolizer') or geom_default
+			if sym == 'text':
+				sym = geom_default  # текст‑only default‑ийг геометр болгоно
+			rule = StyleRule.objects.create(
+				layer=leaf, symbolizer=sym, render_mode='symbol', filters=[],
+				fill_color=p.get('fill_color'), fill_opacity=p.get('fill_opacity'),
+				stroke_color=p.get('stroke_color'), stroke_width=p.get('stroke_width'),
+				stroke_opacity=p.get('stroke_opacity'),
+				stroke_linecap=p.get('stroke_linecap') or '',
+				stroke_linejoin=p.get('stroke_linejoin') or '',
+				size=p.get('size'),
+			)
+			created.append(rule.id)
+			# SLD дотор хуучин нэртэй дүрмийг устгаад rule.id‑ээр дахин бичнэ
+			if p.get('name'):
+				try:
+					new_sld, _ = delete_rule_in_sld_xml(new_sld, rule_name=p['name'], prune_empty=True)
+				except Exception:
+					pass
+			new_sld = update_rule_in_sld_xml_safe(
+				new_sld, rule_name=rule.id, filters=[], symbolizer=sym,
+				fill_color=rule.fill_color, fill_opacity=rule.fill_opacity,
+				stroke_color=rule.stroke_color, stroke_width=rule.stroke_width,
+				stroke_opacity=rule.stroke_opacity if rule.stroke_opacity is not None else 0.7,
+				stroke_linecap=rule.stroke_linecap, stroke_linejoin=rule.stroke_linejoin,
+				size=rule.size or 5, rotation=0, is_with_text=False,
+			)
+		try:
+			_gs_style_write_sld(ws, style_name, new_sld)
+		except requests.RequestException as e:
+			return Response({'detail': f'SLD хадгалж чадсангүй: {e}', 'imported': len(created)}, status=502)
+		return Response({'imported': len(created), 'rules': created}, status=200)
 
 	@transaction.atomic
 	def create(self, request, *args, **kwargs):
 		ser = self.get_serializer(data=request.data)
 		ser.is_valid(raise_exception=True)
 		rule = ser.save()
-		rule.symbolizer = rule.layer.table.code or 'polygon'
+		# layer = nameclass leaf (Constant). Геометрийг навчийн desc‑ээс авна.
+		leaf = rule.layer
+		rule.symbolizer = GEOM_STYLE.get((leaf.desc or '').strip(), 'polygon')
 		rule.save()
-		if rule.render_mode == 'symbol':
-			rule.name=f'{rule.name}-symbol'
-		elif rule.render_mode == 'text':
-			rule.name=f'{rule.name}-label'
-		else:
-			rule.name=f"{rule.name}-full"
-		rule.save()
-		layer = rule.layer
-		ws = layer.store.parent.name
-		style_name = layer.name
+		ws = GEONAME_WS
+		style_name = geoname_type_view_name(leaf)
 
 		# SLD‑г GeoServer‑ээс REST‑ээр уншина (локал файл системгүй)
 		try:
@@ -1547,9 +1491,10 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 		ser = self.get_serializer(rule_obj, data=request.data, partial=partial)
 		ser.is_valid(raise_exception=True)
 		rule = ser.save()
-		layer = rule.layer
-		ws = layer.store.parent.name
-		style_name = layer.name
+		# layer = nameclass leaf (Constant)
+		leaf = rule.layer
+		ws = GEONAME_WS
+		style_name = geoname_type_view_name(leaf)
 		# SLD‑г GeoServer‑ээс REST‑ээр уншина (локал файл системгүй)
 		try:
 			sld_xml = _gs_style_read_sld(ws, style_name)
@@ -1709,9 +1654,10 @@ class StyleRuleViewSet(viewsets.ModelViewSet):
 	@transaction.atomic
 	def destroy(self, request, *args, **kwargs):
 		rule = self.get_object()
-		layer = rule.layer
-		ws = layer.store.parent.name
-		style_name = layer.name
+		# layer = nameclass leaf (Constant)
+		leaf = rule.layer
+		ws = GEONAME_WS
+		style_name = geoname_type_view_name(leaf)
 		removed = 0
 		# SLD‑г GeoServer‑ээс REST‑ээр уншиж, rule‑г хасаад буцаан PUT хийнэ
 		try:

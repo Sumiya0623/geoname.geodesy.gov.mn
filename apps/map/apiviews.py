@@ -27,6 +27,43 @@ def _subtree_ids(root_id):
     return ids
 
 
+def _views_visible_ids():
+    """GeoServer‑т view нийтлэгдсэн навч + тэдгээрийн бүх өвөг ангиллын id‑ууд.
+    Зөвхөн эдгээрийг газрын зургийн модонд харуулна. GeoServer холбогдоогүй/
+    хоосон бол None буцаана (тэр үед шүүлтгүй — бүх ангилал харагдана)."""
+    try:
+        import requests
+        from apps.geoserver.apiviews import (
+            _gs_rest_auth, GEONAME_WS, GEONAME_STORE, _leaf_view_groups)
+        rest, auth = _gs_rest_auth()
+        r = requests.get(
+            f"{rest}/workspaces/{GEONAME_WS}/datastores/{GEONAME_STORE}/featuretypes.json",
+            auth=auth, timeout=8)
+        published = set()
+        if r.status_code == 200:
+            published = {f['name'] for f in
+                         (r.json().get('featureTypes') or {}).get('featureType') or []}
+        if not published:
+            return None
+        groups = _leaf_view_groups()  # {view_name: [type_id,...]}
+        by_id = {c.id: c for c in Constant.objects.filter(key='GEONAME_TYPES')}
+        visible = set()
+        for vname, type_ids in groups.items():
+            if vname not in published:
+                continue
+            for tid in type_ids:
+                x, seen = by_id.get(tid), set()
+                while x and x.id not in seen:
+                    seen.add(x.id)
+                    visible.add(x.id)
+                    x = by_id.get(x.parent_id)
+        return visible
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("_views_visible_ids failed", exc_info=True)
+        return None
+
+
 class NameCategoryViewSet(viewsets.ViewSet):
     """Газрын зураг дээрх "Нэрийн ангилал" мод (GEONAME_TYPES).
 
@@ -39,7 +76,7 @@ class NameCategoryViewSet(viewsets.ViewSet):
     def list(self, request):
         # Хайлтын нэгдсэн view устгагдсан бол сэргээнэ (map panel ачаалахад)
         try:
-            from apps.geoserver.apiview import ensure_geoname_search_view
+            from apps.geoserver.apiviews import ensure_geoname_search_view
             ensure_geoname_search_view()
         except Exception:
             pass
@@ -51,6 +88,10 @@ class NameCategoryViewSet(viewsets.ViewSet):
         else:
             qs = qs.filter(parent__isnull=True)
         qs = list(qs.order_by('code', 'id'))
+        # Зөвхөн GeoServer‑т view нийтлэгдсэн навч + тэдгээрийн өвгүүдийг харуулна.
+        visible = _views_visible_ids()
+        if visible is not None:
+            qs = [c for c in qs if c.id in visible]
         for c in qs:
             c.count = GeoName.objects.filter(
                 type_id__in=_subtree_ids(c.id)).count()
