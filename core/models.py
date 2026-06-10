@@ -353,12 +353,6 @@ class Nomek(models.Model):
 	# 	self.geom = polygon
 	# 	super().save(*args, **kwargs)
 
-class Road(models.Model):
-	state=models.ForeignKey(Constant, on_delete=models.CASCADE, limit_choices_to={'key':'ROADSTATETYPES'}, verbose_name='Төрөл', related_name='roadstates',blank=True, null=True)
-	paver=models.ForeignKey(Constant, on_delete=models.CASCADE, limit_choices_to={'key':'ROADPAVETYPES'}, verbose_name='Төрөл', related_name='roadpaves',blank=True, null=True)
-	geom = models.GeometryField(blank = True, null=True)
-	name=models.CharField(max_length=2000, verbose_name='Нэр',default="un", blank=True, null=True)
-
 class Project(models.Model):
 	name=models.CharField(max_length=2000, verbose_name='Нэр',default="un", blank=True, null=True)
 	percent = models.CharField(max_length=2000, verbose_name='Нэр',default="un", blank=True, null=True)
@@ -665,33 +659,6 @@ class LayerGroupItem(models.Model):
 		unique_together = ('group', 'layer')  # нэг group-д ижил combo давтагдахгүй
 		ordering = ['order', 'id']
 
-class ChatLog(models.Model):
-    conversation_id = models.UUIDField()
-    user_hash = models.CharField(max_length=64)
-    ts = models.DateTimeField(auto_now_add=True)
-    user_query_raw = models.TextField()
-    normalized_query = models.TextField(blank=True, null=True)
-    predicted_intent = models.CharField(max_length=64, blank=True, null=True)
-    predicted_slots = models.JSONField(default=dict, blank=True)
-    routing = models.CharField(max_length=32)  # RAG|LOCAL|EXTERNAL
-    context_sources = models.JSONField(default=list, blank=True)
-    bot_response_text = models.TextField()
-    latency_ms = models.IntegerField(null=True, blank=True)
-    tokens_in = models.IntegerField(null=True, blank=True)
-    tokens_out = models.IntegerField(null=True, blank=True)
-    thumb = models.SmallIntegerField(null=True, blank=True)  # -1/0/1
-    feedback_comment = models.TextField(blank=True, null=True)
-    gold_intent = models.CharField(max_length=64, blank=True, null=True)
-    gold_slots = models.JSONField(blank=True, null=True)
-
-class Number(models.Model):
-	unit=models.ForeignKey(AdminUnit, on_delete=models.CASCADE, limit_choices_to={'level':284}, related_name='numbers', blank=True, null=True)
-	network=models.ForeignKey(Constant, on_delete=models.CASCADE, limit_choices_to={'key':'GEODETIC_NETWORK'}, related_name='networks', blank=True, null=True)
-	name = models.CharField(max_length=100, blank=True, null=True)
-	number = models.CharField(max_length=100, blank=True, null=True)
-	user=models.ForeignKey(RemoteUser, on_delete=models.CASCADE,null=True, blank=True)
-	is_used=models.BooleanField(default=False)
-
 
 class MailLog(models.Model):
 	"""Системээс илгээсэн имэйл бүрийн бүртгэл — админ хяналт, мэдэгдлийн цэс."""
@@ -724,4 +691,3 @@ class MailLog(models.Model):
 		return f'{self.to_email} - {self.subject}'
 
 
-from .modelnl import *
