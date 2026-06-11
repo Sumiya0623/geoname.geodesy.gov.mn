@@ -168,7 +168,7 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if not token:
 			token = request.COOKIES.get(
 				settings.SIMPLE_JWT.get('COOKIE_ACCESS', 'access_token'))
-		headers = {'Authorization': f'{token}'} if token else {}
+		headers = {'Authorization': f'Bearer {token}'} if token else {}
 		try:
 			r = requests.post(
 				'https://geodesy.gov.mn/api/account/check-user/',
