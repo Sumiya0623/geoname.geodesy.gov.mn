@@ -121,6 +121,91 @@ def _gs_upload_style_symbol(ws, basename, src_path):
     return f"symbols/{basename}"
 
 
+# GWC seed зориулсан тогтмолууд — газрын зураг WMTS(6‑14)‑ийг WebMercatorQuad
+# (EPSG:3857) gridset, image/png‑ээр cache хийдэг. Style засагдах бүрд config+
+# truncate+seed хийнэ. Metatiling 1×1 — жижиг extent дээрх GWC "/ by zero"‑г шийднэ.
+GWC_GRIDSET = 'WebMercatorQuad'
+GWC_ZOOM_START = 6
+# gridSubset нь zoom 6‑14 хүртэл tile үйлчилнэ (WMTS энэ хүртэл харагдана).
+GWC_ZOOM_STOP = 14
+# Pre‑seed нь зөвхөн 6‑11 (хэт олон tile болохоос сэргийлэх). 12‑14 нь хэрэгцээгээр
+# (GetTile дуудагдахад) lazy‑cache хийгдэнэ.
+GWC_SEED_STOP = 11
+# Web mercator (EPSG:3857) бүтэн дэлхийн хязгаар — gridSubset‑ийн extent. Бүх tile
+# in‑range байж, газрын зургийн захын tile 400 (TileOutOfRange) өгөхгүй.
+GWC_WORLD = 20037508.342789244
+# Монголын web mercator bbox — ЗӨВХӨН seed хийх хүрээ (бүх дэлхийг seed хийхгүй).
+GWC_MN_EXTENT = (9600000.0, 4900000.0, 13400000.0, 6900000.0)
+
+
+def _gwc_configure(layer_full):
+    """Layer‑ийн GWC tile caching‑ийг тохируулна: metatiling 1×1, WebMercatorQuad
+    (zoom 6‑10), бүтэн дэлхийн extent, image/png. Metatiling 1×1 нь GWC seed‑ийн
+    '/ by zero'‑г, бүтэн extent нь захын tile‑ийн 400‑г зайлуулна."""
+    from django.conf import settings as _st
+    auth = HTTPBasicAuth(_st.GEOSERVER_USER, _st.GEOSERVER_PASSWORD)
+    w = GWC_WORLD
+    cfg = (
+        f"<GeoServerLayer><name>{layer_full}</name><enabled>true</enabled>"
+        "<metaWidthHeight><int>1</int><int>1</int></metaWidthHeight>"
+        "<mimeFormats><string>image/png</string></mimeFormats>"
+        "<gridSubsets><gridSubset>"
+        f"<gridSetName>{GWC_GRIDSET}</gridSetName>"
+        f"<extent><coords><double>{-w}</double><double>{-w}</double>"
+        f"<double>{w}</double><double>{w}</double></coords></extent>"
+        f"<zoomStart>{GWC_ZOOM_START}</zoomStart><zoomStop>{GWC_ZOOM_STOP}</zoomStop>"
+        "</gridSubset></gridSubsets></GeoServerLayer>"
+    )
+    requests.put(f"{_st.GEOSERVER_URL}/gwc/rest/layers/{layer_full}.xml",
+                 data=cfg, auth=auth, headers={"Content-Type": "text/xml"}, timeout=15)
+
+
+def _gwc_seed(layer_full, *, do_seed=True):
+    """Layer‑ийн GWC‑г тохируулж (metatiling 1×1 г.м.), truncate (+ seed) хийнэ —
+    zoom 6‑10, WebMercatorQuad, image/png. Style засагдах бүрд дуудна (хуучин tile
+    устаж, шинэ style‑тай дахин cache). seed POST нь geoserver‑т дэвсгэр ажил болж
+    дараалдаг тул save‑ийг удаан блоклохгүй."""
+    from django.conf import settings as _st
+    url = f"{_st.GEOSERVER_URL}/gwc/rest/seed/{layer_full}.xml"
+    auth = HTTPBasicAuth(_st.GEOSERVER_USER, _st.GEOSERVER_PASSWORD)
+
+    x1, y1, x2, y2 = GWC_MN_EXTENT
+
+    def _post(op):
+        # truncate бол бүх zoom (6‑14) цэвэрлэнэ; seed бол зөвхөн 6‑11 Монголд.
+        zstop = GWC_ZOOM_STOP if op == "truncate" else GWC_SEED_STOP
+        bounds = "" if op == "truncate" else (
+            "<bounds><coords>"
+            f"<double>{x1}</double><double>{y1}</double>"
+            f"<double>{x2}</double><double>{y2}</double>"
+            "</coords></bounds>"
+        )
+        body = (
+            "<seedRequest>"
+            f"<name>{layer_full}</name>"
+            f"{bounds}"
+            f"<gridSetId>{GWC_GRIDSET}</gridSetId>"
+            f"<zoomStart>{GWC_ZOOM_START}</zoomStart>"
+            f"<zoomStop>{zstop}</zoomStop>"
+            "<format>image/png</format>"
+            f"<type>{op}</type><threadCount>1</threadCount>"
+            "</seedRequest>"
+        )
+        return requests.post(url, data=body, auth=auth,
+                             headers={"Content-Type": "text/xml"}, timeout=20)
+
+    try:
+        _gwc_configure(layer_full)   # metatiling 1×1 + gridset/extent
+        _post("truncate")            # хуучин cache цэвэрлэх (6‑14)
+        if do_seed:
+            _post("seed")            # 6‑11 Монголд дахин cache
+        return True
+    except requests.RequestException:
+        import logging
+        logging.getLogger(__name__).warning("GWC seed failed: %s", layer_full, exc_info=True)
+        return False
+
+
 def geoname_type_view_name(const):
     """Ангиллын замын (root→leaf) .code‑уудыг нийлүүлж '_view' залгана.
     Жишээ: top.code + level2.code + level3.code + '_view' → 'B0101_view'.
@@ -980,6 +1065,12 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 		except requests.RequestException as e:
 			return Response({'detail': f'GeoServer‑т SLD хадгалж чадсангүй: {e}',
 							 'body': getattr(e, 'response', None) and e.response.text}, status=502)
+		# Style засагдсан тул GWC cache‑ийг truncate + seed (zoom 6‑10) — газрын
+		# зураг шинэ style‑тай шинэ tile авна. Дэвсгэрт ажиллана, save‑ийг блоклохгүй.
+		try:
+			_gwc_seed(f"{ws}:{style_name}")
+		except Exception:
+			pass
 		return Response({'style_name': style_name, 'ws': ws, 'saved': True}, status=200)
 
 	@action(detail=False, methods=['get'], url_path='style-fields')
