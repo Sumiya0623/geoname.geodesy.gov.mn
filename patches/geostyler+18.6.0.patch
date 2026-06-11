@@ -16,3 +16,57 @@ index 04ba348..ed5bab6 100644
    return /* @__PURE__ */ n("div", { className: "gs-scaledenominator", children: /* @__PURE__ */ n(a, { form: h, children: /* @__PURE__ */ S(v, { gutter: 4, children: [
      /* @__PURE__ */ n(s, { span: 12, className: "gs-small-col", children: /* @__PURE__ */ n(
        a.Item,
+diff --git a/node_modules/geostyler/dist/Component/Symbolizer/Field/ImageField/ImageField.js b/node_modules/geostyler/dist/Component/Symbolizer/Field/ImageField/ImageField.js
+index e6f1996..33d1bd4 100644
+--- a/node_modules/geostyler/dist/Component/Symbolizer/Field/ImageField/ImageField.js
++++ b/node_modules/geostyler/dist/Component/Symbolizer/Field/ImageField/ImageField.js
+@@ -3,7 +3,7 @@ import E, { useCallback as h } from "react";
+ import { Tooltip as G, Form as d } from "antd";
+ import { IconSelectorWindow as O } from "../../IconSelectorWindow/IconSelectorWindow.js";
+ /* empty css               */
+-import { PictureOutlined as P } from "@ant-design/icons";
++import { PictureOutlined as P, UploadOutlined as Q } from "@ant-design/icons";
+ import { isSprite as l } from "geostyler-style";
+ import { StringExpressionInput as R } from "../../../ExpressionInput/StringExpressionInput/StringExpressionInput.js";
+ import { FieldSet as U } from "../../../FieldSet/FieldSet.js";
+@@ -37,16 +37,38 @@ const X = ({
+   }, [i, t]), z = () => {
+     a(!1);
+   }, u = l(i) ? i.source : i;
++  const uploadRef = E.useRef(null), [uploading, setUploading] = E.useState(!1), onUploadClick = () => {
++    uploadRef.current && uploadRef.current.click();
++  }, onUploadFile = async (ev) => {
++    const file = ev.target.files && ev.target.files[0];
++    ev.target.value = "";
++    const up = typeof window < "u" && window.__geostylerUploadImage;
++    if (!file || !up) return;
++    try {
++      setUploading(!0);
++      const url = await up(file);
++      url && (l(i) ? o(url, "source") : t && t(url));
++    } catch (err) {
++    } finally {
++      setUploading(!1);
++    }
++  };
+   return /* @__PURE__ */ f(j, { children: [
+     /* @__PURE__ */ f("div", { className: "editor-field gs-image-field", children: [
+       /* @__PURE__ */ e(
+         R,
+         {
+-          className: p ? "gs-image-field-gallery-addon" : void 0,
++          className: "gs-image-field-gallery-addon",
+           value: u,
+           inputProps: {
+             placeholder: x,
+-            addonAfter: p && /* @__PURE__ */ e(G, { title: w, children: /* @__PURE__ */ e(P, { className: "gs-image-field-gallery-icon", type: "picture", onClick: N }) })
++            addonAfter: /* @__PURE__ */ f(j, { children: [
++              /* @__PURE__ */ e(G, { title: "SVG оруулах", children: /* @__PURE__ */ f("span", { children: [
++                /* @__PURE__ */ e(Q, { className: "gs-image-field-gallery-icon", style: { cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.5 : 1, marginRight: 6 }, onClick: uploading ? void 0 : onUploadClick }),
++                /* @__PURE__ */ e("input", { ref: uploadRef, type: "file", accept: ".svg,image/svg+xml", style: { display: "none" }, onChange: onUploadFile })
++              ] }) }, "up"),
++              p ? /* @__PURE__ */ e(G, { title: w, children: /* @__PURE__ */ e(P, { className: "gs-image-field-gallery-icon", type: "picture", onClick: N }) }, "gal") : null
++            ] })
+           },
+           onChange: (s) => {
+             l(i) ? o(s, "source") : t == null || t(s);

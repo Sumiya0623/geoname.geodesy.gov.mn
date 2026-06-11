@@ -121,6 +121,26 @@ export default function GeoStylerEditor({ layerId, onClose }) {
     };
   }, [layerId, parser]);
 
+  // GeoStyler‑ийн Icon Source талбар дахь upload товч (patch‑аар нэмсэн) энэ
+  // global handler‑ийг дуудна: файлыг backend media‑д хуулж absolute URL буцаана.
+  // URL нь browser preview ба GeoServer rendering хоёуланд хүрнэ.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    window.__geostylerUploadImage = async (file) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await axiosInstance.post(
+        endpoints.nameclass.uploadSymbol(layerId),
+        fd,
+        { headers: { "Content-Type": "multipart/form-data" } }
+      );
+      return res?.data?.url || "";
+    };
+    return () => {
+      delete window.__geostylerUploadImage;
+    };
+  }, [layerId]);
+
   // Monaco editor болон OpenLayers map нь контейнерийн хэмжээ өөрчлөгдөхөд өөрөө
   // дахин хэмжихгүй (хоосон харагдана). Display солих бүрд resize event илгээж
   // дахин layout хийлгэнэ.

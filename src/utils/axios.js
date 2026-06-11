@@ -142,6 +142,7 @@ export const endpoints = {
     delete: (id) => `/api/g/nameclass/${id}/`,
     details: (id) => `/api/g/nameclass/${id}/`,
     sld: (id) => `/api/g/nameclass/${id}/sld/`,
+    uploadSymbol: (id) => `/api/g/nameclass/${id}/upload-symbol/`,
   },
 
   request: {
