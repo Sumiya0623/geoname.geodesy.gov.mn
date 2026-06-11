@@ -168,7 +168,7 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if not token:
 			token = request.COOKIES.get(
 				settings.SIMPLE_JWT.get('COOKIE_ACCESS', 'access_token'))
-		headers = {'Authorization': f'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgwOTcxMTU2LCJpYXQiOjE3ODA4ODQ3NTYsImp0aSI6IjMxYzZhMTQxZTI0NzQ2MmVhODQ1MDk1NDAyOWU1ODI2IiwiaWQiOiI3ZmY5YTZmMC0xZDgwLTRkODktYjMyNC01YmRiNDdkZDMzYWIiLCJzc29faWQiOiI3ZmY5YTZmMC0xZDgwLTRkODktYjMyNC01YmRiNDdkZDMzYWIiLCJ1c2VybmFtZSI6Ilx1MDQxZVx1MDQyZTg2MDYyMzE2IiwiZmlyc3RfbmFtZSI6Ilx1MDQyMVx1MDQyM1x1MDQxY1x1MDQyYVx1MDQyZlx1MDQxMCIsImxhc3RfbmFtZSI6Ilx1MDQxMFx1MDQxYlx1MDQyMlx1MDQxMFx1MDQxZFx1MDQxM1x1MDQyZFx1MDQyMFx1MDQyZFx1MDQxYiIsImVtYWlsIjoiaW5mb0BuZXh0Z2lzLm1uIiwicGhvbmUiOiI5OTA2MjMwOSIsInJlZ2lzdGVyIjoiXHUwNDFlXHUwNDJlODYwNjIzMTYiLCJpc19jaXRpemVuIjp0cnVlLCJvcmdOYW1lIjoiXHUwNDFkXHUwNDM1XHUwNDNhXHUwNDQxXHUwNDQyIFx1MDQxNlx1MDQzOCBcdTA0MTBcdTA0MzkgXHUwNDJkXHUwNDQxIiwib3JnUmVnaXN0ZXIiOiI1NTM1OTQ4IiwicGhvdG8iOiJodHRwOi8vZ2VvZGVzeS5nb3YubW4vYXBpL21lZGlhL2FjY291bnQvJUQwJTlFJUQwJUFFODYwNjIzMTZfUHJvZmlsZV9xVkR4SVJXLnBuZyJ9.cU33dpjgNH6GboPCTpVY20Vbv376bSSFwmzu4YfLs5w'} if token else {}
+		headers = {'Authorization': f'{token}'} if token else {}
 		try:
 			r = requests.post(
 				'https://geodesy.gov.mn/api/account/check-user/',
