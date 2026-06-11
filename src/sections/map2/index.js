@@ -58,7 +58,7 @@ import LayerControl from "../../components/map/LayerControl";
 
 import FeatureSelector from "../../components/map/FeatureSelector";
 
-import { buildLayersByName } from "./layers-wmts";
+import { buildLayersByName, makeViewWmtsLayer } from "./layers-wmts";
 import { useGetGeoserver } from "src/api/map";
 import GeoserverDialog from "src/components/map/geoserverDialog";
 import MapHeader from "src/components/map/MapHeader";
@@ -914,6 +914,41 @@ function Map2() {
       const layerKey = `geoserver_${filterId}`;
 
       if (!geoserverLayerMap.current.has(layerKey)) {
+        // Per‑type view (GeoStyler style‑тай) — zoom ≤14 WMTS cache, >14 амьд WMS.
+        // CQL/STYLES хэрэггүй (view нь өөрөө шүүсэн, default style = засагдсан SLD).
+        if (filterData.viewName) {
+          const wmtsLayer = makeViewWmtsLayer({
+            workspace: "geoname",
+            view: filterData.viewName,
+            maxZoom: 14,
+            zIndex: 300 + (Number(filterId) || 0),
+          });
+          wmtsLayer.set("filterId", filterId);
+          geoserverLayerMap.current.set(`${layerKey}__wmts`, wmtsLayer);
+          map.addLayer(wmtsLayer);
+
+          const wmsSrc = new TileWMS({
+            url: filterData.groupUrl.split("?")[0],
+            params: buildWmsParams({
+              LAYERS: `geoname:${filterData.viewName}`,
+              TILED: true,
+            }),
+            serverType: "geoserver",
+            crossOrigin: "anonymous",
+          });
+          const wmsHi = new TileLayer({
+            source: wmsSrc,
+            opacity: 0.9,
+            visible: true,
+            minZoom: 14, // zoom >14 дээр л (WMTS‑ийн дээр)
+            zIndex: 100 + (Number(filterId) || 0),
+          });
+          wmsHi.set("filterId", filterId);
+          wmsHi.set("filterData", filterData);
+          geoserverLayerMap.current.set(layerKey, wmsHi);
+          map.addLayer(wmsHi);
+          return;
+        }
         const baseUrl = filterData.groupUrl.split("?")[0];
         const urlObj = new URL(filterData.groupUrl);
         const layerNameHint =
@@ -1009,6 +1044,12 @@ function Map2() {
       if (layer) {
         map.removeLayer(layer);
         geoserverLayerMap.current.delete(layerKey);
+      }
+      // Per‑type view‑ийн WMTS давхарга байвал бас авна.
+      const wmtsLayer2 = geoserverLayerMap.current.get(`${layerKey}__wmts`);
+      if (wmtsLayer2) {
+        map.removeLayer(wmtsLayer2);
+        geoserverLayerMap.current.delete(`${layerKey}__wmts`);
       }
 
       // Энэ filter‑т таарах WMTS давхарга байвал харагдах байдлыг OFF болгоно.
@@ -2125,7 +2166,17 @@ function Map2() {
     >
       <MapHeader
         onMenu={() => setForceGeoserverOpen((v) => !v)}
-        onAdvanced={() => setForceGeoserverOpen(true)}
+        onAdvanced={(value) => {
+          setForceGeoserverOpen(true);
+          // Толгойн хайлтын утгыг дэлгэрэнгүй хайлтад дамжуулж урьдчилж дүүргэнэ.
+          if (value) {
+            headerSearchNonce.current += 1;
+            setGeonameSearchTerm({
+              term: value,
+              n: headerSearchNonce.current,
+            });
+          }
+        }}
         onSearchText={handleHeaderSearch}
       />
       <Box

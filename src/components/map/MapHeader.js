@@ -104,10 +104,25 @@ export default function MapHeader({ onMenu, onAdvanced, onSearchText }) {
             placeholder="Газар зүйн нэр хайх..."
             sx={{ ml: 1, flex: 1, fontSize: 14, color: "#0f172a" }}
           />
+          {/* Хайх товч — mobile дээр Enter байхгүй тул товчоор хайлт эхлүүлнэ */}
+          <Tooltip title="Хайх">
+            <IconButton
+              size="small"
+              onClick={submit}
+              sx={{
+                bgcolor: BLUE,
+                color: "#fff",
+                mr: 0.5,
+                "&:hover": { bgcolor: "#0a3f82" },
+              }}
+            >
+              <SearchIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Дэлгэрэнгүй хайлт">
             <IconButton
               size="small"
-              onClick={onAdvanced}
+              onClick={() => onAdvanced && onAdvanced(text.trim())}
               sx={{
                 bgcolor: BLUE,
                 color: "#fff",

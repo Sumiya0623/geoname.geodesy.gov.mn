@@ -310,7 +310,9 @@ function GeoserverDialog({
         layer: "geoname:geoname_view",
         // type массив [type_l2, type_id] дотор энэ id байгааг (бүх түвшинд) шүүнэ
         cql_filter: `type_l1=${node.id} OR type_l2=${node.id} OR type_id=${node.id}`,
-        // Навчид per‑type view байвал түүний GeoStyler style‑ыг STYLES‑д хэрэглэнэ.
+        // Навчид per‑type view байвал түүгээр (WMTS cache + WMS) рендерлэнэ.
+        // Үгүй бол geoname_view + CQL + STYLES (fallback).
+        viewName: node.view_name || undefined,
         styles: node.view_name || undefined,
         groupUrl: GEONAME_VIEW_URL,
         isFromStaticLayer: false,

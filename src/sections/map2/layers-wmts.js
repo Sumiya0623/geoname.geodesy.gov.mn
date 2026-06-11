@@ -71,6 +71,36 @@ function makeNetworkLayer({
   return olLayer;
 }
 
+// Нэрийн ангиллын per‑type view‑ийн WMTS давхарга (GWC cache, WebMercatorQuad,
+// image/png). Зөвхөн maxZoom хүртэл харагдана — дээш нь WMS амьдаар рендерлэнэ.
+export function makeViewWmtsLayer({
+  workspace = "geoname",
+  view,
+  maxZoom = 14,
+  zIndex = 300,
+}) {
+  const layerName = `${workspace}:${view}`;
+  const source = new WMTS({
+    url: GWC_WMTS,
+    layer: layerName,
+    matrixSet: MATRIX_SET,
+    format: "image/png",
+    projection,
+    tileGrid,
+    wrapX: true,
+    crossOrigin: "anonymous",
+  });
+  const olLayer = new TileLayer({
+    source,
+    visible: true,
+    preload: 1,
+    maxZoom, // cache хийсэн zoom хүртэл л харагдана (дээш нь WMS)
+  });
+  olLayer.setZIndex(zIndex);
+  olLayer.set("name", `${layerName}__wmts`);
+  return olLayer;
+}
+
 export function buildLayersByName(apiItems, workspace = "point") {
   const layersByName = {};
   const uiItems = [];
