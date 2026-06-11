@@ -22,7 +22,7 @@
     "re:build": "yarn rm:all && yarn install && yarn build",
     "re:build-npm": "npm run rm:all && npm install && npm run build",
     "prepare": "husky",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package --error-on-fail false"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
