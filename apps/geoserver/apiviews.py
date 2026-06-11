@@ -121,6 +121,54 @@ def _gs_upload_style_symbol(ws, basename, src_path):
     return f"symbols/{basename}"
 
 
+def _gs_upload_symbol_bytes(ws, basename, data):
+    """_gs_upload_style_symbol‑ийн bytes хувилбар (түр файлгүйгээр)."""
+    rest, auth = _gs_rest_auth()
+    r = requests.put(
+        f"{rest}/resource/workspaces/{ws}/styles/symbols/{basename}",
+        data=data, auth=auth, timeout=60,
+    )
+    r.raise_for_status()
+    return f"symbols/{basename}"
+
+
+# SLD доторх symbol href‑ийг GeoServer‑т (relative, локал файл) ба GeoStyler editor‑т
+# (absolute media URL, browser preview) тохируулан хөрвүүлэх. GeoServer нь remote URL
+# татаж чаддаггүй тул rendering‑д локал symbols/<нэр> заавал хэрэгтэй.
+import re as _re
+_MEDIA_SYM_RE = _re.compile(r'https?://[^"\'<>]*?/api/media/geoname_symbols/([^"\'<>/]+)')
+_REL_SYM_RE = _re.compile(r'href="symbols/([^"\'<>]+)"')
+
+
+def _localize_sld_symbols(sld):
+    """SLD доторх absolute media symbol URL бүрийг GeoServer‑ийн локал
+    styles/symbols/ рүү REST‑ээр байршуулж, href‑ийг relative 'symbols/<нэр>'
+    болгож rewrite хийнэ. GeoServer‑ийн рендерт ашиглах хувилбар."""
+    import os
+    from django.conf import settings as _st
+    for basename in set(_MEDIA_SYM_RE.findall(sld)):
+        src = os.path.join(_st.MEDIA_ROOT, 'geoname_symbols', basename)
+        if os.path.exists(src):
+            try:
+                with open(src, 'rb') as fh:
+                    _gs_upload_symbol_bytes(GEONAME_WS, basename, fh.read())
+            except requests.RequestException:
+                pass
+    return _MEDIA_SYM_RE.sub(lambda m: f'symbols/{m.group(1)}', sld)
+
+
+def _absolutize_sld_symbols(sld, request):
+    """GeoServer‑ээс уншсан SLD доторх relative 'symbols/<нэр>' href‑ийг absolute
+    media URL болгоно — GeoStyler editor/PreviewMap (browser) ачаалж чадахаар."""
+    from django.conf import settings as _st
+    media = _st.MEDIA_URL.rstrip('/') + '/geoname_symbols/'
+
+    def repl(m):
+        return f'href="{request.build_absolute_uri(media + m.group(1))}"'
+
+    return _REL_SYM_RE.sub(repl, sld)
+
+
 # GWC seed зориулсан тогтмолууд — газрын зураг WMTS(6‑14)‑ийг WebMercatorQuad
 # (EPSG:3857) gridset, image/png‑ээр cache хийдэг. Style засагдах бүрд config+
 # truncate+seed хийнэ. Metatiling 1×1 — жижиг extent дээрх GWC "/ by zero"‑г шийднэ.
@@ -1055,11 +1103,16 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 				sld = _gs_style_read_sld(ws, style_name)
 			except requests.RequestException as e:
 				return Response({'detail': f'GeoServer SLD уншиж чадсангүй: {e}'}, status=502)
+			# Локал symbols/<нэр> href‑ийг absolute media URL болгож editor/preview‑д
+			sld = _absolutize_sld_symbols(sld, request)
 			return Response({'sld': sld, 'style_name': style_name, 'ws': ws}, status=200)
 		# PUT
 		sld = request.data.get('sld')
 		if not sld:
 			return Response({'detail': 'sld хоосон'}, status=400)
+		# Media symbol URL‑ийг GeoServer локал файл (relative href) болгож localize —
+		# GeoServer remote URL татаж чаддаггүй тул заавал.
+		sld = _localize_sld_symbols(sld)
 		try:
 			_gs_style_write_sld(ws, style_name, sld)
 		except requests.RequestException as e:
@@ -1072,6 +1125,43 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 		except Exception:
 			pass
 		return Response({'style_name': style_name, 'ws': ws, 'saved': True}, status=200)
+
+	@action(detail=True, methods=['post'], url_path='upload-symbol')
+	def upload_symbol(self, request, *args, **kwargs):
+		"""GeoStyler Icon source‑д зориулсан SVG upload. SVG‑г хэвээр: (1) backend
+		media‑д хадгалж (GeoStyler PreviewMap browser‑д ачаална), (2) GeoServer‑ийн
+		styles/symbols/ дотор REST resource API‑ээр байршуулна (бодит газрын зураг
+		локал файлаар рендерлэнэ — GeoServer remote URL татаж чаддаггүй). Absolute
+		media URL буцаана.
+
+		Анхаар: GeoServer (Batik) нь зөвхөн ЦЭВЭР ВЕКТОР SVG‑г рендерлэнэ. Дотроо
+		raster (PNG) base64‑ээр шигтгэсэн SVG рендерлэгдэхгүй."""
+		import os
+		import uuid
+		from django.core.files.storage import default_storage
+		from django.core.files.base import ContentFile
+
+		f = request.FILES.get('file')
+		if not f:
+			return Response({'detail': 'Файл алга'}, status=400)
+		ext = os.path.splitext(f.name)[1].lower()
+		if ext != '.svg':
+			return Response({'detail': 'Зөвхөн SVG файл оруулна'}, status=400)
+		if f.size > 2 * 1024 * 1024:
+			return Response({'detail': 'Файл 2MB‑аас их байна'}, status=400)
+
+		data = f.read()
+		basename = f"{uuid.uuid4().hex}.svg"
+		saved = default_storage.save(f"geoname_symbols/{basename}", ContentFile(data))
+		# GeoServer‑т нэн даруй REST‑ээр (рендерт бэлэн). Алдвал SLD хадгалах үед
+		# _localize_sld_symbols дахин оролдоно.
+		try:
+			_gs_upload_symbol_bytes(GEONAME_WS, basename, data)
+		except requests.RequestException:
+			pass
+
+		abs_url = request.build_absolute_uri(default_storage.url(saved))
+		return Response({'url': abs_url, 'path': saved}, status=201)
 
 	@action(detail=False, methods=['get'], url_path='style-fields')
 	def style_fields(self, request):
