@@ -59,6 +59,11 @@ export async function getIdByWmsFeatureInfo({
   const res = await fetch(infoUrl);
   if (!res.ok) return null;
 
+  // GeoServer алдаа гарвал INFO_FORMAT‑ийг үл хэрэгсэж PNG/XML буцаадаг
+  // (EXCEPTIONS=inimage default). JSON биш бол parse хийхгүй, чимээгүй буцана.
+  const ctype = res.headers.get("content-type") || "";
+  if (!ctype.includes("json")) return null;
+
   const data = await res.json();
 
   // GeoServer ихэвчлэн { type:"FeatureCollection", features:[...] }

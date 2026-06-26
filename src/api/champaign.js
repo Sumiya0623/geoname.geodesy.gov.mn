@@ -32,7 +32,7 @@ export function useGetChampaigns(request_body = {}) {
 
 export function useGetChampaign(id) {
   const URL = endpoints.champaign.details(id);
-  const { data, isLoading, error, isValidating } = useSWR(
+  const { data, isLoading, error, isValidating, mutate } = useSWR(
     id ? [URL, axiosInstance, "get"] : null,
     fetcher,
   );
@@ -41,11 +41,11 @@ export function useGetChampaign(id) {
       champaign: data || {},
       champaignError: error,
       champaignLoading: isLoading,
-      champaign: data || {},
       champaignValidating: isValidating,
+      champaignMutation: mutate,
       champaignEmpty: !isLoading && !error && !Object.keys(data || {}).length,
     }),
-    [data, error, isLoading, isValidating],
+    [data, error, isLoading, isValidating, mutate],
   );
 
   return memoizedValue;

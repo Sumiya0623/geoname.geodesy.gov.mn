@@ -12,7 +12,10 @@ import FilteredNextStep from 'src/components/tour/FilteredNextStep';
 export default function Layout({ children }) {
   const pathname = usePathname();
   // Газрын зураг — dashboard chrome‑гүй бүтэн дэлгэцийн geoportal layout
-  const isFullScreenMap = pathname?.startsWith('/dashboard/map');
+  // (/dashboard/map ба төслийн /dashboard/champaign/<id>/map хоёулаа)
+  const isFullScreenMap =
+    pathname?.startsWith('/dashboard/map') ||
+    /^\/dashboard\/champaign\/[^/]+\/map(\/|$)/.test(pathname || '');
 
   if (isFullScreenMap) {
     return <AuthGuard>{children}</AuthGuard>;

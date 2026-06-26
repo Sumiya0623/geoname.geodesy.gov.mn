@@ -46,11 +46,14 @@ import GeonameAdvancedSearch from "../geoname-advanced-search";
 const TABLE_HEAD = [
   { id: "", label: "Nº", width: 48 },
   { id: "name", label: "Нэр" },
-  { id: "number", label: "Дугаар", width: 140 },
-  { id: "", label: "Төрөл", width: 180 },
-  { id: "", label: "Төлөв", width: 120 },
-  { id: "", label: "Батлагдсан", width: 120, align: "center" },
-  { id: "created_date", label: "Огноо", width: 130 },
+  { id: "number", label: "Дугаар", width: 130 },
+  { id: "type__name", label: "Төрөл", width: 140 },
+  { id: "aimag_name", label: "Аймаг", width: 120 },
+  { id: "sum_name", label: "Сум", width: 130 },
+  { id: "sources__confidence", label: "Итгэл", width: 90, align: "center" },
+  { id: "sources__needs_review", label: "Төлөв", width: 130 },
+  { id: "is_approved", label: "Батлагдсан", width: 110, align: "center" },
+  { id: "created_date", label: "Огноо", width: 120 },
   { id: "", width: 48 },
 ];
 

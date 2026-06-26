@@ -58,11 +58,17 @@ function TreeNode({
   onExpand,
   childrenMap,
   loadingSet,
+  ancestorChecked,
+  hasCheckedDescendant,
 }) {
   const hasChildren = (node.child_count ?? 0) > 0;
   const isOpen = expandedSet.has(node.id);
   const isLoading = loadingSet.has(node.id);
-  const checked = checkedSet.has(node.id);
+  // Эцэг сонгогдсон бол хүүхэд бүгд "сонгогдсон" мэт харагдана (cascade) —
+  // гэхдээ зөвхөн эцгийн ганц request‑ээр л дуудна.
+  const selfChecked = checkedSet.has(node.id);
+  const checked = ancestorChecked || selfChecked;
+  const indeterminate = !checked && hasCheckedDescendant(node.id);
   const kids = childrenMap[node.id] || [];
 
   return (
@@ -101,6 +107,8 @@ function TreeNode({
         <Checkbox
           size="small"
           checked={checked}
+          indeterminate={indeterminate}
+          disabled={ancestorChecked}
           onChange={(e) => onToggle(node, e.target.checked)}
           sx={{ p: 0.25 }}
         />
@@ -157,6 +165,8 @@ function TreeNode({
               onExpand={onExpand}
               childrenMap={childrenMap}
               loadingSet={loadingSet}
+              ancestorChecked={checked}
+              hasCheckedDescendant={hasCheckedDescendant}
             />
           ))}
           {!isLoading && kids.length === 0 && (
@@ -183,6 +193,8 @@ TreeNode.propTypes = {
   onExpand: PropTypes.func,
   childrenMap: PropTypes.object,
   loadingSet: PropTypes.object,
+  ancestorChecked: PropTypes.bool,
+  hasCheckedDescendant: PropTypes.func,
 };
 
 export default function NameCategoryTree({ onToggle, checkedSet }) {
@@ -216,6 +228,41 @@ export default function NameCategoryTree({ onToggle, checkedSet }) {
       active = false;
     };
   }, [fetchNodes]);
+
+  // childrenMap‑аас тухайн нодын ачаалагдсан бүх удам (node) цуглуулна
+  const collectDescNodes = useCallback(
+    (nodeId) => {
+      const acc = [];
+      const walk = (id) => {
+        (childrenMap[id] || []).forEach((c) => {
+          acc.push(c);
+          walk(c.id);
+        });
+      };
+      walk(nodeId);
+      return acc;
+    },
+    [childrenMap],
+  );
+
+  const hasCheckedDescendant = useCallback(
+    (nodeId) => collectDescNodes(nodeId).some((n) => checkedSet.has(n.id)),
+    [collectDescNodes, checkedSet],
+  );
+
+  // Нод сонгоход: түүний доор сонгогдсон байсан удмын request‑үүдийг устгаад
+  // (давхар дуудлагаас сэргийлж) тухайн нодыг ганц request‑ээр дуудна.
+  const handleNodeToggle = useCallback(
+    (node, checked) => {
+      if (checked) {
+        collectDescNodes(node.id).forEach((d) => {
+          if (checkedSet.has(d.id)) onToggle(d, false);
+        });
+      }
+      onToggle(node, checked);
+    },
+    [collectDescNodes, checkedSet, onToggle],
+  );
 
   const handleExpand = useCallback(
     async (node) => {
@@ -270,11 +317,13 @@ export default function NameCategoryTree({ onToggle, checkedSet }) {
           level={0}
           total={total}
           checkedSet={checkedSet}
-          onToggle={onToggle}
+          onToggle={handleNodeToggle}
           expandedSet={expandedSet}
           onExpand={handleExpand}
           childrenMap={childrenMap}
           loadingSet={loadingSet}
+          ancestorChecked={false}
+          hasCheckedDescendant={hasCheckedDescendant}
         />
       ))}
     </Box>

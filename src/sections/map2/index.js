@@ -52,17 +52,20 @@ import Text from "ol/style/Text";
 import { getDistance, getLength } from "ol/sphere";
 import Draw, { createBox } from "ol/interaction/Draw";
 import Snap from "ol/interaction/Snap";
+import GeoJSON from "ol/format/GeoJSON";
 import { boundingExtent } from "ol/extent";
+import { registerMapDraw } from "../../components/map/mapDraw";
 import NameSidebar from "../../components/map/NameSidebar";
 import LayerControl from "../../components/map/LayerControl";
 
 import FeatureSelector from "../../components/map/FeatureSelector";
 
-import { buildLayersByName, makeViewWmtsLayer } from "./layers-wmts";
+import { buildLayersByName, makeViewWmtsLayer, makeGwcWmtsLayer } from "./layers-wmts";
 import { useGetGeoserver } from "src/api/map";
 import GeoserverDialog from "src/components/map/geoserverDialog";
 import MapHeader from "src/components/map/MapHeader";
 import axiosInstance, { endpoints } from "src/utils/axios";
+import { usePathname } from "next/navigation";
 import "./style.css";
 import ScaleBadge from "src/components/map/ScaleBadge";
 import { setViewportVar } from "src/utils/viewportHeight";
@@ -210,6 +213,18 @@ function Map2() {
 
   const [baseMap, setBaseMap] = useState("CRV");
   const [baseMapOpacity, setBaseMapOpacity] = useState({});
+
+  // Төслийн газрын зураг (champaign/<id>/map) — тухайн төслийн recount (тодруулалт) WMS
+  const pathname = usePathname();
+  const _cmMatch = (pathname || "").match(/^\/dashboard\/champaign\/([^/]+)\/map/);
+  const recountProjectId = _cmMatch ? _cmMatch[1] : null;
+  const [recountOn, setRecountOn] = useState(true);
+  const recountLayerRef = useRef(null);
+  // Overlay давхаргууд (basemap radio‑оос тусдаа, checkbox‑оор асаах/унтраах)
+  const [overlayBasemap, setOverlayBasemap] = useState(false);
+  const [overlayNomencl, setOverlayNomencl] = useState(false);
+  const overlayBasemapRef = useRef(null);
+  const overlayNomenclRef = useRef(null);
   const [selectedName, setSelectedName] = useState(null);
   const [isMeasuring, setIsMeasuring] = useState(false);
   const [measureResult, setMeasureResult] = useState("");
@@ -359,8 +374,8 @@ function Map2() {
 
   // Цэгийн системийн admin unit/network/system dropdown‑ууд geoname‑д
   // хэрэггүй — registered API дуудахгүйн тулд хоосон.
-  const aimags = [];
-  const soums = [];
+  const aimags = useMemo(() => [], []);
+  const soums = useMemo(() => [], []);
   const networks = [];
   const systems = [];
 
@@ -404,6 +419,14 @@ function Map2() {
           crossOrigin: "anonymous",
           serverType: "geoserver",
         }),
+      }),
+      // Суурь давхарга: geoname:geoname — нэрсийн M100k растер (geoname:raster
+      // ImageMosaic store). GWC‑д зөвхөн WebMercatorQuad тул WMTS‑ээр дуудна.
+      // visible:true — суурь болгож сонгоход харагдана (бусад суурьтай адил).
+      M100kGeoName: makeGwcWmtsLayer({
+        workspace: "geoname",
+        layer: "geoname",
+        visible: true,
       }),
       BASEMAP: new TileLayer({
         source: new TileWMS({
@@ -1454,6 +1477,153 @@ function Map2() {
     [geodesicStyle],
   );
 
+  // Ерөнхий төрлийн (Point/LineString/Polygon) геометр зурж, GeoJSON (4326)
+  // буцаана. popup (NameDetailCard) нь requestMapDraw‑ээр дуудна. ESC → null.
+  const startTypedDraw = useCallback((type) => {
+    return new Promise((resolve) => {
+      const map = mapObjRef.current;
+      const source = radiusCircleSourceRef.current;
+      if (!map || !source) {
+        resolve(null);
+        return;
+      }
+      source.clear();
+      const draw = new Draw({ source, type: type || "Point" });
+      const cleanup = () => {
+        map.removeInteraction(draw);
+        document.removeEventListener("keydown", keyHandler);
+      };
+      const keyHandler = (e) => {
+        if (e.key === "Escape") {
+          source.clear();
+          cleanup();
+          resolve(null);
+        }
+      };
+      draw.on("drawend", (event) => {
+        const geom = event.feature
+          .getGeometry()
+          .clone()
+          .transform("EPSG:3857", "EPSG:4326");
+        const geojson = new GeoJSON().writeGeometryObject(geom);
+        cleanup();
+        resolve(geojson);
+      });
+      map.addInteraction(draw);
+      document.addEventListener("keydown", keyHandler);
+    });
+  }, []);
+
+  // Map2 ↔ popup гүүр — зурах функцийг бүртгэнэ
+  useEffect(() => {
+    registerMapDraw(startTypedDraw);
+    return () => registerMapDraw(null);
+  }, [startTypedDraw]);
+
+  // Тодруулалт — тухайн төслийн recount (ReCount.loc) WMS давхарга
+  useEffect(() => {
+    if (!recountProjectId) return undefined;
+    let layer = null;
+    let cancelled = false;
+    const attach = () => {
+      const map = mapObjRef.current;
+      if (cancelled) return;
+      if (!map) {
+        setTimeout(attach, 300);
+        return;
+      }
+      // GeoServer‑т recount view (recount_view)‑ийг нийтлүүлэх (байхгүй бол)
+      axiosInstance
+        .get(
+          endpoints.recount.wms(
+            new URLSearchParams({ project: recountProjectId }).toString(),
+          ),
+        )
+        .catch(() => {});
+      // WMS — GeoServer‑ийн type symbol style‑аар, төслийн id‑р CQL шүүлттэй
+      const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+      layer = new TileLayer({
+        source: new TileWMS({
+          url: `${GS}/geoname/wms`,
+          params: {
+            LAYERS: "geoname:recount_view",
+            TILED: true,
+            CQL_FILTER: `project_id=${recountProjectId}`,
+          },
+          serverType: "geoserver",
+          crossOrigin: "anonymous",
+        }),
+        zIndex: 60,
+      });
+      recountLayerRef.current = layer;
+      layer.setVisible(recountOn);
+      map.addLayer(layer);
+    };
+    attach();
+    return () => {
+      cancelled = true;
+      const map = mapObjRef.current;
+      if (layer && map) map.removeLayer(layer);
+      recountLayerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recountProjectId]);
+
+  // Тодруулалт checkbox‑ийн харагдах байдал
+  useEffect(() => {
+    if (recountLayerRef.current) recountLayerRef.current.setVisible(recountOn);
+  }, [recountOn]);
+
+  // Суурь зураг / Нэрлэвэр — overlay давхаргууд (point:basemap, point:nomeklatur)
+  useEffect(() => {
+    const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+    let bm = null;
+    let nm = null;
+    let cancelled = false;
+    const mk = (layers, z) =>
+      new TileLayer({
+        source: new TileWMS({
+          url: `${GS}/point/wms`,
+          params: { LAYERS: layers, FORMAT: "image/png", TRANSPARENT: true, VERSION: "1.1.1" },
+          serverType: "geoserver",
+          crossOrigin: "anonymous",
+        }),
+        zIndex: z,
+        visible: false,
+      });
+    const attach = () => {
+      const map = mapObjRef.current;
+      if (cancelled) return;
+      if (!map) {
+        setTimeout(attach, 300);
+        return;
+      }
+      bm = mk("point:basemap", 40);
+      nm = mk("point:nomeklatur", 45);
+      overlayBasemapRef.current = bm;
+      overlayNomenclRef.current = nm;
+      map.addLayer(bm);
+      map.addLayer(nm);
+    };
+    attach();
+    return () => {
+      cancelled = true;
+      const map = mapObjRef.current;
+      if (map) {
+        if (bm) map.removeLayer(bm);
+        if (nm) map.removeLayer(nm);
+      }
+      overlayBasemapRef.current = null;
+      overlayNomenclRef.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    if (overlayBasemapRef.current) overlayBasemapRef.current.setVisible(overlayBasemap);
+  }, [overlayBasemap]);
+  useEffect(() => {
+    if (overlayNomenclRef.current) overlayNomenclRef.current.setVisible(overlayNomencl);
+  }, [overlayNomencl]);
+
   const handleStopDrawing = useCallback(() => {
     const map = mapObjRef.current;
     if (map) {
@@ -2486,6 +2656,13 @@ function Map2() {
           baseMapOpacity={baseMapOpacity}
           onInactiveWmsToggle={handleInactiveWmsToggle}
           onInactiveWmsOpacityChange={handleInactiveWmsOpacityChange}
+          recountEnabled={!!recountProjectId}
+          recountVisible={recountOn}
+          onToggleRecount={() => setRecountOn((v) => !v)}
+          overlayBasemap={overlayBasemap}
+          onToggleBasemap={() => setOverlayBasemap((v) => !v)}
+          overlayNomencl={overlayNomencl}
+          onToggleNomencl={() => setOverlayNomencl((v) => !v)}
         />
 
         {featureSelector.show && (

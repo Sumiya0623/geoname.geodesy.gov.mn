@@ -24,8 +24,10 @@ import {
   Tab,
   useMediaQuery,
 } from "@mui/material";
+import { usePathname } from "next/navigation";
 import { useTheme } from "@mui/material/styles";
 import {
+  Add as AddIcon,
   FilterList as FilterIcon,
   Layers as LayersIcon,
   FiberManualRecord as DotIcon,
@@ -38,6 +40,7 @@ import {
 } from "@mui/icons-material";
 
 import { useGetGeoserver } from "src/api/map";
+import MapAddName from "./MapAddName";
 import NameCategoryTree from "./NameCategoryTree";
 import AdvancedSearch from "./AdvancedSearch";
 
@@ -274,6 +277,12 @@ function GeoserverDialog({
   const [expandedGroups, setExpandedGroups] = useState(new Set([0]));
   const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [tab, setTab] = useState("layers");
+  const [addOpen, setAddOpen] = useState(false);
+
+  // Зөвхөн төслийн газрын зураг (/dashboard/champaign/<id>/map) — шинэ нэр нэмэх
+  const pathname = usePathname();
+  const _cm = (pathname || "").match(/^\/dashboard\/champaign\/([^/]+)\/map/);
+  const addProjectId = _cm ? _cm[1] : null;
 
   // forceOpen‑ийг бодит open төлөвтэй синк (толгойн товч toggle хийнэ)
   useEffect(() => {
@@ -307,11 +316,12 @@ function GeoserverDialog({
       onFilterChange(fid, enabled, {
         id: fid,
         name: node.name,
-        layer: "geoname:geoname_view",
+        // Навч (view_name‑тэй) бол per‑type view‑г WMTS cache‑аар (засагдсан SLD).
+        // Эцэг ангилал бол geoname:names GROUP‑ийг id‑гаар CQL шүүнэ — group нь
+        // member view бүрийн default таних тэмдэг style‑аар рендерлэнэ (STYLES өгөхгүй).
+        layer: node.view_name ? "geoname:geoname_view" : "geoname:names",
         // type массив [type_l2, type_id] дотор энэ id байгааг (бүх түвшинд) шүүнэ
         cql_filter: `type_l1=${node.id} OR type_l2=${node.id} OR type_id=${node.id}`,
-        // Навчид per‑type view байвал түүгээр (WMTS cache + WMS) рендерлэнэ.
-        // Үгүй бол geoname_view + CQL + STYLES (fallback).
         viewName: node.view_name || undefined,
         styles: node.view_name || undefined,
         groupUrl: GEONAME_VIEW_URL,
@@ -857,6 +867,17 @@ function GeoserverDialog({
                           <FilterIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                       </Tooltip>
+                      {addProjectId && (
+                        <Tooltip title="Шинэ нэр нэмэх">
+                          <IconButton
+                            size="small"
+                            onClick={() => setAddOpen((v) => !v)}
+                            sx={{ color: addOpen ? "#16a34a" : "text.secondary" }}
+                          >
+                            <AddIcon sx={{ fontSize: 20 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                   </Box>
                   <Collapse in={searchOpen} timeout="auto" unmountOnExit>
@@ -872,6 +893,14 @@ function GeoserverDialog({
                       onResults={onResults}
                     />
                   </Collapse>
+                  {addProjectId && (
+                    <Collapse in={addOpen} timeout="auto" unmountOnExit>
+                      <MapAddName
+                        projectId={addProjectId}
+                        onClose={() => setAddOpen(false)}
+                      />
+                    </Collapse>
+                  )}
                   <Box sx={{ flex: 1, overflowY: "auto", px: 0.5 }}>
                     <NameCategoryTree
                       onToggle={handleNameToggle}
@@ -893,7 +922,7 @@ function GeoserverDialog({
                 <Box sx={{ minHeight: 300, p: 1, overflowY: "auto" }}>
                   <Typography variant="h6">Суурь зураг сонгох</Typography>
                   <List dense>
-                    {["CRV", "OSM", "GMS", "ESRI", "TOPO", "M100k"].map(
+                    {["CRV", "OSM", "GMS", "ESRI", "TOPO", "M100k", "M100kGeoName"].map(
                       (key) => {
                         const colorMap = {
                           CRV: "#1976d2",
@@ -902,6 +931,7 @@ function GeoserverDialog({
                           ESRI: "#9c27b0",
                           TOPO: "#795548",
                           M100k: "#607d8b",
+                          M100kGeoName: "#f44336",
                         };
                         const iconFor = (k) => {
                           if (k === "GMS" || k === "ESRI")
@@ -916,6 +946,7 @@ function GeoserverDialog({
                           GMS: "Google Satellite",
                           ESRI: "Esri Imagery",
                           TOPO: "Topographic",
+                          M100kGeoName: "Нэрийн зураг",
                           M100k: "Байр зүй",
                         };
                         const selected = baseMap === key;
@@ -963,7 +994,6 @@ function GeoserverDialog({
           </Box>
         </Paper>
       )}
-
     </Box>
   );
 }

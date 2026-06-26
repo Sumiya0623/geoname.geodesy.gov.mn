@@ -65,7 +65,6 @@ export default function ChampaignListView({ user } = {}) {
       table.orderBy,
       table.page,
       table.rowsPerPage,
-      user?.id,
     ],
   );
   const { champaigns, champaignsCount, champaignsLoading, champaignsMutation } =

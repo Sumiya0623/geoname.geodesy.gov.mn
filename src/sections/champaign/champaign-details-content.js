@@ -1,9 +1,14 @@
+"use client";
+
 import PropTypes from "prop-types";
+import { useState } from "react";
 
 import Chip from "@mui/material/Chip";
 import Card from "@mui/material/Card";
 import Stack from "@mui/material/Stack";
 import Grid from "@mui/material/Unstable_Grid2";
+import Collapse from "@mui/material/Collapse";
+import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
 import LinearProgress from "@mui/material/LinearProgress";
@@ -14,6 +19,7 @@ import ProfileAvatar from "src/components/profile-avatar";
 
 export default function ProjectDetailsContent({ project }) {
   const percent = Number(project?.percent) || 0;
+  const [open, setOpen] = useState(false);
   const renderGeneral = (
     <Stack
       component={Card}
@@ -78,17 +84,27 @@ export default function ProjectDetailsContent({ project }) {
         rowGap={1}
         columnGap={2}
       >
-        <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
+        <Typography variant="h6" sx={{ wordBreak: "break-word", flex: 1 }}>
           {project?.name || "—"}
         </Typography>
-        <Chip label={`№ ${project?.dugaar || "—"}`} size="small" />
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <Chip label={`№ ${project?.dugaar || "—"}`} size="small" />
+          <IconButton size="small" onClick={() => setOpen((v) => !v)}>
+            <Iconify
+              icon={open ? "eva:chevron-up-fill" : "eva:chevron-down-fill"}
+              width={20}
+            />
+          </IconButton>
+        </Stack>
       </Stack>
-      <Divider />
-      <Grid container spacing={{ xs: 2, md: 3, lg: 4 }}>
-        <Grid xs={12} md={12}>
-          {renderGeneral}
+      <Collapse in={open}>
+        <Divider sx={{ my: 1 }} />
+        <Grid container spacing={{ xs: 2, md: 3, lg: 4 }}>
+          <Grid xs={12} md={12}>
+            {renderGeneral}
+          </Grid>
         </Grid>
-      </Grid>
+      </Collapse>
     </>
   );
 }

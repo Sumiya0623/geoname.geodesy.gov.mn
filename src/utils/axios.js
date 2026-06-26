@@ -176,8 +176,31 @@ export const endpoints = {
     edit: (id) => `/api/r/legal/${id}/`,
     delete: (id) => `/api/r/legal/${id}/`,
     details: (id) => `/api/r/legal/${id}/`,
+    attachProject: (id) => `/api/r/legal/${id}/attach-project/`,
+    detachProject: (id) => `/api/r/legal/${id}/detach-project/`,
     units: (request_body) =>
       `/api/r/legal-unit/?pagination=false&${request_body}`,
+    unitExtent: (id) => `/api/r/legal-unit/${id}/extent/`,
+    unitLocate: (request_body) => `/api/r/legal-unit/locate/?${request_body}`,
+  },
+
+  council: {
+    list: (request_body) => `/api/r/council/?${request_body}`,
+    create: `/api/r/council/`,
+    edit: (id) => `/api/r/council/${id}/`,
+    delete: (id) => `/api/r/council/${id}/`,
+    members: (request_body) => `/api/r/council-member/?${request_body}`,
+    memberCreate: `/api/r/council-member/`,
+    memberRelease: (id) => `/api/r/council-member/${id}/release/`,
+  },
+
+  recount: {
+    list: (request_body) => `/api/r/recount/?${request_body}`,
+    create: `/api/r/recount/`,
+    bulk: `/api/r/recount/bulk/`,
+    edit: (id) => `/api/r/recount/${id}/`,
+    delete: (id) => `/api/r/recount/${id}/`,
+    wms: (request_body) => `/api/r/recount/wms/?${request_body}`,
   },
 
   workspace: {

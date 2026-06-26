@@ -7,6 +7,9 @@ import { Card, Tab, Tabs } from "@mui/material";
 import Iconify from "src/components/iconify";
 import { useCallback, useState, useEffect } from "react";
 import { useGetChampaign } from "src/api/champaign";
+import { BeltgelListView } from "src/sections/beltgel/view";
+import { SuurinListView } from "src/sections/suurin/view";
+import { MayagtView } from "src/sections/mayagt/view";
 import ProjectDetailsContent from "../champaign-details-content";
 
 import { useNextStep } from "nextstepjs";
@@ -15,7 +18,7 @@ export default function ChampaignDetailsView() {
   const settings = useSettingsContext();
   const { id } = useParams();
   const { champaign } = useGetChampaign(id);
-  const [currentTab, setCurrentTab] = useState("general");
+  const [currentTab, setCurrentTab] = useState("beltgel");
   const { currentStep, currentTour } = useNextStep();
 
   const handleChangeTab = useCallback((event, newValue) => {
@@ -23,32 +26,37 @@ export default function ChampaignDetailsView() {
   }, []);
 
   useEffect(() => {
-    const handleSwitchToAct = () => {
-      setCurrentTab("act");
-    };
-
-    window.addEventListener("agreement:switch-to-act", handleSwitchToAct);
-    return () =>
-      window.removeEventListener("agreement:switch-to-act", handleSwitchToAct);
-  }, []);
-
-  useEffect(() => {
     if (currentTour === "agreement-dynamic") {
       if (currentStep < 5) {
-        setCurrentTab("general");
+        setCurrentTab("beltgel");
       }
     }
   }, [currentStep, currentTour]);
 
   const TABS = [
     {
-      value: "general",
-      label: "Цэг тэмдэгт",
+      value: "beltgel",
+      label: "Бэлтгэл ажил",
       icon: <Iconify icon="solar:user-id-bold" width={24} />,
     },
     {
-      value: "count",
-      label: "Тооллого, судалгаа",
+      value: "suurin",
+      label: "Суурин судалгаа",
+      icon: <Iconify icon="solar:user-id-bold" width={24} />,
+    },
+    {
+      value: "heer",
+      label: "Хээрийн судалгаа",
+      icon: <Iconify icon="solar:bell-bing-bold" width={24} />,
+    },
+    {
+      value: "bolowsruulalt",
+      label: "Суурин боловсруулалт",
+      icon: <Iconify icon="solar:bell-bing-bold" width={24} />,
+    },
+    {
+      value: "result",
+      label: "Маягтууд",
       icon: <Iconify icon="solar:bell-bing-bold" width={24} />,
     },
   ];
@@ -68,6 +76,11 @@ export default function ChampaignDetailsView() {
           ))}
         </Tabs>
       </Card>
+
+      {/* Табын контент — lazy (идэвхтэй таб л mount хийгдэнэ) */}
+      {currentTab === "beltgel" && <BeltgelListView projectId={id} />}
+      {currentTab === "suurin" && <SuurinListView projectId={id} />}
+      {currentTab === "result" && <MayagtView projectId={id} />}
     </Container>
   );
 }

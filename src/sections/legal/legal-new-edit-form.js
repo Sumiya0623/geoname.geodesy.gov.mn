@@ -53,6 +53,7 @@ export default function LegalNewEditForm({
   currentItem = null,
   selectedType = null,
   refetch,
+  projectId = null,
 }) {
   const { enqueueSnackbar } = useSnackbar();
 
@@ -205,6 +206,8 @@ export default function LegalNewEditForm({
       }
       fd.append("signer", data.signer || "");
       fd.append("description", data.description || "");
+      // Бэлтгэл табаас нэмэхэд тухайн төсөлд холбоно
+      if (projectId && !currentItem) fd.append("project", projectId);
       if (data.document instanceof File) fd.append("document", data.document);
 
       const method = currentItem ? "patch" : "post";
@@ -263,6 +266,19 @@ export default function LegalNewEditForm({
           gridTemplateColumns={{ xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)" }}
           sx={{ pt: 1 }}
         >
+          {/* Ангилал (LEGAL_TYPES) — карт сонголтгүй (таб түвшний) нэмэх үед гараар */}
+          {!selectedType && !currentItem && (
+            <Box sx={{ gridColumn: "1 / -1" }}>
+              <RHFSelect name="org" label="Ангилал (төрөл)">
+                {legalTypes.map((t) => (
+                  <MenuItem key={t.id} value={t.id}>
+                    {t.label || t.name}
+                  </MenuItem>
+                ))}
+              </RHFSelect>
+            </Box>
+          )}
+
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <RHFTextField name="name" label="Нэр" />
             <RHFSelect name="type" label="Төрөл" sx={{ minWidth: { sm: 100 } }}>
@@ -359,4 +375,5 @@ LegalNewEditForm.propTypes = {
   currentItem: PropTypes.object,
   selectedType: PropTypes.object,
   refetch: PropTypes.func,
+  projectId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };

@@ -430,12 +430,10 @@ function SubmenuActions({ submenuId }) {
             &quot;{confirmPerm?.name || confirmPerm?.key}&quot; үйлдлийг энэ дэд
             цэснээс хасах уу?
           </Typography>
-          {confirmPerm?.role_count > 0 && (
-            <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>
-              Анхаар: энэ үйлдэл {confirmPerm.role_count} эрх (role)-д
-              ашиглагдаж байна. Хасвал тэдгээрээс мөн хасагдана.
-            </Typography>
-          )}
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+            Үйлдлийн төрөл устахгүй — зөвхөн энэ цэснээс салгана. Хүссэн үедээ
+            дахин нэмж болно.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button

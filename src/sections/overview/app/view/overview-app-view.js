@@ -3,7 +3,6 @@
 import Grid from "@mui/material/Unstable_Grid2";
 import AppWelcome from "../app-welcome";
 import { useState } from "react";
-import StatView from "../app-area-stat";
 
 // ----------------------------------------------------------------------
 
@@ -32,8 +31,6 @@ export default function OverviewAppView({ calling = false }) {
         </Grid>
       )}
 
-      {/* жилийн дагуу статистик */}
-      <StatView year={selectedyear} calling={calling} />
     </Grid>
   );
 }

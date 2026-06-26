@@ -6,6 +6,8 @@ import {
   Avatar,
   Radio,
   RadioGroup,
+  Checkbox,
+  Divider,
   FormControlLabel,
   IconButton,
 } from "@mui/material";
@@ -27,6 +29,13 @@ const LayerControl = ({
   onBaseMapChange,
   onBaseMapOpacityChange,
   baseMapOpacity = {},
+  recountEnabled = false,
+  recountVisible = false,
+  onToggleRecount,
+  overlayBasemap = false,
+  onToggleBasemap,
+  overlayNomencl = false,
+  onToggleNomencl,
 }) => {
   const { baseLayers } = useGetBaseLayers();
 
@@ -125,8 +134,7 @@ const LayerControl = ({
                 "ESRI",
                 "TOPO",
                 "M100k",
-                "BASEMAP",
-                "NOMENCLATURE",
+                "M100kGeoName",
               ].map((key) => {
                 const colorMap = {
                   CRV: "#1976d2",
@@ -135,6 +143,7 @@ const LayerControl = ({
                   ESRI: "#9c27b0",
                   TOPO: "#795548",
                   M100k: "#607d8b",
+                  M100kGeoName: "#f44336",
                   BASEMAP: "#e91e63",
                   NOMENCLATURE: "#00bcd4",
                 };
@@ -151,6 +160,7 @@ const LayerControl = ({
                   ESRI: "Esri Imagery",
                   TOPO: "Topographic",
                   M100k: "Байр зүй",
+                  M100kGeoName: "Нэрийн зураг",
                   BASEMAP: "Суурь зураг",
                   NOMENCLATURE: "Нэрлэвэр",
                 };
@@ -235,6 +245,55 @@ const LayerControl = ({
                 );
               })}
             </RadioGroup>
+          </Box>
+
+          {/* --- Overlay давхаргууд (checkbox) --- */}
+          <Divider />
+          <Box sx={{ px: 2, py: 1 }}>
+            <Typography
+              variant="overline"
+              color="text.secondary"
+              sx={{ pl: 1 }}
+            >
+              Давхаргууд
+            </Typography>
+
+            {recountEnabled && (
+              <FormControlLabel
+                sx={{ ml: 0, display: "flex" }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={recountVisible}
+                    onChange={() => onToggleRecount && onToggleRecount()}
+                  />
+                }
+                label="Тодруулалт (төслийн нэрс)"
+              />
+            )}
+
+            <FormControlLabel
+              sx={{ ml: 0, display: "flex" }}
+              control={
+                <Checkbox
+                  size="small"
+                  checked={overlayBasemap}
+                  onChange={() => onToggleBasemap && onToggleBasemap()}
+                />
+              }
+              label="Суурь зураг"
+            />
+            <FormControlLabel
+              sx={{ ml: 0, display: "flex" }}
+              control={
+                <Checkbox
+                  size="small"
+                  checked={overlayNomencl}
+                  onChange={() => onToggleNomencl && onToggleNomencl()}
+                />
+              }
+              label="Нэрлэвэр"
+            />
           </Box>
         </Box>
       </Box>

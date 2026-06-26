@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 import {
   Box,
@@ -7,8 +8,10 @@ import {
   Stack,
   Button,
   Dialog,
+  TextField,
   Typography,
   DialogTitle,
+  DialogActions,
   DialogContent,
 } from "@mui/material";
 import {
@@ -20,6 +23,18 @@ import { enqueueSnackbar } from "notistack";
 
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetRequestStatuses } from "src/api/request";
+import { useGetConstantsFordropdown } from "src/api/constant";
+
+import { requestMapDraw } from "./mapDraw";
+
+// Нэрийн геометрийн төрлийг OpenLayers Draw төрөл рүү буулгана
+function olDrawType(gt) {
+  const t = (gt || "").toLowerCase();
+  if (t.includes("polygon")) return "Polygon";
+  if (t.includes("line")) return "LineString";
+  return "Point";
+}
+const DRAW_LABEL = { Point: "цэг", LineString: "шугам", Polygon: "талбай" };
 
 import RequestChangeForm from "src/sections/request/request-change-form";
 
@@ -34,9 +49,68 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   const [typePath, setTypePath] = useState([]);
   const [approved, setApproved] = useState(undefined);
   const [createdDate, setCreatedDate] = useState(null);
+  const [coord, setCoord] = useState(null); // [lon, lat]
+  const [geomType, setGeomType] = useState(null);
   const { statuses } = useGetRequestStatuses();
   const changeStatus =
     statuses.find((s) => (s?.name || "").includes("Өөрчл")) || null;
+
+  // Төслийн газрын зураг (champaign/<id>/map) дээр бол — рекаунт бүртгэх горим
+  const pathname = usePathname();
+  const recountProjectId = useMemo(() => {
+    const m = (pathname || "").match(/^\/dashboard\/champaign\/([^/]+)\/map/);
+    return m ? m[1] : null;
+  }, [pathname]);
+  const { constants: rStatuses } = useGetConstantsFordropdown("RECOUNT_STATUS");
+  const { constants: rSteps } = useGetConstantsFordropdown("RECOUNT_STEPS");
+  const rStep = useMemo(
+    () => rSteps.find((s) => s.name === "Суурин судалгаа") || null,
+    [rSteps],
+  );
+  const statusIdByName = (nm) => rStatuses.find((s) => s.name === nm)?.id || null;
+  const [saving, setSaving] = useState(false);
+  const [draftDlg, setDraftDlg] = useState(null); // {statusName, text}
+
+  const saveRecount = async (statusName, draftText, loc) => {
+    setSaving(true);
+    try {
+      await axiosInstance.post(endpoints.recount.create, {
+        project_id: recountProjectId,
+        name_id: name.id,
+        draft: draftText || "",
+        ...(rStep?.id ? { step_id: rStep.id } : {}),
+        ...(statusIdByName(statusName) ? { status_id: statusIdByName(statusName) } : {}),
+        ...(loc ? { loc } : coord ? { loc: { type: "Point", coordinates: coord } } : {}),
+      });
+      enqueueSnackbar(`"${name.name}" — ${statusName} төлөвөөр бүртгэгдлээ`);
+      onAfterAction?.();
+    } catch (e) {
+      enqueueSnackbar(e?.response?.data?.detail || "Бүртгэхэд алдаа гарлаа", {
+        variant: "warning",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // suurin‑тэй ижил логик: ижил→шууд, зөрүүтэй/алдаатай→draft диалог,
+  // байршил→зураг дээр геометр зурах (нэрийн төрлөөр Цэг/Шугам/Талбай)
+  const handleStatus = async (statusName) => {
+    if (statusName === "ижил") {
+      saveRecount("ижил", name.name);
+    } else if (statusName === "байршил") {
+      const dtype = olDrawType(geomType);
+      enqueueSnackbar(
+        `"${name.name}" — газрын зураг дээр ${DRAW_LABEL[dtype]} зурна уу (ESC — болих)`,
+        { variant: "info" },
+      );
+      const geojson = await requestMapDraw(dtype);
+      if (!geojson) return; // ESC / болих
+      await saveRecount("байршил", name.name, geojson);
+    } else {
+      setDraftDlg({ statusName, text: name.name || "" });
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -53,6 +127,10 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
           setTypePath(res?.data?.type_path || []);
           setApproved(res?.data?.is_approved ?? null);
           setCreatedDate(res?.data?.created_date || null);
+          const la = res?.data?.lat;
+          const lo = res?.data?.lon;
+          setCoord(la != null && lo != null ? [lo, la] : null);
+          setGeomType(res?.data?.geom_type || null);
         }
       })
       .catch(() => {
@@ -153,36 +231,105 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
           )}
         </Box>
 
-        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-          {name?.id && (
+        {recountProjectId ? (
+          /* Төслийн газрын зураг — рекаунтын төлөв (ижил/зөрүүтэй/алдаатай/байршил) */
+          <Stack direction="row" spacing={0.5} sx={{ mt: 1 }}>
+            {[
+              { s: "ижил", label: "Ижил", color: "success" },
+              { s: "батлагдаагүй", label: "Батлагдаагүй", color: "warning" },
+              { s: "алдаатай", label: "Алдаатай", color: "error" },
+              { s: "байршил", label: "Байршил", color: "info" },
+            ].map((b) => (
+              <Button
+                key={b.s}
+                variant="outlined"
+                fullWidth
+                size="small"
+                color={b.color}
+                disabled={saving || !name?.id}
+                onClick={() => handleStatus(b.s)}
+                sx={{ textTransform: "none", fontWeight: 600, fontSize: 11, px: 0.5 }}
+              >
+                {b.label}
+              </Button>
+            ))}
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+            {name?.id && (
+              <Button
+                variant="contained"
+                fullWidth
+                size="small"
+                color="primary"
+                startIcon={<AddShoppingCart fontSize="small" />}
+                onClick={() => {
+                  onSelect?.(name);
+                  addToCart();
+                }}
+                sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
+              >
+                Сагсанд нэмэх
+              </Button>
+            )}
             <Button
               variant="contained"
               fullWidth
               size="small"
-              color="primary"
-              startIcon={<AddShoppingCart fontSize="small" />}
-              onClick={() => {
-                onSelect?.(name);
-                addToCart();
-              }}
+              color="warning"
+              startIcon={<CheckOutlined fontSize="small" />}
+              onClick={() => setRequestModalOpen(true)}
               sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
             >
-              Сагсанд нэмэх
+              Өөрчлөх хүсэлт
             </Button>
-          )}
+          </Stack>
+        )}
+      </Box>
+
+      {/* Зөрүүтэй / Алдаатай — draft (зөв/тэмдэглэх) бичих диалог */}
+      <Dialog
+        open={!!draftDlg}
+        onClose={() => setDraftDlg(null)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>
+          {draftDlg?.statusName === "батлагдаагүй" ? "Батлагдаагүй" : "Алдаатай"} нэр
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary">
+            {name?.name} — зөв/тэмдэглэх утгыг бичнэ үү (draft-д хадгална).
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={2}
+            sx={{ mt: 1.5 }}
+            value={draftDlg?.text || ""}
+            onChange={(e) =>
+              setDraftDlg((p) => ({ ...p, text: e.target.value }))
+            }
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button color="inherit" onClick={() => setDraftDlg(null)}>
+            Болих
+          </Button>
           <Button
             variant="contained"
-            fullWidth
-            size="small"
-            color="warning"
-            startIcon={<CheckOutlined fontSize="small" />}
-            onClick={() => setRequestModalOpen(true)}
-            sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
+            disabled={saving}
+            onClick={() => {
+              const d = draftDlg;
+              setDraftDlg(null);
+              saveRecount(d.statusName, d.text);
+            }}
           >
-            Өөрчлөх хүсэлт
+            Хадгалах
           </Button>
-        </Stack>
-      </Box>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={requestModalOpen}

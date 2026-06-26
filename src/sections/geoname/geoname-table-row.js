@@ -4,7 +4,7 @@ import MenuItem from "@mui/material/MenuItem";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import IconButton from "@mui/material/IconButton";
-import { Chip, Button, Divider } from "@mui/material";
+import { Chip, Button, Tooltip, Divider } from "@mui/material";
 
 import { fDate } from "src/utils/format-time";
 import { useBoolean } from "src/hooks/use-boolean";
@@ -24,7 +24,12 @@ export default function GeonameTableRow({
   onEdit,
   onDeleteRow,
 }) {
-  const { name, number, type, status, is_approved, created_date } = row;
+  const { name, number, type, is_approved, created_date, needs_review, confidence, source, units } = row;
+
+  const aimag = units?.find((u) => u.level && u.level.includes("Аймаг"));
+  const sum = units?.find((u) => u.level && u.level.includes("Сум"));
+  // Аймаг/сум илрээгүй бол үлдсэн нэгжийг сум баганад нөөцлөн харуулна
+  const otherUnits = units?.filter((u) => u !== aimag && u !== sum) || [];
 
   const confirm = useBoolean();
   const popover = usePopover();
@@ -36,8 +41,29 @@ export default function GeonameTableRow({
         <TableCell sx={{ whiteSpace: "normal", maxWidth: 280 }}>{name || "-"}</TableCell>
         <TableCell>{number || "-"}</TableCell>
         <TableCell>{type?.name || "-"}</TableCell>
+        <TableCell>{aimag?.name || "-"}</TableCell>
+        <TableCell sx={{ whiteSpace: "normal", maxWidth: 160 }}>
+          {sum?.name || otherUnits.map((u) => u.name).join(", ") || "-"}
+        </TableCell>
+        <TableCell align="center">
+          {confidence != null ? `${Math.round(confidence * 100)}%` : "-"}
+        </TableCell>
         <TableCell>
-          {status?.name ? <Chip size="small" variant="soft" label={status.name} /> : "-"}
+          {needs_review == null ? (
+            "-"
+          ) : (
+            <Tooltip
+              title={source ? `Эх: ${source.volume} х.${source.page}` : ""}
+              arrow
+            >
+              <Chip
+                size="small"
+                variant="soft"
+                color={needs_review ? "warning" : "success"}
+                label={needs_review ? "Хянах шаардлагатай" : "Шалгасан"}
+              />
+            </Tooltip>
+          )}
         </TableCell>
         <TableCell align="center">
           <Chip

@@ -101,6 +101,34 @@ export function makeViewWmtsLayer({
   return olLayer;
 }
 
+// Дурын GWC layer‑ийг (WebMercatorQuad gridset, image/png) WMTS давхаргаар авах.
+// geoname:geoname зэрэг зөвхөн WebMercatorQuad‑д кэшлэгдсэн растеруудад тохиромжтой
+// (gwc/service/wms + EPSG:3857 нь 900913 gridset байхгүйд 400 өгдөг).
+export function makeGwcWmtsLayer({
+  workspace = "geoname",
+  layer,
+  title,
+  visible = false,
+  zIndex,
+}) {
+  const layerName = `${workspace}:${layer}`;
+  const source = new WMTS({
+    url: GWC_WMTS,
+    layer: layerName,
+    matrixSet: MATRIX_SET,
+    format: "image/png",
+    projection,
+    tileGrid,
+    wrapX: true,
+    crossOrigin: "anonymous",
+  });
+  const olLayer = new TileLayer({ source, visible, preload: 1 });
+  if (zIndex != null) olLayer.setZIndex(zIndex);
+  olLayer.set("name", layerName);
+  if (title) olLayer.set("title", title);
+  return olLayer;
+}
+
 export function buildLayersByName(apiItems, workspace = "point") {
   const layersByName = {};
   const uiItems = [];
