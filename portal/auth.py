@@ -156,13 +156,13 @@ def function_permission(resource_key):
                 return True
             if action_name in ['retrieve','role']:
                 action_name='detail'
-            if action_name in ['sync','partial_update','add_action','remove_action']:
+            if action_name in ['sync','partial_update','add_action','remove_action','menus']:
                 action_name='update'
             if action_name in ['menus','related','system_registered','network_registered','submenu_actions','nameclass','types','locate','dropdown']:
                 action_name='list'
             if action_name == 'destroy':
                 action_name='delete'
-            print(action_name,resource_key)
+            print(resource_key,action_name)
             for role in roles:
                 actions= role.actions.filter(
                     submenu__code=resource_key,

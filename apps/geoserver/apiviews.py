@@ -274,12 +274,15 @@ def _geoname_type_select(type_ids):
     ids = ','.join(str(int(i)) for i in type_ids) or '0'
     return (
         "SELECT g.id, g.name, g.number, g.is_approved, g.geoloc,\n"
+        "    g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,\n"
         "    json_build_array(t.parent_id, g.type_id) AS type,\n"
         "    COALESCE((SELECT json_agg(gn.nomek_id ORDER BY gn.nomek_id)\n"
         "              FROM core_geoname_nomek gn WHERE gn.geoname_id = g.id), '[]'::json) AS nomek,\n"
         "    COALESCE((SELECT json_agg(go.legalorder_id ORDER BY go.legalorder_id)\n"
-        "              FROM core_geoname_orders go WHERE go.geoname_id = g.id), '[]'::json) AS orders\n"
-        "FROM core_geoname g LEFT JOIN core_constant t ON t.id = g.type_id\n"
+        "              FROM core_legalorder_names go WHERE go.geoname_id = g.id), '[]'::json) AS orders\n"
+        "FROM core_geoname g\n"
+        "LEFT JOIN core_constant t  ON t.id = g.type_id\n"
+        "LEFT JOIN core_constant t2 ON t2.id = t.parent_id\n"
         f"WHERE g.geoloc IS NOT NULL AND g.type_id IN ({ids})"
     )
 
@@ -340,7 +343,7 @@ _GEONAME_SEARCH_SQL = """SELECT g.id, g.name, g.number, g.is_approved, g.geoloc,
     COALESCE(' '||(SELECT string_agg(gu.adminunit_id::text,' ') FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' ','') AS unit_ids,
     COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes,
     COALESCE((SELECT json_agg(gn.nomek_id) FROM core_geoname_nomek gn WHERE gn.geoname_id=g.id),'[]'::json) AS nomek,
-    COALESCE((SELECT json_agg(go.legalorder_id) FROM core_geoname_orders go WHERE go.geoname_id=g.id),'[]'::json) AS orders
+    COALESCE((SELECT json_agg(ln.legalorder_id) FROM core_legalorder_names ln WHERE ln.geoname_id=g.id),'[]'::json) AS orders
 FROM core_geoname g
 LEFT JOIN core_constant t  ON t.id = g.type_id
 LEFT JOIN core_constant t2 ON t2.id = t.parent_id
@@ -362,6 +365,108 @@ def ensure_geoname_search_view():
         logging.getLogger(__name__).warning("ensure_geoname_search_view failed", exc_info=True)
 
 
+RECOUNT_VIEW = 'recount_view'
+# Дахин тооллого (ReCount.loc) — геонэрийн type‑той join хийсэн view. geoname_view‑тэй
+# ижил баганатай (type, type_l1/l2) тул ижил style (type symbol)‑оор зурагдана.
+# project_id баганаар CQL‑ээр тухайн төслөөр шүүнэ.
+_RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.status_id, r.draft,
+    COALESCE(r.loc, g.geoloc) AS geoloc,
+    g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
+    json_build_array(t.parent_id, g.type_id) AS type,
+    COALESCE(g.name, r.draft) AS name
+FROM core_recount r
+LEFT JOIN core_geoname g  ON g.id = r.name_id
+LEFT JOIN core_constant t  ON t.id = g.type_id
+LEFT JOIN core_constant t2 ON t2.id = t.parent_id
+WHERE COALESCE(r.loc, g.geoloc) IS NOT NULL"""
+
+
+def _build_recount_type_sld():
+    """Type бүрийн view style‑ийн дүрмүүдийг (symbolizer) уншиж, type_id filter‑тэй
+    нэгтгэн recount_view‑д зориулсан combined SLD (1.0) болгож буцаана."""
+    import xml.etree.ElementTree as ET
+    SLD = 'http://www.opengis.net/sld'
+    OGC = 'http://www.opengis.net/ogc'
+    XLINK = 'http://www.w3.org/1999/xlink'
+    ET.register_namespace('sld', SLD)
+    ET.register_namespace('ogc', OGC)
+    ET.register_namespace('xlink', XLINK)
+
+    groups = _leaf_view_groups()  # {view_name: [type_id,...]}
+    rules = []
+    for vname, type_ids in groups.items():
+        try:
+            root = ET.fromstring(_gs_style_read_sld(GEONAME_WS, vname))
+        except Exception:
+            continue
+        for rule in list(root.iter(f'{{{SLD}}}Rule')):
+            # type_id filter (нэг буюу хэд хэдэн id) — OR
+            flt = ET.Element(f'{{{OGC}}}Filter')
+            host = flt
+            if len(type_ids) > 1:
+                host = ET.SubElement(flt, f'{{{OGC}}}Or')
+            for tid in type_ids:
+                eq = ET.SubElement(host, f'{{{OGC}}}PropertyIsEqualTo')
+                ET.SubElement(eq, f'{{{OGC}}}PropertyName').text = 'type_id'
+                ET.SubElement(eq, f'{{{OGC}}}Literal').text = str(tid)
+            for ex in rule.findall(f'{{{OGC}}}Filter'):
+                rule.remove(ex)
+            rule.insert(0, flt)
+            rules.append(rule)
+    if not rules:
+        return None
+    sld = ET.Element(f'{{{SLD}}}StyledLayerDescriptor', {'version': '1.0.0'})
+    nl = ET.SubElement(sld, f'{{{SLD}}}NamedLayer')
+    ET.SubElement(nl, f'{{{SLD}}}Name').text = RECOUNT_VIEW
+    us = ET.SubElement(nl, f'{{{SLD}}}UserStyle')
+    ET.SubElement(us, f'{{{SLD}}}Name').text = RECOUNT_VIEW
+    fts = ET.SubElement(us, f'{{{SLD}}}FeatureTypeStyle')
+    for r in rules:
+        fts.append(r)
+    return ET.tostring(sld, encoding='unicode')
+
+
+def _assign_recount_type_style():
+    """recount_view‑д type symbol бүхий combined style үүсгэж, default болгоно."""
+    sld = _build_recount_type_sld()
+    if not sld:
+        return
+    base, auth = _gs_rest_auth()
+    # style объект байхгүй бол үүсгэнэ
+    chk = requests.get(f"{base}/workspaces/{GEONAME_WS}/styles/{RECOUNT_VIEW}.json",
+                       auth=auth, timeout=10)
+    if chk.status_code != 200:
+        requests.post(f"{base}/workspaces/{GEONAME_WS}/styles",
+                      json={"style": {"name": RECOUNT_VIEW, "filename": f"{RECOUNT_VIEW}.sld"}},
+                      auth=auth, timeout=10)
+    _gs_style_write_sld(GEONAME_WS, RECOUNT_VIEW, sld)
+    requests.put(
+        f"{base}/layers/{GEONAME_WS}:{RECOUNT_VIEW}",
+        data=f'<layer><defaultStyle><name>{RECOUNT_VIEW}</name>'
+             f'<workspace>{GEONAME_WS}</workspace></defaultStyle></layer>',
+        auth=auth, headers={"Content-Type": "text/xml"}, timeout=10)
+
+
+def ensure_recount_view():
+    """recount_view (төслийн дахин тооллогын view) — байхгүй бол үүсгэж нийтэлнэ,
+    type symbol бүхий combined style ононо."""
+    try:
+        with connection.cursor() as c:
+            c.execute("SELECT to_regclass('public.recount_view')")
+            if not c.fetchone()[0]:
+                c.execute('CREATE VIEW public."%s" AS %s' % (RECOUNT_VIEW, _RECOUNT_VIEW_SQL))
+        _ensure_geoname_store()
+        _publish_or_recalc(RECOUNT_VIEW, 'Дахин тооллого')
+        try:
+            _assign_recount_type_style()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning("recount style failed", exc_info=True)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("ensure_recount_view failed", exc_info=True)
+
+
 def _publish_or_recalc(name, title):
     base, auth = _gs_rest_auth()
     body = {"featureType": {"name": name, "nativeName": name, "title": title, "srs": "EPSG:4326"}}
@@ -373,6 +478,29 @@ def _publish_or_recalc(name, title):
             params={'recalculate': 'nativebbox,latlonbbox'},
             json={"featureType": {"name": name, "title": title, "srs": "EPSG:4326"}},
             auth=auth, timeout=20)
+    _ensure_default_style(name)
+
+
+def _ensure_default_style(view_name):
+    """View‑д ХҮЧИНТЭЙ default style байгаа эсэхийг шалгана. Байхгүй ЭСВЭЛ зааж буй
+    SLD нь бодитоор оршихгүй (эвдэрсэн reference) бол built‑in 'point' онооно —
+    LayerGroup бүх layer‑д хүчинтэй default style шаарддаг (NoDefaultStyle‑аас
+    сэргийлнэ). Хэрэглэгчийн тохируулсан хүчинтэй style‑г хөндөхгүй."""
+    base, auth = _gs_rest_auth()
+    try:
+        r = requests.get(f"{base}/layers/{GEONAME_WS}:{view_name}.json", auth=auth, timeout=10)
+        ds = (r.json().get('layer', {}) or {}).get('defaultStyle') if r.status_code == 200 else None
+        if ds and ds.get('href'):
+            # Зааж буй style‑ийн SLD бодитоор байгаа эсэх (эвдэрсэн бол солино)
+            sr = requests.get(ds['href'], auth=auth, timeout=10)
+            if sr.status_code == 200:
+                return
+        requests.put(
+            f"{base}/layers/{GEONAME_WS}:{view_name}",
+            data='<layer><defaultStyle><name>point</name></defaultStyle></layer>',
+            auth=auth, headers={"Content-Type": "text/xml"}, timeout=10)
+    except requests.RequestException:
+        pass
 
 
 def _drop_featuretype_and_view(name):
@@ -386,6 +514,62 @@ def _drop_featuretype_and_view(name):
     if re.match(r'^[a-zA-Z0-9_]+$', name or ''):
         with connection.cursor() as cur:
             cur.execute(f'DROP VIEW IF EXISTS public."{name}" CASCADE')
+    ensure_names_layergroup()  # нэрийн нэгдсэн давхаргыг синк
+
+
+NAMES_LAYERGROUP = 'names'
+
+
+def ensure_names_layergroup():
+    """Бүх per-type view‑г нэгтгэсэн 'geoname:names' LayerGroup‑г одоогийн view‑ийн
+    жагсаалтаар дахин барина — нэр бүр өөрийн тохируулсан таних тэмдгээрээ нэг WMS
+    давхаргаар гарна. View нэмэгдэх/устах бүрд дуудагдаж автоматаар синк байна."""
+    try:
+        base, auth = _gs_rest_auth()
+        r = requests.get(
+            f"{base}/workspaces/{GEONAME_WS}/datastores/{GEONAME_STORE}/featuretypes.json",
+            auth=auth, timeout=15)
+        if r.status_code != 200:
+            return
+        fts = [f['name'] for f in (r.json().get('featureTypes', {}) or {}).get('featureType', [])]
+        views = [v for v in fts if v.endswith('_view') and v != GEONAME_SEARCH_VIEW]
+        # ЗӨВХӨН ИДЭВХТЭЙ (PostGIS‑д бодитоор оршиж буй) view — эвдэрсэн/устсан
+        # view group‑ийг унагахаас сэргийлнэ.
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT table_name FROM information_schema.views "
+                "WHERE table_schema='public' AND table_name ~ '_view$'")
+            pg_views = {row[0] for row in cur.fetchall()}
+        views = sorted(v for v in views if v in pg_views)
+        # Group‑ийн layer бүрд default style баталгаажуулна (NoDefaultStyle‑аас)
+        for v in views:
+            _ensure_default_style(v)
+        pub = "".join(
+            f'<published type="layer">{GEONAME_WS}:{v}</published>' for v in views)
+        sty = "".join('<style/>' for _ in views)
+        xml = (
+            f'<layerGroup><name>{NAMES_LAYERGROUP}</name><mode>SINGLE</mode>'
+            f'<title>Газар зүйн нэр (таних тэмдэгтэй)</title>'
+            f'<publishables>{pub}</publishables><styles>{sty}</styles>'
+            f'<bounds><minx>87</minx><maxx>120</maxx><miny>41</miny>'
+            f'<maxy>52</maxy><crs>EPSG:4326</crs></bounds></layerGroup>'
+        )
+        if not views:
+            # View үлдээгүй бол layergroup‑г устга
+            requests.delete(
+                f"{base}/workspaces/{GEONAME_WS}/layergroups/{NAMES_LAYERGROUP}",
+                auth=auth, timeout=15)
+            return
+        # Үргэлж цэвэр дахин барина (хуучин stale style reference‑ээс сэргийлэх)
+        requests.delete(
+            f"{base}/workspaces/{GEONAME_WS}/layergroups/{NAMES_LAYERGROUP}?purge=true",
+            auth=auth, timeout=15)
+        requests.post(
+            f"{base}/workspaces/{GEONAME_WS}/layergroups",
+            data=xml, auth=auth, headers={"Content-Type": "text/xml"}, timeout=30)
+    except requests.RequestException:
+        import logging
+        logging.getLogger(__name__).warning('ensure_names_layergroup failed', exc_info=True)
 
 
 def is_geoname_leaf(const):
@@ -419,6 +603,7 @@ def sync_geoname_type_view(const):
                 workspace=GEONAME_WS, layer_name=name, geom_type=geom)
         except Exception:
             pass
+    ensure_names_layergroup()  # нэрийн нэгдсэн давхаргыг синк
     return name
 
 
@@ -1188,6 +1373,13 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 			import logging
 			logging.getLogger(__name__).warning("style_fields introspect failed", exc_info=True)
 		return Response({'results': rows}, status=200)
+
+	@action(detail=False, methods=['post'], url_path='rebuild-names-layer')
+	def rebuild_names_layer(self, request):
+		"""'geoname:names' нэгдсэн давхаргыг (бүх per‑type view, таних тэмдэгтэй)
+		одоогийн view‑ийн жагсаалтаар гараар дахин барина."""
+		ensure_names_layergroup()
+		return Response({'detail': 'Газар зүйн нэрийн нэгдсэн давхарга шинэчлэгдлээ'}, status=200)
 
 	@action(detail=False, methods=['get'], url_path='tree')
 	def tree(self, request):

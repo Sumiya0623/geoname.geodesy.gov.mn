@@ -314,7 +314,7 @@ def _build_html(req):
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
-  * {{ font-family: 'DejaVu Sans', sans-serif; }}
+  * {{ font-family: 'Arial', sans-serif; }}
   body {{ font-size: 11px; color: #000; margin: 0; }}
   .head {{ text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 2px; }}
   .sub {{ text-align: right; font-style: italic; font-size: 10px; margin-bottom: 6px; }}
@@ -345,5 +345,248 @@ def build_request_pdf(req):
         "encoding": "UTF-8",
         "enable-local-file-access": None,
         "quiet": "",
+    }
+    return pdfkit.from_string(html_str, False, options=options)
+
+
+# ====================== Маягт (Хавсралт 1, 2) PDF ======================
+
+_MAYAGT_CSS = """
+* { font-family: 'Arial', sans-serif; }
+body { font-size: 11px; color:#000; margin:0; }
+.app { text-align:right; font-size:11px; margin-bottom:6px; }
+.title { text-align:center; font-size:13px; font-weight:bold; margin:0 8px 10px; }
+.units { text-align:center; font-size:11px; margin-bottom:10px; }
+table { width:100%; border-collapse:collapse; }
+th,td { border:1px solid #000; padding:4px 5px; font-size:10px; vertical-align:middle; }
+th { text-align:center; font-weight:bold; }
+td.c { text-align:center; }
+.sign { margin-top:14px; font-size:11px; }
+.sigline { border-bottom:1px dashed #000; height:18px; margin:6px 0 2px; }
+.sigcap { text-align:center; font-style:italic; font-size:10px; }
+"""
+
+
+def _dots(v):
+    return _e(v) if v else "&nbsp;"
+
+
+def _empty_rows(ncols, n=15):
+    """д/д дугаартай хоосон мөрүүд (дотроо гүйцээгээгүй маягтад)."""
+    cells = ''.join('<td>&nbsp;</td>' for _ in range(ncols - 1))
+    return ''.join(f'<tr><td class="c">{i}</td>{cells}</tr>' for i in range(1, n + 1))
+
+
+# Гарын үсгийн блокууд
+_FOOTER_STD = ('<div class="sign">Газар зүйн нэрийг тодотгох судалгаа хийсэн:</div>'
+               '<div class="sigline"></div>'
+               '<div class="sigcap">(овог нэр, байгууллага, албан тушаал)</div>')
+_FOOTER_DATE = (_FOOTER_STD +
+                '<div class="sigcap" style="margin-top:6px">'
+                '......... он ..... сар ..... өдөр</div>')
+_FOOTER_F9 = ('<div class="sign">Газар зүйн нэрийг тодруулах ажлыг гүйцэтгэгч:</div>'
+              '<div class="sigline"></div><div class="sigcap">(Байгууллагын нэр, тамга)</div>'
+              '<div class="sigline" style="margin-top:10px"></div>'
+              '<div class="sigcap">(Албан тушаал, овог нэр, гарын үсэг, огноо)</div>'
+              '<div class="sigline" style="margin-top:10px"></div>'
+              '<div class="sigcap">(Албан тушаал, овог нэр, гарын үсэг, огноо)</div>')
+
+
+def build_mayagt_pdf(form_no, rows, aimag='', sum=''):
+    """Маягт 1/2 (Хавсралт 1/2) — харьцуулсан судалгааны А4 PDF (bytes).
+
+    rows: [{i, name, draft, lat, lon, nomek_25k, nomek_100k}, ...]
+    """
+    def _blank(pad=60):
+        return f'<span style="border-bottom:1px solid #000;padding:0 {pad}px">&nbsp;</span>'
+
+    units = (f'<span style="border-bottom:1px solid #000;padding:0 60px">{_e(aimag)}</span> '
+             f'аймаг (нийслэл) '
+             f'<span style="border-bottom:1px solid #000;padding:0 60px">{_e(sum)}</span> '
+             f'сум (дүүрэг)')
+    footer = _FOOTER_STD
+
+    if str(form_no) == '2':
+        title = 'Улсын Их Хурлаар батлагдаагүй (уламжлалт) газар зүйн нэрийн жагсаалт'
+        app = 'Хавсралт 2'
+        head = (
+            '<tr>'
+            '<th rowspan="2" style="width:36px">д/д</th>'
+            '<th rowspan="2">Улсын Их Хурлаар батлагдаагүй уламжлалт<br>'
+            'газар зүйн нэрийн жагсаалт</th>'
+            '<th rowspan="2">1:100000-ны масштабтай байр<br>зүйн зургийн нэрэлбэр</th>'
+            '<th colspan="2">Солбицол</th>'
+            '</tr>'
+            '<tr><th>өргөрөг</th><th>уртраг</th></tr>'
+        )
+        body = ''.join(
+            f'<tr><td class="c">{r["i"]}</td>'
+            f'<td>{_dots(r.get("draft") or r.get("name"))}</td>'
+            f'<td class="c">{_dots(r.get("nomek_100k"))}</td>'
+            f'<td class="c">{_dots(r.get("lat"))}</td>'
+            f'<td class="c">{_dots(r.get("lon"))}</td></tr>'
+            for r in rows)
+    elif str(form_no) == '3':
+        title = ('Улсын Их Хурлаар зөрүүтэй, өөр нэрээр, үг үсгийн алдаатай батлагдсан '
+                 'газар зүйн нэрийн жагсаалт')
+        app = 'Хавсралт 3'
+        head = (
+            '<tr>'
+            '<th rowspan="2" style="width:36px">д/д</th>'
+            '<th rowspan="2">Улсын Их хурлаар өөрчлөн батлуулах<br>'
+            'газар зүйн нэрийн жагсаалт</th>'
+            '<th rowspan="2">Улсын Их хурлаар батлагдсан<br>'
+            'газар зүйн нэрийн жагсаалт</th>'
+            '<th rowspan="2">1:100000-ны масштабтай байр<br>'
+            'зүйн зургийн нэрэлбэр (1980-1984)</th>'
+            '<th colspan="2">Солбицол</th>'
+            '<th rowspan="2">Тайлбар</th>'
+            '</tr>'
+            '<tr><th>өргөрөг</th><th>уртраг</th></tr>'
+        )
+        body = ''.join(
+            f'<tr><td class="c">{r["i"]}</td>'
+            f'<td>{_dots(r.get("draft"))}</td>'
+            f'<td>{_dots(r.get("name"))}</td>'
+            f'<td class="c">{_dots(r.get("nomek_100k"))}</td>'
+            f'<td class="c">{_dots(r.get("lat"))}</td>'
+            f'<td class="c">{_dots(r.get("lon"))}</td>'
+            f'<td>&nbsp;</td></tr>'
+            for r in rows)
+    elif str(form_no) == '4':
+        title = ('Улсын Их Хурлаар батлагдсан нэрийн тодруулалт хийсэн суурь зурагт '
+                 'байршлаараа буруу тэмдэглэгдсэн газар зүйн нэрийн судалгаа')
+        app = 'Хавсралт 4'
+        head = (
+            '<tr>'
+            '<th rowspan="2" style="width:36px">д/д</th>'
+            '<th rowspan="2">Улсын Их Хурлаар батлагдсан<br>газар зүйн нэр</th>'
+            '<th rowspan="2">1:25000-ны масштабтай байр<br>зүйн зургийн нэрэлбэр</th>'
+            '<th colspan="2">суурь зураг дахь солбицол</th>'
+            '<th colspan="2">зөв байршлын солбицол</th>'
+            '</tr>'
+            '<tr><th>өргөрөг</th><th>уртраг</th><th>өргөрөг</th><th>уртраг</th></tr>'
+        )
+        body = ''.join(
+            f'<tr><td class="c">{r["i"]}</td>'
+            f'<td>{_dots(r.get("name"))}</td>'
+            f'<td class="c">{_dots(r.get("nomek_25k"))}</td>'
+            f'<td class="c">{_dots(r.get("lat"))}</td>'
+            f'<td class="c">{_dots(r.get("lon"))}</td>'
+            f'<td>&nbsp;</td><td>&nbsp;</td></tr>'
+            for r in rows)
+    elif str(form_no) == '5':
+        title = 'Зөрүүтэй нэрлэж буй газар зүйн нэрийн жагсаалт'
+        app = 'Хавсралт 5'
+        units = (f'<span style="border-bottom:1px solid #000;padding:0 40px">{_e(aimag)}</span> '
+                 f'аймгийн {_blank(40)} сумын хил заагт байгаа газар зүйн нэр зэргэлдээх, '
+                 f'{_blank(40)} аймгийн {_blank(40)} сумын газар зүйн нэрийн зөрүүтэй '
+                 f'байдлын талаарх мэдээлэл')
+        head = (
+            '<tr>'
+            '<th rowspan="2" style="width:36px">д/д</th>'
+            '<th rowspan="2">Газар зүйн нэр</th>'
+            '<th rowspan="2">Зэргэлдээх суманд нэрлэж<br>буй газар зүйн нэр</th>'
+            '<th colspan="2">Солбицол</th>'
+            '<th rowspan="2">Хэрхэн шийдвэрлэсэн<br>(тайлбар)</th>'
+            '</tr>'
+            '<tr><th>өргөрөг</th><th>уртраг</th></tr>'
+        )
+        body = _empty_rows(6)
+    elif str(form_no) == '6':
+        title = 'Шинээр буй болсон газар зүйн объектуудын нэрийг тодотгосон судалгаа'
+        app = 'Хавсралт 6'
+        footer = _FOOTER_DATE
+        head = (
+            '<tr>'
+            '<th rowspan="2" style="width:36px">д/д</th>'
+            '<th rowspan="2">Шинээр бий болсон объект<br>газар зүйн нэр</th>'
+            '<th rowspan="2">Газар зүйн<br>дэвсгэр нэр</th>'
+            '<th rowspan="2">1:25000-ны масштабтай байр<br>зүйн зургийн нэрэлбэр</th>'
+            '<th colspan="2">Солбицол</th>'
+            '</tr>'
+            '<tr><th>өргөрөг</th><th>уртраг</th></tr>'
+        )
+        body = ''.join(
+            f'<tr><td class="c">{r["i"]}</td>'
+            f'<td>{_dots(r.get("draft") or r.get("name"))}</td>'
+            f'<td>{_dots(r.get("gtype"))}</td>'
+            f'<td class="c">{_dots(r.get("nomek_25k"))}</td>'
+            f'<td class="c">{_dots(r.get("lat"))}</td>'
+            f'<td class="c">{_dots(r.get("lon"))}</td></tr>'
+            for r in rows) or _empty_rows(6)
+    elif str(form_no) == '8':
+        title = 'Улсын Их Хурлаар батлуулах газар зүйн нэр'
+        app = 'Хавсралт 8'
+        footer = _FOOTER_DATE
+        units = (f'<span style="border-bottom:1px solid #000;padding:0 40px">{_e(aimag)}</span> '
+                 f'аймгийн {_blank(40)} сумын газар зүйн нэрийн судалгаа, '
+                 f'нэрийн мэдээллийн сан бүрдүүлэх')
+        head = (
+            '<tr>'
+            '<th rowspan="2" style="width:36px">д/д</th>'
+            '<th rowspan="2">УИХ-аар шинээр батлагдах<br>газар зүйн нэр</th>'
+            '<th rowspan="2">1:25000-ны масштабтай байр<br>зүйн зургийн нэрэлбэр</th>'
+            '<th colspan="2">Солбицол</th>'
+            '</tr>'
+            '<tr><th>өргөрөг</th><th>уртраг</th></tr>'
+        )
+        body = _empty_rows(5)
+    elif str(form_no) == '9':
+        title = ('Газар зүйн нэрийн хээрийн тодотголын ажилд газарчнаар ажилласан '
+                 'иргэний нотолгоо')
+        app = 'Хавсралт 9'
+        footer = _FOOTER_F9
+        head = (
+            '<tr>'
+            '<th style="width:36px">д/д</th>'
+            '<th>Иргэний овог, нэр</th>'
+            '<th>Регистрийн дугаар</th>'
+            '<th>Утасны дугаар</th>'
+            '<th>Гарын үсэг</th>'
+            '</tr>'
+        )
+        body = _empty_rows(5, n=8)
+    else:
+        title = ('Улсын Их Хурлаар батлагдсан газар зүйн нэр 1:25000-1:100000-ны '
+                 'масштабтай байр зүйн зураг дээр бичигдсэн нэртэй харьцуулсан судалгаа')
+        app = 'Хавсралт 1'
+        head = (
+            '<tr>'
+            '<th rowspan="2" style="width:36px">д/д</th>'
+            '<th rowspan="2">Газар нутгийн нэрийн<br>зураг дээрх нэрийн жагсаалт</th>'
+            '<th rowspan="2">УИХ-аар батлагдсан<br>газар зүйн нэр</th>'
+            '<th colspan="2">1980-1984 онд хээрийн тодруулалт хийсэн<br>'
+            '1:100000-ны масштабтай байр зүйн суурь зураг</th>'
+            '<th colspan="2">1:25000-ны масштабтай<br>байр зүйн зураг</th>'
+            '</tr>'
+            '<tr><th>Нэрэлбэр</th><th>Газар зүйн нэрийн жагсаалт</th>'
+            '<th>Нэрэлбэр</th><th>Газар зүйн нэрийн жагсаалт</th></tr>'
+        )
+        body = ''.join(
+            f'<tr><td class="c">{r["i"]}</td>'
+            f'<td>{_dots(r.get("draft"))}</td>'
+            f'<td>{_dots(r.get("name"))}</td>'
+            f'<td class="c">{_dots(r.get("nomek_100k"))}</td>'
+            f'<td>{_dots(r.get("name"))}</td>'
+            f'<td class="c">{_dots(r.get("nomek_25k"))}</td>'
+            f'<td>{_dots(r.get("name"))}</td></tr>'
+            for r in rows)
+
+    html_str = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>{_MAYAGT_CSS}</style></head><body>
+<div class="app">{app}</div>
+<div class="title">{title}</div>
+<div class="units">{units}</div>
+<table><thead>{head}</thead><tbody>{body or '<tr><td colspan="9">&nbsp;</td></tr>'}</tbody></table>
+{footer}
+</body></html>"""
+
+    options = {
+        "page-size": "A4",
+        "orientation": "Portrait",
+        "margin-top": "20mm", "margin-bottom": "20mm",
+        "margin-left": "30mm", "margin-right": "15mm",
+        "encoding": "UTF-8", "enable-local-file-access": None, "quiet": "",
     }
     return pdfkit.from_string(html_str, False, options=options)

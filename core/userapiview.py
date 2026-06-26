@@ -151,10 +151,15 @@ class ConstantViewSet(PublicListMixin, viewsets.ModelViewSet):
 			if not perm.has_permission(self.request, self):
 				raise PermissionDenied("Танд меню засах эрх байхгүй байна.")
 		serializer.save()
+	# Эрх (дэд цэс) шинээр үүсгэхэд default-аар нэмэгдэх action-ууд: CRUD + List
+	# (create=нэмэх, delete=устгах, update=засах, list=харах). Бусад action
+	# (detail, copy, sld г.м.)-ийг дараа нь гараар нэмнэ.
+	DEFAULT_ACTION_NAMES = ['create', 'delete', 'update', 'list']
+
 	def perform_create(self, serializer):
 		instance=serializer.save()
 		if instance.key=='SUBMENUS':
-			actions=self.queryset.filter(key='ACTION_TYPES')
+			actions=self.queryset.filter(key='ACTION_TYPES', name__in=self.DEFAULT_ACTION_NAMES)
 			for action in actions:
 				act, crtd=SubMenuPermission.objects.update_or_create(
 					submenu=instance,

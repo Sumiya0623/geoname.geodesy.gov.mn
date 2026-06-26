@@ -92,10 +92,12 @@ class NameCategoryViewSet(viewsets.ViewSet):
         visible = _views_visible_ids()
         if visible is not None:
             qs = [c for c in qs if c.id in visible]
+        # Зөвхөн БАЙРШИЛТАЙ (geoloc) геонэрийг тоолно — газрын зурагт харагдахтай
+        # таарна. Байршилгүй (импортолсон) нэрс тоонд орохгүй.
         for c in qs:
             c.count = GeoName.objects.filter(
-                type_id__in=_subtree_ids(c.id)).count()
-        total = GeoName.objects.count()  # системийн нийт геонэр
+                type_id__in=_subtree_ids(c.id), geoloc__isnull=False).count()
+        total = GeoName.objects.filter(geoloc__isnull=False).count()  # байршилтай нийт
         return Response(
             {'results': NameCategorySerializer(qs, many=True).data,
              'total': total},

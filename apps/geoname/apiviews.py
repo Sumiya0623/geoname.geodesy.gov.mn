@@ -3,10 +3,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q
+from django.db.models import Q, Subquery, OuterRef
 from django.contrib.gis.geos import Point, GEOSGeometry
 
-from core.models import Constant, GeoName, AdminUnit, Nomek
+from core.models import Constant, GeoName, AdminUnit, Nomek, ReCount
 from core.mixin import PublicListMixin
 from core.filters import GlobalFilter
 from portal.auth import function_permission
@@ -66,11 +66,21 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 	filterset_class = GlobalFilter
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
 	search_fields = ['name', 'number']
-	ordering_fields = [f.name for f in GeoName._meta.fields]
+	# Модел талбарууд + холбоост (төрлийн нэр, эх сурвалжийн итгэл/төлөв)
+	ordering_fields = [f.name for f in GeoName._meta.fields] + [
+		'type__name', 'sources__confidence', 'sources__needs_review',
+		'aimag_name', 'sum_name']
 	ordering = ['-created_date']
 
 	def get_queryset(self):
-		qs = GeoName.objects.select_related('type', 'user')
+		qs = GeoName.objects.select_related('type', 'user').prefetch_related(
+			'sources', 'unit', 'unit__level')
+		# Аймаг/сумаар сортлоход — түвшингээр шүүсэн нэрийг annotate (M2M давхардлаас сэргийлж Subquery)
+		aimag_sq = AdminUnit.objects.filter(
+			unitnames=OuterRef('pk'), level__name='Аймаг/Нийслэл').order_by('unit').values('unit')[:1]
+		sum_sq = AdminUnit.objects.filter(
+			unitnames=OuterRef('pk'), level__name='Сум/Дүүрэг').order_by('unit').values('unit')[:1]
+		qs = qs.annotate(aimag_name=Subquery(aimag_sq), sum_name=Subquery(sum_sq))
 		p = self.request.query_params
 		# Картын төрөл / ангилал (удам багтаана)
 		type_id = p.get('type', None)
@@ -82,10 +92,38 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(is_approved=True)
 		elif approved in ('false', 'False', '0'):
 			qs = qs.filter(is_approved=False)
+		# Импортын эх сурвалж: хянах шаардлагатай эсэхээр шүүх
+		review = p.get('needs_review', None)
+		if review in ('true', 'True', '1'):
+			qs = qs.filter(sources__needs_review=True).distinct()
+		elif review in ('false', 'False', '0'):
+			qs = qs.filter(sources__needs_review=False).distinct()
 		# Дэлгэрэнгүй хайлт: засаг захиргааны нэгж (удам багтаана)
 		unit_tree = p.get('unit_tree', None)
 		if unit_tree:
 			qs = qs.filter(unit__id__in=descendant_unit_ids(unit_tree)).distinct()
+		# Дахин тооллогын таб: тухайн төсөл/үе шатанд АЛЬ ХЭДИЙН бүртгэгдсэн нэрсийг
+		# хайлтын жагсаалтаас хасна (устгавал буцаж орно).
+		excl_project = p.get('exclude_recount_project', None)
+		if excl_project:
+			rc = ReCount.objects.filter(project_id=excl_project)
+			excl_step = p.get('exclude_recount_step', None)
+			if excl_step:
+				rc = rc.filter(step_id=excl_step)
+			# name_id=NULL (шинэ нэр/draft/байршил) мөрүүдийг хасахгүй — эс бөгөөс
+			# id__in доторх NULL улмаас NOT IN бүх мөрийг хоослодог (SQL NULL алдаа).
+			excl_ids = rc.exclude(name_id__isnull=True).values_list('name_id', flat=True)
+			qs = qs.exclude(id__in=excl_ids)
+		# ЗЗ нэгжээр СПАТИАЛ шүүх (нэгжийн геометр дотор багтах geoname).
+		# 'unit_geom' param — GlobalFilter‑ийн 'unit' (M2M гишүүнчлэл) filter‑тэй
+		# мөргөлдөхгүй (тэр нь AND хийж хоослодог).
+		unit = p.get('unit_geom', None)
+		if unit:
+			au = AdminUnit.objects.filter(id=unit).exclude(geom__isnull=True).first()
+			if au:
+				qs = qs.filter(geoloc__intersects=au.geom)
+			else:
+				qs = qs.filter(unit__id__in=descendant_unit_ids(unit)).distinct()
 		# Дэлгэрэнгүй хайлт: нэрлэвэр (М-46-22 гэх мэт код)
 		# Зураасны тоогоор масштабыг тогтооно — зөвхөн 1:100000 (2 зураас),
 		# 1:25000 (4 зураас). Тухайн код+масштабтай Nomek‑ийн geom‑той
@@ -216,10 +254,24 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 	@action(detail=False, methods=['get'], url_path='dropdown',
 			permission_classes=[IsAuthenticated])
 	def dropdown(self, request, *args, **kwargs):
-		"""Газар зүйн нэр сонголт (FK dropdown) — нэр/дугаараар хайна."""
+		"""Газар зүйн нэр сонголт (FK dropdown) — нэр/дугаар, ЗЗ нэгж (удам), нэрийн
+		ангилал (удам)‑аар шүүнэ."""
+		p = request.query_params
 		qs = GeoName.objects.all().order_by('name')
-		search = request.query_params.get('search')
+		search = p.get('search')
 		if search:
 			qs = qs.filter(Q(name__icontains=search) | Q(number__icontains=search))
+		unit = p.get('unit')
+		if unit:
+			# Спатиал хайлт: тухайн ЗЗ нэгжийн ГЕОМЕТР дотор багтах/огтлолцох
+			# geoname‑ууд (unit_tree=<id>‑ийн geom). Геомгүй бол M2M гишүүнчлэлээр.
+			au = AdminUnit.objects.filter(id=unit).exclude(geom__isnull=True).first()
+			if au:
+				qs = qs.filter(geoloc__intersects=au.geom)
+			else:
+				qs = qs.filter(unit__id__in=descendant_unit_ids(unit)).distinct()
+		type_id = p.get('type')
+		if type_id:
+			qs = qs.filter(type_id__in=descendant_type_ids(type_id))
 		return Response(
-			{'results': GeoNameDropSerializer(qs, many=True).data}, status=200)
+			{'results': GeoNameDropSerializer(qs[:50], many=True).data}, status=200)

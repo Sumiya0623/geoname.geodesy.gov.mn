@@ -4,7 +4,14 @@ from django.contrib.contenttypes.models import ContentType
 from core.models import (
 	Constant, AdminUnit, LegalOrder,
 	GeoName, RequestName, NameOption, NameContact, Photo, Attach,
+	Project, ReCount, ReCountMap, Council, CouncilMember,
 )
+
+
+class GeoNameRefSerializer(serializers.ModelSerializer):
+	class Meta:
+		model = GeoName
+		fields = ['id', 'name']
 
 
 # ----------------------------------------------------------------------
@@ -216,3 +223,127 @@ class RequestNameSerializer(serializers.ModelSerializer):
 		if contacts_data is not None:
 			self._save_contacts(instance, contacts_data)
 		return instance
+
+
+# ----------------------------------------------------------------------
+# Дахин тооллого (ReCount) — суурин судалгааны таб
+# ----------------------------------------------------------------------
+
+class ReCountSerializer(serializers.ModelSerializer):
+	step = ConstantDropSerializer(read_only=True)
+	step_id = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.filter(key='RECOUNT_STEPS'),
+		source='step', write_only=True, required=False, allow_null=True,
+	)
+	status = ConstantDropSerializer(read_only=True)
+	status_id = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.filter(key='RECOUNT_STATUS'),
+		source='status', write_only=True, required=False, allow_null=True,
+	)
+	# GeoName — заавал биш. Байхгүй бол null (frontend харуулахгүй).
+	name = GeoNameRefSerializer(read_only=True)
+	name_id = serializers.PrimaryKeyRelatedField(
+		queryset=GeoName.objects.all(),
+		source='name', write_only=True, required=False, allow_null=True,
+	)
+	project_id = serializers.PrimaryKeyRelatedField(
+		queryset=Project.objects.all(),
+		source='project', write_only=True, required=False, allow_null=True,
+	)
+	loc = serializers.SerializerMethodField()
+
+	class Meta:
+		model = ReCount
+		fields = [
+			'id', 'project', 'project_id', 'step', 'step_id', 'status', 'status_id',
+			'name', 'name_id', 'draft', 'loc',
+		]
+
+	def get_loc(self, obj):
+		if obj.loc:
+			import json
+			return json.loads(obj.loc.geojson)
+		return None
+
+
+class ReCountMapSerializer(serializers.ModelSerializer):
+	sources = ConstantDropSerializer(many=True, read_only=True)
+
+	class Meta:
+		model = ReCountMap
+		fields = ['id', 'names', 'file', 'sources']
+
+
+# ----------------------------------------------------------------------
+# Газар зүйн нэрийн зөвлөл (Council) + гишүүд (CouncilMember) — temporal архив
+# ----------------------------------------------------------------------
+
+class LegalOrderMiniSerializer(serializers.ModelSerializer):
+	class Meta:
+		model = LegalOrder
+		fields = ['id', 'name', 'order_number', 'order_date']
+
+
+class CouncilMemberSerializer(serializers.ModelSerializer):
+	position = ConstantDropSerializer(read_only=True)
+	position_id = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.filter(key='COUNCIL_POSITIONS'),
+		source='position', write_only=True, required=False, allow_null=True)
+	appoint_doc = LegalOrderMiniSerializer(read_only=True)
+	appoint_doc_id = serializers.PrimaryKeyRelatedField(
+		queryset=LegalOrder.objects.all(), source='appoint_doc', write_only=True)
+	release_doc = LegalOrderMiniSerializer(read_only=True)
+	release_doc_id = serializers.PrimaryKeyRelatedField(
+		queryset=LegalOrder.objects.all(), source='release_doc',
+		write_only=True, required=False, allow_null=True)
+	is_active = serializers.SerializerMethodField()
+
+	class Meta:
+		model = CouncilMember
+		fields = [
+			'id', 'council', 'full_name', 'register', 'person',
+			'position', 'position_id', 'org_title', 'start_date', 'end_date',
+			'appoint_doc', 'appoint_doc_id', 'release_doc', 'release_doc_id',
+			'is_active', 'created_date',
+		]
+		read_only_fields = ['created_date']
+
+	def get_is_active(self, obj):
+		return obj.end_date is None
+
+
+class CouncilSerializer(serializers.ModelSerializer):
+	kind = ConstantDropSerializer(read_only=True)
+	kind_id = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.filter(key='COUNCIL_KINDS'),
+		source='kind', write_only=True, required=False, allow_null=True)
+	status = ConstantDropSerializer(read_only=True)
+	status_id = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.filter(key='COUNCIL_STATUS'),
+		source='status', write_only=True, required=False, allow_null=True)
+	unit = UnitDropSerializer(read_only=True)
+	unit_id = serializers.PrimaryKeyRelatedField(
+		queryset=AdminUnit.objects.all(), source='unit',
+		write_only=True, required=False, allow_null=True)
+	established_doc = LegalOrderMiniSerializer(read_only=True)
+	established_doc_id = serializers.PrimaryKeyRelatedField(
+		queryset=LegalOrder.objects.all(), source='established_doc',
+		write_only=True, required=False, allow_null=True)
+	dissolved_doc = LegalOrderMiniSerializer(read_only=True)
+	dissolved_doc_id = serializers.PrimaryKeyRelatedField(
+		queryset=LegalOrder.objects.all(), source='dissolved_doc',
+		write_only=True, required=False, allow_null=True)
+	member_count = serializers.SerializerMethodField()
+
+	class Meta:
+		model = Council
+		fields = [
+			'id', 'name', 'kind', 'kind_id', 'unit', 'unit_id',
+			'status', 'status_id', 'established_doc', 'established_doc_id',
+			'dissolved_doc', 'dissolved_doc_id', 'established_date',
+			'dissolved_date', 'member_count', 'created_date',
+		]
+		read_only_fields = ['created_date']
+
+	def get_member_count(self, obj):
+		return obj.members.filter(end_date__isnull=True).count()

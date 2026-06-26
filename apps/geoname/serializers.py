@@ -62,7 +62,7 @@ class GeoNameFullSerializer(serializers.ModelSerializer):
             'id': o.id, 'name': o.name,
             'order_number': getattr(o, 'order_number', None),
             'order_date': getattr(o, 'order_date', None),
-        } for o in obj.orders.all()]
+        } for o in obj.legalorders.all()]
 
     def _generic_qs(self, model, obj):
         ct = ContentType.objects.get_for_model(GeoName)
@@ -133,20 +133,56 @@ class GeoNameSerializer(serializers.ModelSerializer):
 	lat = serializers.SerializerMethodField()
 	lon = serializers.SerializerMethodField()
 	geom = serializers.SerializerMethodField()
+	geom_type = serializers.SerializerMethodField()  # Point/LineString/Polygon...
 	# Эрх зүйн баримт бичиг (M2M LegalOrder)
 	orders = LegalOrderMiniSerializer(many=True, read_only=True)
 	order_ids = serializers.PrimaryKeyRelatedField(
 		queryset=LegalOrder.objects.all(), source='orders',
 		many=True, write_only=True, required=False)
+	# Импортын эх сурвалжийн төлөв (GeoNameSource): хянах шаардлагатай эсэх, итгэл
+	needs_review = serializers.SerializerMethodField()
+	confidence = serializers.SerializerMethodField()
+	source = serializers.SerializerMethodField()
+	# Засаг захиргааны нэгж (аймаг/сум) — M2M
+	units = serializers.SerializerMethodField()
 
 	class Meta:
 		model = GeoName
 		fields = [
 			'id', 'name', 'number', 'type', 'type_id',
-			'is_approved', 'lat', 'lon', 'geom', 'orders', 'order_ids',
+			'is_approved', 'lat', 'lon', 'geom', 'geom_type', 'orders', 'order_ids',
 			'user_name', 'created_date',
+			'needs_review', 'confidence', 'source', 'units',
 		]
 		read_only_fields = ['user_name', 'created_date']
+
+	def get_units(self, obj):
+		# Аймаг/Нийслэл эхэнд, дараа нь сум/дүүрэг
+		def lvl(u):
+			return 0 if (u.level and 'Аймаг' in (u.level.name or '')) else 1
+		return [{'id': u.id, 'name': u.unit,
+		         'level': u.level.name if u.level else None}
+		        for u in sorted(obj.unit.all(), key=lvl)]
+
+	def _src(self, obj):
+		# Кэшлэх (needs_review/confidence/source нэг л query дуудна)
+		if not hasattr(obj, '_src_cache'):
+			obj._src_cache = obj.sources.first()
+		return obj._src_cache
+
+	def get_needs_review(self, obj):
+		s = self._src(obj)
+		return s.needs_review if s else None
+
+	def get_confidence(self, obj):
+		s = self._src(obj)
+		return s.confidence if s else None
+
+	def get_source(self, obj):
+		s = self._src(obj)
+		if not s:
+			return None
+		return {'volume': s.volume, 'page': s.page, 'line': s.line}
 
 	def get_lat(self, obj):
 		return obj.geoloc.y if obj.geoloc and obj.geoloc.geom_type == 'Point' else None
@@ -156,6 +192,9 @@ class GeoNameSerializer(serializers.ModelSerializer):
 
 	def get_geom(self, obj):
 		return json.loads(obj.geoloc.geojson) if obj.geoloc else None
+
+	def get_geom_type(self, obj):
+		return obj.geoloc.geom_type if obj.geoloc else None
 
 	def _apply_geoloc(self, validated_data):
 		# geom (GeoJSON) ирвэл түүгээр; эс бөгөөс lat/lon‑оос Point.

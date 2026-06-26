@@ -280,16 +280,6 @@ class UserMixin(models.Model):
 	class Meta:
 		abstract = True 
 
-class LegalOrder(UserMixin):
-	name=models.CharField(max_length=2000, verbose_name='Нэр',default="un", blank=True, null=True)
-	unit=models.ForeignKey(AdminUnit, on_delete=models.CASCADE, verbose_name='ЗЗНэгж', related_name='legalorders',blank=True, null=True)
-	org=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'LEGAL_TYPES'}, blank=True, null=True, related_name='legalorgs', verbose_name='Төрөл')
-	type=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'ORDER_TYPES'}, blank=True, null=True, related_name='legalorders', verbose_name='Төрөл')
-	description=models.TextField(verbose_name='Тайлбар', blank=True, null=True)
-	order_date=models.DateField(verbose_name='Гарсан огноо', blank=True, null=True)
-	order_number=models.CharField(max_length=255, verbose_name='Дугаар', blank=True, null=True)
-	document=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Баримт бичиг')
-	signer=models.CharField(max_length=255, verbose_name='Гарын үсэг', blank=True, null=True)
 
 class Mongeoid(models.Model):
 	"""Mongeoid"""
@@ -304,49 +294,11 @@ class Mongeoid(models.Model):
 		return str(self.dh)
 	
 class Nomek(models.Model):
-	geom = models.GeometryField(
-		blank = True,
-		null=True,
-		verbose_name='Хил',
-		help_text='Нэрлэврийн хил, геометр.'
-	)
-	center = models.PointField(
-		blank = True,
-		null=True,
-		verbose_name='Төв цэг',
-		help_text='Нэрлэврийн төлөөлөх төв цэг.'
-	)
-	nomek = models.CharField(
-		max_length=25,
-		verbose_name='Нэрлэвэр',
-		blank=True,
-		null=True,
-		help_text='Нэрлэврийн код эсвэл нэр.'
-	)
-	is_mapped = models.BooleanField(
-		default=False,
-		verbose_name='Газрын зурагт тэмдэглэсэн эсэх',
-		help_text='Энэ нэрлэвэр газрын зураг дээр тэмдэглэгдсэн эсэх.'
-	)
-	scale=models.ForeignKey(
-		Constant,
-		on_delete=models.CASCADE,
-		limit_choices_to={'key':'MAPSCALES'},
-		verbose_name='Төрөл',
-		related_name='scales',
-		blank=True,
-		null=True,
-		help_text='Нэрлэврийн зураглалын масштаб.'
-	)
-	parent = models.ForeignKey(
-		'self',
-		on_delete=models.CASCADE,
-		related_name='children',
-		blank=True,
-		null=True,
-		verbose_name='Дээд нэрлэвэр',
-		help_text='Дээд шатны нэрлэвэр.'
-	)
+	geom = models.GeometryField(blank = True,null=True,verbose_name='Хил')
+	center = models.PointField(blank = True,null=True,verbose_name='Төв цэг')
+	nomek = models.CharField(max_length=25,verbose_name='Нэрлэвэр',blank=True,null=True)
+	scale=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'MAPSCALES'},verbose_name='Төрөл',related_name='scales',blank=True,null=True)
+	parent = models.ForeignKey('self',on_delete=models.CASCADE,related_name='children',blank=True,null=True,verbose_name='Дээд нэрлэвэр')
 	# def save(self, *args, **kwargs):
 	# 	latitude, longitude = self.center.y, self.center.x
 	# 	bmin=latitude-10/60
@@ -364,19 +316,22 @@ class Project(models.Model):
 	dugaar=models.CharField(max_length=2000, verbose_name='Дугаар',default="un", blank=True, null=True)
 	signed_date=models.DateTimeField(blank=True,null=True, verbose_name='Эхэлсэн огноо')
 	end_date=models.DateTimeField(blank=True,null=True, verbose_name='Дуусах огноо')
-	oldid=models.IntegerField(null=True, blank=True)
 
 class GeoName(UserMixin):
 	name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
+	name_eng=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр (English)')
 	number=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Дугаар')
 	type=  models.ForeignKey(Constant,on_delete=models.CASCADE,blank=True,null=True,related_name='centerlocations',limit_choices_to={'key':'GEONAME_TYPES'},verbose_name='Төрөл')
 	nomek = models.ManyToManyField(Nomek,related_name='nomeknames',verbose_name='Нэрлэвэр',blank=True)
 	unit=models.ManyToManyField(AdminUnit,related_name='unitnames',verbose_name='Хил',blank=True)
 	geoloc = models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
+	height=models.FloatField(blank=True,null=True,verbose_name='Өндөр')
 	is_approved=models.BooleanField(default=False,verbose_name='Төлөв',blank=True,null=True)
 	passport=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Хувийн хэрэг')
-	orders=models.ManyToManyField(LegalOrder, related_name='ordernames', verbose_name='Эрх зүйн баримт бичиг', blank=True)
+	# orders=models.ManyToManyField(LegalOrder, related_name='ordernames', verbose_name='Эрх зүйн баримт бичиг', blank=True)
 	is_border=models.BooleanField(default=False,verbose_name='Хил цэс эсэх',blank=True,null=True)
+	other=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Бусад')
+
 	def _type_code_path(self):
 		"""Төрлийн өвөг→навч кодуудыг нийлүүлнэ (level1.code + level2.code + level3.code)."""
 		chain, c, seen = [], self.type, set()
@@ -417,18 +372,6 @@ class RequestName(UserMixin):
 	def __str__(self):
 		return f'{self.name}'
 
-class NameContact(models.Model):
-	request=models.ForeignKey(RequestName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='namecontacts',blank=True, null=True)
-	first_name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
-	last_name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Овог')
-	person=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
-	register=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Регистр')
-	address=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Хаяг')
-	phone=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Утас')
-	email=models.EmailField(max_length=1000,blank=True,null=True,verbose_name='Имэйл')
-	photo=models.ImageField(upload_to=photo_upload_path, blank=True, null=True,verbose_name='Зураг')
-	requested_by=models.ForeignKey(RemoteUser,on_delete=models.CASCADE,verbose_name='Нэр', related_name='requestedcontacts',blank=True, null=True)
-
 class Photo(models.Model):
 	file = models.ImageField(upload_to=photo_upload_path,blank=True, null=True,verbose_name='Зураг')
 	content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True, related_name='photos')
@@ -450,6 +393,76 @@ class Attach(models.Model):
 		return reverse('file-detail', args=[str(self.id)])
 	class Meta:
 		verbose_name_plural = "Attach"
+
+class ReCount(models.Model):
+	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='recounts',blank=True, null=True)
+	step=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_STEPS'},verbose_name='Төрөл',related_name='recountsteps',blank=True, null=True)
+	name=models.ForeignKey(GeoName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='recounts',blank=True, null=True)
+	draft=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Төсөл')
+	nomeks=models.ManyToManyField(Nomek,related_name='recount100',verbose_name='Нэрлэвэр',blank=True)
+	loc=models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
+	status=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төрөл',related_name='recountstatuses',blank=True, null=True)
+
+class ReCountMap(models.Model):
+	names=models.ManyToManyField(ReCount,verbose_name='Нэрс', related_name='recountmaps')
+	file=models.FileField(upload_to=file_upload_path,blank=True, null=True,verbose_name='Зураг')
+	sources=models.ManyToManyField(Constant,related_name='recountmapssources',limit_choices_to={'key':'SOURCES'},verbose_name='Төрөл',blank=True)
+
+class LegalOrder(UserMixin):
+	names=models.ManyToManyField(GeoName,related_name='legalorders',verbose_name='Нэрлэвэр',blank=True)
+	projects=models.ManyToManyField(Project,related_name='projectorders',verbose_name='Төслүүд',blank=True)
+	name=models.CharField(max_length=2000, verbose_name='Нэр',default="un", blank=True, null=True)
+	unit=models.ForeignKey(AdminUnit, on_delete=models.CASCADE, verbose_name='ЗЗНэгж', related_name='legalorders',blank=True, null=True)
+	org=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'LEGAL_TYPES'}, blank=True, null=True, related_name='legalorgs', verbose_name='Төрөл')
+	type=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'ORDER_TYPES'}, blank=True, null=True, related_name='legalorders', verbose_name='Төрөл')
+	description=models.TextField(verbose_name='Тайлбар', blank=True, null=True)
+	order_date=models.DateField(verbose_name='Гарсан огноо', blank=True, null=True)
+	order_number=models.CharField(max_length=255, verbose_name='Дугаар', blank=True, null=True)
+	document=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Баримт бичиг')
+	signer=models.CharField(max_length=255, verbose_name='Гарын үсэг', blank=True, null=True)
+
+
+class GeoNameSource(models.Model):
+	name=models.ForeignKey(GeoName, on_delete=models.CASCADE, related_name='sources', verbose_name='Нэр')
+	order=models.ForeignKey(LegalOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='name_sources', verbose_name='Тогтоол')
+	volume=models.CharField(max_length=50, blank=True, null=True, verbose_name='Боть')
+	page=models.IntegerField(blank=True, null=True, verbose_name='Хуудас')
+	line=models.IntegerField(blank=True, null=True, verbose_name='Мөр')
+	raw_text=models.CharField(max_length=1000, blank=True, null=True, verbose_name='Эх мөр')
+	confidence=models.FloatField(blank=True, null=True, verbose_name='Итгэлийн оноо')
+	needs_review=models.BooleanField(default=False, verbose_name='Хянах шаардлагатай')
+
+	class Meta:
+		indexes=[models.Index(fields=['volume','page'])]
+
+	def __str__(self):
+		return f'{self.name} — {self.volume} х.{self.page}'
+
+
+class RasterMap(UserMixin):
+	names=models.ManyToManyField(GeoName,related_name='namemaps',verbose_name='Нэрлэвэр',blank=True)
+	projects=models.ManyToManyField(Project,related_name='projectmaps',verbose_name='Төслүүд',blank=True)
+	unit=models.ForeignKey(AdminUnit, on_delete=models.CASCADE, verbose_name='ЗЗНэгж', related_name='mapunits',blank=True, null=True)
+	nomek=models.ForeignKey(Nomek, on_delete=models.CASCADE, verbose_name='Нэрлэвэр', related_name='mapnomeks',blank=True, null=True)
+	description=models.TextField(verbose_name='Тайлбар', blank=True, null=True)
+	map_date=models.DateField(verbose_name='Гарсан огноо', blank=True, null=True)
+	is_geo=models.BooleanField(default=False,verbose_name='Холболттой эсэх')
+	file=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Газрын зураг')
+
+class NameContact(models.Model):
+	request=models.ForeignKey(RequestName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='namecontacts',blank=True, null=True)
+	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='namecontacts',blank=True, null=True)
+	role=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_ROLES'},verbose_name='Төрөл',related_name='namecontacts',blank=True, null=True)
+	document=models.ForeignKey(LegalOrder,on_delete=models.CASCADE,limit_choices_to={'key':'DOCUMENT_TYPES'},verbose_name='Төрөл',related_name='namecontacts',blank=True, null=True)
+	first_name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
+	last_name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Овог')
+	person=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
+	register=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Регистр')
+	address=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Хаяг')
+	phone=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Утас')
+	email=models.EmailField(max_length=1000,blank=True,null=True,verbose_name='Имэйл')
+	photo=models.ImageField(upload_to=photo_upload_path, blank=True, null=True,verbose_name='Зураг')
+	requested_by=models.ForeignKey(RemoteUser,on_delete=models.CASCADE,verbose_name='Нэр', related_name='requestedcontacts',blank=True, null=True)
 
 class Cart(UserMixin):
 	status = models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'CARTSTATUS'}, verbose_name='Төрөл', related_name='carts',blank=True, null=True)
@@ -516,7 +529,7 @@ class PaymentBank(models.Model):
 		verbose_name_plural = "Банк" 
 
 class Report(models.Model):
-	measurements = models.ManyToManyField(GeoName, related_name='reports')
+	names = models.ManyToManyField(GeoName, related_name='reports')
 	report=models.FileField(upload_to=file_upload_path,blank=True, null=True)
 	engineer=models.ForeignKey(RemoteUser, on_delete=models.CASCADE, verbose_name='Тэгшитгэн бодсон',related_name='reportengineers',limit_choices_to={'is_citizen': True},null=True, blank=True) # C NonReq
 
@@ -675,3 +688,53 @@ class LayerGroupItem(models.Model):
 
 
 
+
+
+class Council(models.Model):
+	"""Газар зүйн нэрийн зөвлөл — үндэсний (нэг) эсвэл салбар (аймаг/сум/дүүрэг
+	бүрд). Зөвлөл өөрөө устдаггүй — status=татан буугдсан + dissolved_doc тавина."""
+	name = models.CharField(max_length=1000, verbose_name='Нэр')
+	kind = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'COUNCIL_KINDS'}, related_name='council_kinds', verbose_name='Төрөл')
+	unit = models.ForeignKey(AdminUnit, on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='councils', verbose_name='Харьяа нэгж')
+	status = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'COUNCIL_STATUS'}, related_name='council_statuses', verbose_name='Төлөв')
+	established_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='established_councils', verbose_name='Байгуулсан баримт')
+	dissolved_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='dissolved_councils', verbose_name='Татан буулгасан баримт')
+	established_date = models.DateField(null=True, blank=True, verbose_name='Байгуулсан огноо')
+	dissolved_date = models.DateField(null=True, blank=True, verbose_name='Татан буугдсан огноо')
+	created_date = models.DateTimeField(auto_now_add=True)
+
+	def __str__(self):
+		return self.name or f'Council#{self.pk}'
+
+
+class CouncilMember(models.Model):
+	"""Зөвлөлийн гишүүний ТОМИЛГОО — temporal, append-only архив. Мөр устгахгүй;
+	чөлөөлөхдөө end_date + release_doc тавина. Өөрчлөлт бүр баримтаар (LegalOrder)
+	баталгаажна (appoint_doc заавал)."""
+	council = models.ForeignKey(Council, on_delete=models.CASCADE, related_name='members', verbose_name='Зөвлөл')
+	full_name = models.CharField(max_length=1000, verbose_name='Овог нэр')
+	register = models.CharField(max_length=20, null=True, blank=True, verbose_name='Регистр')
+	person = models.ForeignKey(RemoteUser, on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='council_memberships', verbose_name='Системийн хэрэглэгч')
+	position = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'COUNCIL_POSITIONS'}, related_name='council_positions', verbose_name='Албан тушаал')
+	org_title = models.CharField(max_length=1000, null=True, blank=True, verbose_name='Төлөөлж буй албан тушаал')
+	start_date = models.DateField(verbose_name='Томилогдсон огноо')
+	end_date = models.DateField(null=True, blank=True, verbose_name='Чөлөөлөгдсөн огноо')
+	appoint_doc = models.ForeignKey('LegalOrder', on_delete=models.PROTECT,
+		related_name='council_appointments', verbose_name='Томилсон баримт')
+	release_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='council_releases', verbose_name='Чөлөөлсөн баримт')
+	created_date = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-start_date', 'id']
+		indexes = [models.Index(fields=['council', 'end_date'])]
+
+	def __str__(self):
+		return f'{self.full_name} | {self.council_id} ({"идэвхтэй" if self.end_date is None else "хуучин"})'
