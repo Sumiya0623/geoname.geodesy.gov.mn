@@ -1,3 +1,5 @@
+import math
+
 from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -275,3 +277,532 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(type_id__in=descendant_type_ids(type_id))
 		return Response(
 			{'results': GeoNameDropSerializer(qs[:50], many=True).data}, status=200)
+
+
+# ==================== Хэвлэлийн эх (PrintMap / raster) ====================
+from django.contrib.gis.db.models import Union as _GisUnion
+from django.core.files.base import ContentFile
+from core.models import PrintMap
+from .serializers import PrintMapSerializer
+from . import mapprint
+
+AIMAG_LVL = 'Аймаг/Нийслэл'
+SUM_LVL = 'Сум/Дүүрэг'
+
+
+def _union_geom(unit_ids):
+    """Сонгосон нэгжүүдийн геометрийн нэгдэл (union)."""
+    if not unit_ids:
+        return None
+    agg = AdminUnit.objects.filter(id__in=unit_ids).exclude(
+        geom__isnull=True).aggregate(u=_GisUnion('geom'))
+    return agg.get('u')
+
+
+def _linestring_chain(geom):
+    """(Multi)LineString/GeometryCollection → хамгийн урт цувралын [[lon,lat],...]."""
+    if geom is None:
+        return []
+    try:
+        if geom.empty:
+            return []
+    except Exception:
+        pass
+    gt = geom.geom_type
+    if gt == 'LineString':
+        return [[round(x, 6), round(y, 6)] for x, y in geom.coords]
+    best, blen = None, -1.0
+    try:
+        for g in geom:
+            if 'LineString' in g.geom_type and not g.empty:
+                if g.length > blen:
+                    blen, best = g.length, g
+    except Exception:
+        return []
+    if best is None:
+        return []
+    return [[round(x, 6), round(y, 6)] for x, y in best.coords]
+
+
+def _shared_border_dense(union, neighbor, step=0.0018, near=0.0035):
+    """union-ий хилийг НЯГТ алхаж (step≈200м), хөршийн buffer дотор унах
+    ТАСРАЛТГҮЙ хамгийн урт хэсгийг [[lon,lat],...] болгож буцаана. intersection-ийн
+    chord (хилийн curve огтолсон урт segment) асуудлыг бүрэн арилгана."""
+    try:
+        ring = union.boundary
+        lines = [ring] if ring.geom_type == 'LineString' else list(ring)
+        nb_buf = neighbor.buffer(near)
+        best = []
+        for line in lines:
+            length = line.length
+            if not length:
+                continue
+            cur = []
+            d = 0.0
+            while d <= length:
+                p = line.interpolate(d)
+                if nb_buf.contains(p):
+                    cur.append([round(p.x, 6), round(p.y, 6)])
+                else:
+                    if len(cur) > len(best):
+                        best = cur
+                    cur = []
+                d += step
+            if len(cur) > len(best):
+                best = cur
+        return best
+    except Exception:
+        return []
+
+
+def _bordering_units(union_geom, level_name, exclude_ids):
+    """union-ий ГАДНА талд хил залгаа нэгжүүд (ижил түвшин, сонгосныг хасна).
+    Топологийн зөрүүг тэвчихийн тулд dwithin (~300м) ашиглана."""
+    if union_geom is None:
+        return []
+    return list(AdminUnit.objects.filter(level__name=level_name)
+                .exclude(id__in=exclude_ids).exclude(geom__isnull=True)
+                .filter(geom__dwithin=(union_geom, 0.003))
+                .select_related('parent'))
+
+
+def _adjacent_by_direction(union_geom, borders):
+    """Хил залгаа нэгжүүдийг чиглэлээр (N/S/E/W) хамгийн ойроор нь хуваарилна."""
+    out = {'north': None, 'south': None, 'east': None, 'west': None}
+    if union_geom is None:
+        return out
+    cc = union_geom.centroid
+    best = {}
+    for b in borders:
+        bc = b.geom.centroid
+        dx, dy = bc.x - cc.x, bc.y - cc.y
+        d = (dx * dx + dy * dy) ** 0.5
+        key = ('east' if dx > 0 else 'west') if abs(dx) >= abs(dy) else (
+            'north' if dy > 0 else 'south')
+        if key not in best or d < best[key][0]:
+            best[key] = (d, b.unit)
+    for k, v in best.items():
+        out[k] = v[1]
+    return out
+
+
+def _build_title(units):
+    """'<Аймаг> аймгийн <Сум1>, <Сум2> сумын газар зүйн нэрийн зураг' (авто)."""
+    parents, sums = [], []
+    for u in units:
+        sums.append(u.unit)
+        if u.parent_id and u.parent.unit not in parents:
+            parents.append(u.parent.unit)
+    if parents:
+        return f"{', '.join(parents)} аймгийн {', '.join(sums)} сумын газар зүйн нэрийн зураг"
+    return f"{', '.join(sums)} аймгийн газар зүйн нэрийн зураг"
+
+
+def _geom_rings(geom):
+    """GEOS геометр → гадаад цагиргуудын [[lon,lat],...] жагсаалт (хялбарчилсан)."""
+    if geom is None:
+        return []
+    try:
+        g = geom.simplify(0.001, preserve_topology=True) or geom
+    except Exception:
+        g = geom
+    polys = list(g) if g.geom_type == 'MultiPolygon' else [g]
+    out = []
+    for poly in polys:
+        try:
+            coords = poly.exterior_ring.coords
+        except Exception:
+            continue
+        out.append([[round(x, 6), round(y, 6)] for x, y in coords])
+    return out
+
+
+def _geom_clip_polys(geom):
+    """GEOS геометр → [{'exterior': [[lon,lat],...], 'holes': [[[lon,lat],...]]}]
+    (нүхтэй полигонуудыг хадгална — PIL clip mask-д ашиглана)."""
+    if geom is None:
+        return []
+    try:
+        g = geom.simplify(0.0015, preserve_topology=True) or geom
+    except Exception:
+        g = geom
+    polys = list(g) if g.geom_type == 'MultiPolygon' else [g]
+    out = []
+    for poly in polys:
+        try:
+            ext = [[round(x, 6), round(y, 6)]
+                   for x, y in poly.exterior_ring.coords]
+        except Exception:
+            continue
+        holes = []
+        try:
+            for i in range(1, poly.num_interior_rings + 1):
+                holes.append([[round(x, 6), round(y, 6)]
+                              for x, y in poly[i].coords])
+        except Exception:
+            pass
+        out.append({'exterior': ext, 'holes': holes})
+    return out
+
+
+# шаргал-улбар hypsometric — print-д 7 ШАТЛАЛ, min/max-аар сунгана (гөлгөр)
+_DEM_STOPS = [
+    (0.00, '#f8ddb0'), (0.17, '#f3c486'), (0.33, '#eeac5e'),
+    (0.50, '#e79440'), (0.67, '#dd7e2c'), (0.83, '#cf6a1d'),
+    (1.00, '#bd5811'),
+]
+
+
+def _union_dem_minmax(union, target=300):
+    """Сонгосон нэгжийн хил ДОТОРХ DEM-ийн (min, max) өндөр.
+    DEM-ийг ГЕОСЕРВЕРЭЭС WCS GetCoverage-ээр HTTP-ээр татна (prod-д тусдаа
+    геосервер байсан ч ажиллана — локал файл ашиглахгүй). Полигон mask-аар
+    зөвхөн хил доторх пикселийн min/max. Алдаа гарвал None (global шатлал)."""
+    import os
+    import tempfile
+    tp = None
+    try:
+        import numpy as np
+        import requests
+        from django.conf import settings
+        from django.contrib.gis.gdal import GDALRaster
+        from PIL import Image, ImageDraw
+        x0, y0, x1, y1 = union.extent
+        base = (settings.GEOSERVER_URL or '').rstrip('/')
+        params = {
+            'service': 'WCS', 'version': '2.0.1', 'request': 'GetCoverage',
+            'coverageId': 'geoname__dem', 'format': 'image/tiff',
+            'subset': [f'Long({x0},{x1})', f'Lat({y0},{y1})'],
+            'scaleSize': f'i({target}),j({target})',
+        }
+        r = requests.get(base + '/geoname/wcs', params=params,
+                         auth=(settings.GEOSERVER_USER,
+                               settings.GEOSERVER_PASSWORD), timeout=90)
+        ct = r.headers.get('content-type', '')
+        if not ('tif' in ct or 'image' in ct):
+            return None
+        fd, tp = tempfile.mkstemp(suffix='.tif')
+        os.write(fd, r.content)
+        os.close(fd)
+        rast = GDALRaster(tp)
+        tw, th = rast.width, rast.height
+        arr = np.array(rast.bands[0].data(), dtype='float32').reshape(th, tw)
+        ox, oy = rast.origin.x, rast.origin.y
+        sx, sy = rast.scale.x, rast.scale.y  # sy < 0
+        mask = Image.new('L', (tw, th), 0)
+        drw = ImageDraw.Draw(mask)
+
+        def _px(ring):
+            return [((x - ox) / sx, (y - oy) / sy) for x, y in ring]
+        for p in _geom_clip_polys(union):
+            if len(p['exterior']) >= 3:
+                drw.polygon(_px(p['exterior']), fill=255)
+            for hl in p['holes']:
+                if len(hl) >= 3:
+                    drw.polygon(_px(hl), fill=0)
+        m = np.array(mask) > 0
+        valid = (arr > -1000) & m
+        if not valid.any():
+            valid = arr > -1000
+        if not valid.any():
+            return None
+        vals = arr[valid]
+        return round(float(vals.min())), round(float(vals.max()))
+    except Exception:
+        return None
+    finally:
+        if tp and os.path.exists(tp):
+            try:
+                os.remove(tp)
+            except OSError:
+                pass
+
+
+def _dem_terrain_sld(vmin, vmax, relief=0):
+    """[vmin, vmax] өндрийн хооронд сунгасан шаргал hypsometric ColorMap SLD.
+    relief=0 → ХАТУУ сүүдэргүй гөлгөр шаргал тинт (хэвлэлд)."""
+    if vmax - vmin < 50:
+        vmax = vmin + 50
+    entries = ['<ColorMapEntry color="#000000" quantity="-1" opacity="0.0"/>']
+    for i, (t, col) in enumerate(_DEM_STOPS):
+        q = vmin + t * (vmax - vmin)
+        op = ' opacity="1.0"' if i == 0 else ''
+        entries.append(
+            f'<ColorMapEntry color="{col}" quantity="{q:.1f}"{op}/>')
+    cm = ''.join(entries)
+    relief_xml = (f'<ShadedRelief><ReliefFactor>{relief}</ReliefFactor>'
+                  '</ShadedRelief>') if relief else ''
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<StyledLayerDescriptor version="1.0.0" '
+        'xmlns="http://www.opengis.net/sld">'
+        '<NamedLayer><Name>geoname:dem</Name><UserStyle>'
+        '<FeatureTypeStyle><Rule><RasterSymbolizer><Opacity>1.0</Opacity>'
+        f'<ColorMap type="ramp">{cm}</ColorMap>{relief_xml}'
+        '</RasterSymbolizer></Rule></FeatureTypeStyle>'
+        '</UserStyle></NamedLayer></StyledLayerDescriptor>')
+
+
+def _geom_all_rings(geom):
+    """Бүх олон өнцөгтийн ГАДААД ба ДОТООД (нүх) цагираг — band дүүргэхэд."""
+    if geom is None or getattr(geom, 'empty', False):
+        return []
+    try:
+        g = geom.simplify(0.001, preserve_topology=True) or geom
+    except Exception:
+        g = geom
+    polys = list(g) if g.geom_type == 'MultiPolygon' else [g]
+    out = []
+    for poly in polys:
+        try:
+            for i in range(len(poly)):  # 0=гадаад, 1..=нүх
+                out.append([[round(x, 6), round(y, 6)] for x, y in poly[i].coords])
+        except Exception:
+            continue
+    return out
+
+
+def _buffer_band_rings(union):
+    """Сонгосон хилийн ШУГАМААС 2 ТИЙШ 500м (газар дээрх) зурвас (line buffer).
+    Хаалттай цагираг тул дотор/гадна 500м тус бүрийн ~1км өргөн анулус band."""
+    import math
+    try:
+        latc = union.centroid.y
+        line = union.boundary  # хилийн шугам(ууд)
+        l = line.clone()
+        l.transform(3857)
+        # 3857-д өргөргөөр сунадаг тул 500/cos(lat) → бодит ~500м (2 тийш)
+        ribbon = l.buffer(500.0 / max(0.2, math.cos(math.radians(latc))))
+        ribbon.transform(4326)
+        return _geom_all_rings(ribbon)  # дүүргэхэд (гадаад + нүх)
+    except Exception:
+        return []
+
+
+class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
+    """Газар зүйн нэрийн зургийн ХЭВЛЭЛИЙН ЭХ — жагсаалт + print(POST) + adjacent(GET)."""
+    serializer_class = PrintMapSerializer
+    queryset = PrintMap.objects.all().order_by('-created_date')
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'], url_path='adjacent')
+    def adjacent(self, request):
+        """Прогрессив сонголт: сонгосон нэгжүүдийн union-д хил залгаа нэгжүүд.
+        ?level=aimag|sum & selected=1,2 & parent=<aimag_id>. Сонголтгүй бол бүгд."""
+        level = request.query_params.get('level', 'aimag')
+        level_name = AIMAG_LVL if level == 'aimag' else SUM_LVL
+        parents = [p for p in (request.query_params.get('parent', '') or '').split(',') if p]
+        sel = [s for s in (request.query_params.get('selected', '') or '').split(',') if s]
+        base = AdminUnit.objects.filter(level__name=level_name).exclude(geom__isnull=True)
+        if parents:
+            base = base.filter(parent_id__in=parents)
+        if sel:
+            u = _union_geom(sel)
+            # сонгосон + union-д хил залгаа (прогрессив contiguous сонголт)
+            base = base.filter(Q(id__in=sel) | Q(geom__dwithin=(u, 0.003)))
+        rows = base.order_by('unit').values('id', 'unit', 'parent_id')
+        return Response({'results': list(rows)}, status=200)
+
+    @action(detail=False, methods=['get'], url_path='geometry')
+    def geometry(self, request):
+        """Сонгосон нэгжүүдийн union → bbox + хилийн GeoJSON (preview-д ашиглана).
+        ?units=1,2,3"""
+        ids = [x for x in (request.query_params.get('units', '') or '').split(',') if x]
+        if not ids:
+            return Response({'bbox': None, 'rings': []}, status=200)
+        union = _union_geom(ids)
+        if union is None:
+            return Response({'bbox': None, 'rings': []}, status=200)
+        x0, y0, x1, y1 = union.extent
+        px, py = (x1 - x0) * 0.03, (y1 - y0) * 0.03
+        fit = mapprint.fit_layout([x0 - px, y0 - py, x1 + px, y1 + py])
+        return Response({
+            'bbox': list(union.extent),       # [w,s,e,n] EPSG:4326
+            'rings': _geom_rings(union),       # [[ [lon,lat],... ], ...]
+            'scale': fit['scale'],            # авто масштаб (render-гүй)
+            'fitBbox': fit['bbox'],           # төвлөрүүлсэн (A0-д тааруулсан)
+            'widthMM': fit['widthMM'], 'heightMM': fit['heightMM'],
+            'orientation': fit['orientation'],
+        }, status=200)
+
+    def _build_params(self, unit_ids, is_border, dpi):
+        """Сонгосон нэгжээс mapprint params + meta(scale/name_count/title) бүтээнэ."""
+        union = _union_geom(unit_ids)
+        if union is None:
+            return None
+        units = list(AdminUnit.objects.filter(id__in=unit_ids)
+                     .select_related('parent', 'level'))
+        # Тор интервал: сум → 5 минут, аймаг → 15 минут
+        is_sum = bool(units and units[0].level_id
+                      and units[0].level.name == SUM_LVL)
+        grid_minutes = 5.0 if is_sum else 15.0
+        # Сумын хилээс ГАДАГШ 5км бүс (саарал hillshade) + дотор clip полигон
+        union_clip_polys = _geom_clip_polys(union)
+        ring_clip_polys = None
+        u_buf = union
+        try:
+            u3857 = union.transform(3857, clone=True)
+            buf3857 = u3857.buffer(5000.0)            # 5км гадагш
+            ring3857 = buf3857.difference(u3857)      # зөвхөн гадна зурвас
+            u_buf = buf3857.transform(4326, clone=True)
+            ring_geo = ring3857.transform(4326, clone=True)
+            ring_clip_polys = _geom_clip_polys(ring_geo)
+        except Exception:
+            pass
+        # Orange DEM-ийг хилээс ГАДАГШ 5км хүртэл сунгаж clip (union + 5км буфер)
+        ubuf_clip_polys = _geom_clip_polys(u_buf)
+        # Print-д сонгосон нэгжийн min↔max өндрөөр peach шатлалыг СУНГАНА
+        dem_minmax = _union_dem_minmax(union)
+        dem_sld = _dem_terrain_sld(*dem_minmax) if dem_minmax else None
+        # 5км бүс багтахаар bbox-г buffer-ийн extent-ээр тооцно
+        x0, y0, x1, y1 = u_buf.extent
+        px, py = (x1 - x0) * 0.02, (y1 - y0) * 0.02
+        # A0 формат, масштаб авто, дүрсийг ГОЛД төвлөрүүлсэн bbox
+        fit = mapprint.fit_layout([x0 - px, y0 - py, x1 + px, y1 + py])
+        # Индексийн торны БҮТЭН нүд (10см) + шошго багтахаар bbox-г өргөтгөж
+        # ДАХИН fit (зураг бага зэрэг жижгэрч, хүрээ "томрох" эффект).
+        margin_m = 0.09 * fit['scale']  # ~90мм цаас → газрын метр (тор+шошго багтах зай)
+        clat = math.cos(math.radians((y0 + y1) / 2.0)) or 1.0
+        dlat = margin_m / 111000.0
+        dlon = margin_m / (111000.0 * clat)
+        fit = mapprint.fit_layout([x0 - px - dlon, y0 - py - dlat,
+                                   x1 + px + dlon, y1 + py + dlat])
+        scale, bbox = fit['scale'], fit['bbox']
+
+        # Нэрс нь unit M2M-ээр биш, БАЙРШЛААРАА сумд багтдаг тул СПАТИАЛ шүүлт
+        # (geoloc нь сонгосон хилийн геометрт багтах). geoname_view-д geoloc багана бий.
+        wkt = (union.simplify(0.004, preserve_topology=True) or union).wkt
+        cql = f"INTERSECTS(geoloc, {wkt})"
+        if is_border:
+            cql += ' AND is_border=true'
+        nq = GeoName.objects.filter(geoloc__intersects=union)
+        if is_border:
+            nq = nq.filter(is_border=True)
+        name_count = nq.distinct().count()
+
+        title = _build_title(units)
+        boundary = _geom_rings(union)
+        buffer_rings = _buffer_band_rings(union)  # хилийн дагуу 500м зурвас
+        neighbors = []
+        ub = union.boundary
+        for b in _bordering_units(union, SUM_LVL, unit_ids):
+            cen = b.geom.centroid
+            nb = {'name': b.unit, 'rings': _geom_rings(b.geom),
+                  'cx': round(cen.x, 6), 'cy': round(cen.y, 6)}
+            # union-тай ХУВААЛЦАХ хилийн шугам (нэрийг дагуулж бичих) — хилийг НЯГТ
+            # алхаж тасралтгүй хэсгийг авна (intersection-ийн cross-cut chord-гүй).
+            nb['border'] = _shared_border_dense(union, b.geom)
+            # хөрш сумын хилийн дагуу 500м БҮДЭГ ягаан зурвас (тодруулга)
+            try:
+                nb['band'] = _buffer_band_rings(b.geom)
+            except Exception:
+                nb['band'] = []
+            neighbors.append(nb)
+
+        # Газар зүйн нэрсийг ТYPE-ийн таних тэмдгээр (combined style) харуулна
+        try:
+            from apps.geoserver.apiviews import ensure_geoname_type_style
+            type_style = ensure_geoname_type_style()
+        except Exception:
+            type_style = ''
+        layers = [
+            # 5км ГАДАГШ бүс — DEM хассан, ЦАГААН (visible=False → цаасны цагаан)
+            {'type': 'wms', 'layerFullName': 'geoname:dem', 'styles': 'dem_gray',
+             'name': 'Гадаргын саарал (5км)', 'opacity': 0.6,
+             'visible': False, 'clipPolys': ring_clip_polys},
+            # Сумын ДОТОР — DEM peach hypsometric, min↔max-аар сунгасан динамик
+            # ColorMap (dem_sld). Алдаа гарвал тогтмол dem_terrain руу шилжинэ.
+            {'type': 'wms', 'layerFullName': 'geoname:dem',
+             'styles': None if dem_sld else 'dem_terrain', 'sld_body': dem_sld,
+             'name': 'Газрын гадарга', 'opacity': 0.8, 'visible': True,
+             'clipPolys': ubuf_clip_polys},  # хил + 5км гадагш
+            {'type': 'wms', 'layerFullName': 'geoname:geoname_view',
+             'name': 'Газар зүйн нэр', 'opacity': 1.0, 'visible': True,
+             'geometryType': 'point', 'color': '#c0392b', 'cql': cql,
+             'styles': type_style},
+        ]
+        params = {
+            'paper': {'format': 'custom', 'widthMM': float(fit['widthMM']),
+                      'heightMM': float(fit['heightMM']), 'marginMM': 8.0,
+                      'orientation': fit['orientation']},
+            'map': {'bbox': bbox, 'scale': scale, 'dpi': dpi, 'rotation': 0},
+            'layers': layers,
+            'layout': {
+                'titleText': '', 'subtitle': title, 'showLegend': True,
+                'legendColumns': 1, 'showNorthArrow': True, 'showGrid': True,
+                'showScaleBar': True, 'showScaleValue': True, 'adjacentNomeks': {},
+                'boundary': boundary, 'neighbors': neighbors,
+                'buffer': buffer_rings,  # хилийн дагуу 500м ягаан зурвас (сэргээв)
+                'gridMinutes': grid_minutes,  # сум=5мин, аймаг=15мин
+                'indexClip': ubuf_clip_polys,  # индекс торыг DEM(улбар)-д л тайрна
+            },
+        }
+        meta = {'scale': scale, 'name_count': name_count, 'title': title,
+                'widthMM': fit['widthMM'], 'heightMM': fit['heightMM'],
+                'orientation': fit['orientation'],
+                'gridMinutes': int(grid_minutes)}
+        return params, meta
+
+    @action(detail=False, methods=['get'], url_path='preview')
+    def preview(self, request):
+        """Сонголтоор хэвлэлийн эх композицыг (хүрээ/тор/гарчиг) рендерлэж PNG + масштаб
+        буцаана (ХАДГАЛАХГҮЙ). Панелд 'хэвлэлийн эх шиг' харуулна."""
+        ids = [int(x) for x in (request.query_params.get('units', '') or '').split(',') if x]
+        if not ids:
+            return Response({'detail': 'units шаардлагатай'}, status=400)
+        is_border = request.query_params.get('is_border') in ('1', 'true', 'True')
+        built = self._build_params(ids, is_border, dpi=45)  # preview хөнгөн (хурдан)
+        if built is None:
+            return Response({'detail': 'геометр алга'}, status=400)
+        params, meta = built
+        try:
+            pdf_bytes = mapprint.render(params)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception('preview render failed')
+            return Response({'detail': f'Алдаа: {exc}'}, status=500)
+        from django.db import close_old_connections
+        close_old_connections()
+        import fitz
+        import base64
+        doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+        png = doc[0].get_pixmap(dpi=70).tobytes('png')
+        return Response({
+            'scale': meta['scale'], 'name_count': meta['name_count'],
+            'widthMM': meta['widthMM'], 'heightMM': meta['heightMM'],
+            'orientation': meta['orientation'],
+            'gridMinutes': meta.get('gridMinutes'),
+            'image': 'data:image/png;base64,' + base64.b64encode(png).decode(),
+        }, status=200)
+
+    @action(detail=False, methods=['post'], url_path='print')
+    def print_map(self, request):
+        """Сонгосон сум(д) → A0 PDF үүсгэж PrintMap-д хадгална."""
+        d = request.data
+        unit_ids = [int(x) for x in (d.get('units') or [])]
+        if not unit_ids:
+            return Response({'detail': 'units шаардлагатай'}, status=400)
+        is_border = bool(d.get('is_border'))
+        built = self._build_params(unit_ids, is_border, int(d.get('dpi') or 200))
+        if built is None:
+            return Response({'detail': 'Сонгосон нэгжид геометр алга'}, status=400)
+        params, meta = built
+        try:
+            pdf_bytes = mapprint.render(params)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception('print render failed')
+            return Response({'detail': f'PDF үүсгэхэд алдаа: {exc}'}, status=500)
+
+        # render нь WMS/tile-ийг удаан татдаг тул DB холболт хаагдсан байж магадгүй
+        from django.db import close_old_connections
+        close_old_connections()
+
+        pm = PrintMap.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            is_border=is_border, name_count=meta['name_count'],
+            title=meta['title'], scale=meta['scale'])
+        pm.units.set(unit_ids)
+        fname = (meta['title'][:60] or 'print').replace(' ', '_').replace('/', '-') + '.pdf'
+        pm.file.save(fname, ContentFile(pdf_bytes), save=True)
+        return Response(PrintMapSerializer(pm, context={'request': request}).data, status=201)

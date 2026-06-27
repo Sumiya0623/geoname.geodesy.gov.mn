@@ -67,6 +67,17 @@ class Resolver:
         words = self._clean(name).split()
         return self.resolve_type(words[-1]) if words else None
 
+    def type_and_clean_name(self, name):
+        """Нэрийн үгсийг СҮҮЛЭЭС нь скан хийж, төрөлд тохирох ХАМГИЙН СҮҮЛИЙН үгийг
+        олно. Type = тэр үг, нэрийг ТЭР ҮГЭЭР тасална (сүүлийн OCR хог арилна).
+        'Баавгайн бөөрөг ЇЗаахс' → (Бөөрөг, 'Баавгайн бөөрөг'). Олдохгүй бол (None, нэр)."""
+        words = self._clean(name).split()
+        for i in range(len(words) - 1, -1, -1):
+            t = self.resolve_type(words[i])
+            if t:
+                return t, ' '.join(words[:i + 1])
+        return None, ' '.join(words)
+
     @staticmethod
     def _fuzzy(name, pool):
         n = _norm(name)
@@ -84,13 +95,30 @@ class Resolver:
         s, sc = self._fuzzy(sm, cand) if cand else (None, 0.0)
         return a, s, sc
 
-    def resolve_row(self, name, header, aimag, sm, uncertain=False):
-        """Нэг мөр → dict (name_eng үүсгэх, type/unit тулгах, needs_review тэмдэглэх)."""
+    def resolve_row(self, name, header, aimag, sm, uncertain=False, ocr_conf=None):
+        """Нэг мөр → dict (name_eng үүсгэх, type/unit тулгах, итгэл/хяналт тэмдэглэх).
+
+        confidence (0..1): тулгалтын чанар (type/аймаг/сум) ба OCR-ийн итгэлийн нийлбэр.
+        Бааз руу авах эсэхийг энэ оноогоор (≥0.70) шийднэ."""
         name = self._clean(name)
         aimag, sm = self._clean(aimag), self._clean(sm)
-        # type: эхлээд нэрийн СҮҮЛИЙН үгнээс (бат), эс бөгөөс бүлгийн гарчгаас
-        t = self.resolve_type_from_name(name) or self.resolve_type(header)
+        # type: нэрийн дотроос төрлийн үгийг олж нэрийг тэр үгээр тасална (хог арилна);
+        # олдохгүй бол бүлгийн гарчгаас (нэрийг хэвээр)
+        t, cleaned = self.type_and_clean_name(name)
+        if t:
+            name = cleaned
+        else:
+            t = self.resolve_type(header)
         a, s, sc = self.resolve_unit(aimag, sm)
+        # Тулгалтын итгэл: НЭР зөв уншигдсаны гол баталгаа = type (нэрийн сүүлийн
+        # үг бодит төрөл) + аймаг таарсан эсэх (тус бүр 0.45). Сум бол НЭМЭЛТ — бага
+        # жинтэй (0.10), байхгүй бол нэрийг "эргэлзээтэй" болгож хэт торгохгүй.
+        res_conf = (0.45 * (1.0 if t else 0.0)
+                    + 0.45 * (1.0 if a else 0.0)
+                    + 0.10 * sc)
+        # OCR итгэлтэй бол хольж бууруулна (муу уншсан мөр итгэл багатай)
+        confidence = res_conf if ocr_conf is None else 0.7 * res_conf + 0.3 * float(ocr_conf)
+        confidence = round(confidence, 2)
         needs_review = bool(uncertain) or t is None or a is None or s is None or sc < 0.92
         return {
             'name': name,
@@ -99,5 +127,6 @@ class Resolver:
             'aimag': a,
             'sum': s,
             'unit_score': sc,
+            'confidence': confidence,
             'needs_review': needs_review,
         }

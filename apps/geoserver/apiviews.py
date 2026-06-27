@@ -338,6 +338,7 @@ GEONAME_SEARCH_VIEW = 'geoname_view'
 # union хийдэггүй; views виртуал тул ачаалал нэмэхгүй). type_l1/l2/id, unit_ids,
 # nomek_codes баганууд CQL‑д зориулагдсан.
 _GEONAME_SEARCH_SQL = """SELECT g.id, g.name, g.number, g.is_approved, g.geoloc,
+    COALESCE(g.is_border, false) AS is_border,
     g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
     json_build_array(t.parent_id, g.type_id) AS type,
     COALESCE(' '||(SELECT string_agg(gu.adminunit_id::text,' ') FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' ','') AS unit_ids,
@@ -424,6 +425,38 @@ def _build_recount_type_sld():
     for r in rules:
         fts.append(r)
     return ET.tostring(sld, encoding='unicode')
+
+
+_GEONAME_TYPE_STYLE = 'geoname_types'
+_geoname_type_style_done = False
+
+
+def ensure_geoname_type_style():
+    """geoname_view‑д type symbol бүхий combined NAMED style (geoname_types) үүсгэж,
+    нэрийг буцаана (default болгохгүй — print дэх STYLES param-д ашиглана). Нэг удаа."""
+    global _geoname_type_style_done
+    name = _GEONAME_TYPE_STYLE
+    if _geoname_type_style_done:
+        return name
+    try:
+        sld = _build_recount_type_sld()  # type_id-д суурилсан тул geoname_view-д хүчинтэй
+        if not sld:
+            return ''
+        sld = sld.replace(f'>{RECOUNT_VIEW}<', f'>{GEONAME_SEARCH_VIEW}<')  # NamedLayer
+        base, auth = _gs_rest_auth()
+        chk = requests.get(f"{base}/workspaces/{GEONAME_WS}/styles/{name}.json",
+                           auth=auth, timeout=10)
+        if chk.status_code != 200:
+            requests.post(f"{base}/workspaces/{GEONAME_WS}/styles",
+                          json={"style": {"name": name, "filename": f"{name}.sld"}},
+                          auth=auth, timeout=10)
+        _gs_style_write_sld(GEONAME_WS, name, sld)
+        _geoname_type_style_done = True
+        return name
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("ensure_geoname_type_style failed", exc_info=True)
+        return ''
 
 
 def _assign_recount_type_style():

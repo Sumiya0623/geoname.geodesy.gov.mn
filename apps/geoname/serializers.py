@@ -3,7 +3,47 @@ from rest_framework import serializers
 from django.contrib.gis.geos import Point, GEOSGeometry
 from django.contrib.contenttypes.models import ContentType
 
-from core.models import Constant, GeoName, LegalOrder, Photo, Attach
+from core.models import Constant, GeoName, LegalOrder, Photo, Attach, PrintMap
+
+
+class PrintMapSerializer(serializers.ModelSerializer):
+    """Хэвлэлийн эх (PDF) жагсаалт — он, аймаг/сум, нэрийн тоо, хэвлэсэн хэрэглэгч."""
+    file_url = serializers.SerializerMethodField()
+    units_text = serializers.SerializerMethodField()
+    user_name = serializers.SerializerMethodField()
+    year = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrintMap
+        fields = ['id', 'title', 'units_text', 'name_count', 'is_border',
+                  'scale', 'file_url', 'user_name', 'created_date', 'year']
+
+    def get_file_url(self, obj):
+        try:
+            if not obj.file:
+                return None
+            url = obj.file.url  # харьцангуй: /api/media/...
+            request = self.context.get('request')
+            # backend (8002) дээр media байгаа тул ABSOLUTE болгоно (frontend 3002 биш)
+            return request.build_absolute_uri(url) if request else url
+        except Exception:
+            return None
+
+    def get_units_text(self, obj):
+        us = list(obj.units.all())
+        if not us:
+            return ''
+        aimag = us[0].parent.unit if us[0].parent_id else ''
+        sums = ', '.join(u.unit for u in us)
+        return f'{aimag} — {sums}' if aimag else sums
+
+    def get_user_name(self, obj):
+        u = obj.user
+        return (getattr(u, 'full_name', None) or getattr(u, 'username', None)
+                or str(u)) if u else ''
+
+    def get_year(self, obj):
+        return obj.created_date.year if obj.created_date else None
 
 
 def _file_url(f):

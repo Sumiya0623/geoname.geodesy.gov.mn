@@ -17,6 +17,8 @@ colorama
 Pillow
 pdfkit
 # sudo apt install -y wkhtmltopdf-0.12.5
+reportlab          # raster (газар зүйн нэрийн зураг) PDF хэвлэлийн эх
+pytesseract        # толийн PDF локал OCR (нэр таних); шаардлага: sudo apt install tesseract-ocr tesseract-ocr-mon
 celery
 redis
 qrcode

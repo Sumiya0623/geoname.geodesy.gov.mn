@@ -449,6 +449,27 @@ class RasterMap(UserMixin):
 	is_geo=models.BooleanField(default=False,verbose_name='Холболттой эсэх')
 	file=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Газрын зураг')
 
+
+class PrintMap(UserMixin):
+	"""Газар зүйн нэрийн зургийн ХЭВЛЭЛИЙН ЭХ (PDF). Аймгийн нэг буюу хэд хэдэн
+	сум сонгоод тэр хил доторх нэрсийг тор+бүрдэлтэйгээр A0 PDF болгож үүсгэнэ.
+	Гарчиг сонгогдсон сумдаас авто-үүснэ ("Дундговь аймгийн Эрдэнэдалай, Хулд
+	сумын газар зүйн нэрийн зураг"). UserMixin-ээс хэн (user), хэдэн онд
+	(created_date) хэвлэсэн нь ирнэ."""
+	units=models.ManyToManyField(AdminUnit, related_name='printmaps', blank=True, verbose_name='Сонгогдсон сумд')
+	is_border=models.BooleanField(default=False, verbose_name='Хилийн цэс')
+	name_count=models.IntegerField(default=0, verbose_name='Багтсан нэрийн тоо')
+	title=models.CharField(max_length=500, blank=True, null=True, verbose_name='Зургийн нэр (авто)')
+	scale=models.IntegerField(blank=True, null=True, verbose_name='Масштаб')
+	file=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Хэвлэлийн эх (PDF)')
+
+	class Meta:
+		verbose_name='Хэвлэлийн эх'
+		verbose_name_plural='Хэвлэлийн эх'
+
+	def __str__(self):
+		return f'{self.title or "Хэвлэлийн эх"} — {self.name_count} нэр'
+
 class NameContact(models.Model):
 	request=models.ForeignKey(RequestName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='namecontacts',blank=True, null=True)
 	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='namecontacts',blank=True, null=True)
