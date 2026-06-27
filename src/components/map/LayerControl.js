@@ -36,6 +36,10 @@ const LayerControl = ({
   onToggleBasemap,
   overlayNomencl = false,
   onToggleNomencl,
+  overlayDem = false,
+  onToggleDem,
+  overlayOpacity = {},
+  onOverlayOpacity,
 }) => {
   const { baseLayers } = useGetBaseLayers();
 
@@ -272,28 +276,59 @@ const LayerControl = ({
               />
             )}
 
-            <FormControlLabel
-              sx={{ ml: 0, display: "flex" }}
-              control={
-                <Checkbox
-                  size="small"
-                  checked={overlayBasemap}
-                  onChange={() => onToggleBasemap && onToggleBasemap()}
+            {[
+              {
+                key: "DEM",
+                label: "Газрын гадарга (DEM)",
+                checked: overlayDem,
+                toggle: onToggleDem,
+                def: 0.85,
+                color: "#8d6e63",
+              },
+              {
+                key: "BASEMAP",
+                label: "Суурь зураг",
+                checked: overlayBasemap,
+                toggle: onToggleBasemap,
+                def: 1,
+                color: "#e91e63",
+              },
+              {
+                key: "NOMENCLATURE",
+                label: "Нэрлэвэр",
+                checked: overlayNomencl,
+                toggle: onToggleNomencl,
+                def: 1,
+                color: "#00bcd4",
+              },
+            ].map((ov) => (
+              <Box key={ov.key}>
+                <FormControlLabel
+                  sx={{ ml: 0, display: "flex" }}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={ov.checked}
+                      onChange={() => ov.toggle && ov.toggle()}
+                    />
+                  }
+                  label={ov.label}
                 />
-              }
-              label="Суурь зураг"
-            />
-            <FormControlLabel
-              sx={{ ml: 0, display: "flex" }}
-              control={
-                <Checkbox
-                  size="small"
-                  checked={overlayNomencl}
-                  onChange={() => onToggleNomencl && onToggleNomencl()}
-                />
-              }
-              label="Нэрлэвэр"
-            />
+                {ov.checked && onOverlayOpacity && (
+                  <Box onClick={(e) => e.stopPropagation()}>
+                    <OpacityController
+                      value={overlayOpacity[ov.key] ?? ov.def}
+                      onChange={(v) => onOverlayOpacity(ov.key, v)}
+                      color={ov.color}
+                      label="Ил тод байдал"
+                      showLabel={false}
+                      showValue
+                      sx={{ px: 4, pb: 1, pt: 0.5, opacity: 0.85 }}
+                    />
+                  </Box>
+                )}
+              </Box>
+            ))}
           </Box>
         </Box>
       </Box>

@@ -169,6 +169,16 @@ export const endpoints = {
     types: `/api/n/geoname/types/`,
   },
 
+  raster: {
+    list: (request_body) => `/api/n/raster/?${request_body}`,
+    details: (id) => `/api/n/raster/${id}/`,
+    delete: (id) => `/api/n/raster/${id}/`,
+    print: `/api/n/raster/print/`,
+    adjacent: (request_body) => `/api/n/raster/adjacent/?${request_body}`,
+    geometry: (request_body) => `/api/n/raster/geometry/?${request_body}`,
+    preview: (request_body) => `/api/n/raster/preview/?${request_body}`,
+  },
+
   legal: {
     types: (request_body) => `/api/r/legal-type/?${request_body}`,
     list: (request_body) => `/api/r/legal/?${request_body}`,

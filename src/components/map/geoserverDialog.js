@@ -28,6 +28,7 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "@mui/material/styles";
 import {
   Add as AddIcon,
+  Print as PrintIcon,
   FilterList as FilterIcon,
   Layers as LayersIcon,
   FiberManualRecord as DotIcon,
@@ -41,6 +42,7 @@ import {
 
 import { useGetGeoserver } from "src/api/map";
 import MapAddName from "./MapAddName";
+import RasterPrintPanel from "../../sections/raster/print-map-panel";
 import NameCategoryTree from "./NameCategoryTree";
 import AdvancedSearch from "./AdvancedSearch";
 
@@ -297,6 +299,7 @@ function GeoserverDialog({
   const [nameChecked, setNameChecked] = useState(() => new Set());
   // Дэлгэрэнгүй хайлтын формыг ангиллын дээр харуулах эсэх
   const [searchOpen, setSearchOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
 
   // Толгойн хайлтаас (илэрц 1‑с их) ирвэл дэлгэрэнгүй формыг нээнэ
   useEffect(() => {
@@ -867,6 +870,15 @@ function GeoserverDialog({
                           <FilterIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Газар зүйн нэрийн зураг хэвлэх">
+                        <IconButton
+                          size="small"
+                          onClick={() => setPrintOpen(true)}
+                          sx={{ color: "#2e7d32" }}
+                        >
+                          <PrintIcon sx={{ fontSize: 20 }} />
+                        </IconButton>
+                      </Tooltip>
                       {addProjectId && (
                         <Tooltip title="Шинэ нэр нэмэх">
                           <IconButton
@@ -907,6 +919,10 @@ function GeoserverDialog({
                       checkedSet={nameChecked}
                     />
                   </Box>
+                  <RasterPrintPanel
+                    open={printOpen}
+                    onClose={() => setPrintOpen(false)}
+                  />
                   <Divider />
                   <Box sx={{ p: 1.5, textAlign: "center", flexShrink: 0 }}>
                     <Typography variant="caption" color="text.secondary">

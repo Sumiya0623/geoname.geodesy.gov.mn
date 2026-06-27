@@ -223,8 +223,16 @@ function Map2() {
   // Overlay давхаргууд (basemap radio‑оос тусдаа, checkbox‑оор асаах/унтраах)
   const [overlayBasemap, setOverlayBasemap] = useState(false);
   const [overlayNomencl, setOverlayNomencl] = useState(false);
+  const [overlayDem, setOverlayDem] = useState(false);
   const overlayBasemapRef = useRef(null);
   const overlayNomenclRef = useRef(null);
+  const overlayDemRef = useRef(null);
+  // Overlay давхаргуудын ил тод байдал (key→0..1)
+  const [overlayOpacity, setOverlayOpacity] = useState({
+    BASEMAP: 1,
+    NOMENCLATURE: 1,
+    DEM: 0.85,
+  });
   const [selectedName, setSelectedName] = useState(null);
   const [isMeasuring, setIsMeasuring] = useState(false);
   const [measureResult, setMeasureResult] = useState("");
@@ -1579,6 +1587,7 @@ function Map2() {
     const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
     let bm = null;
     let nm = null;
+    let dm = null;
     let cancelled = false;
     const mk = (layers, z) =>
       new TileLayer({
@@ -1600,8 +1609,18 @@ function Map2() {
       }
       bm = mk("point:basemap", 40);
       nm = mk("point:nomeklatur", 45);
+      // Газрын гадарга (DEM) — WMTS (GWC tilecache, хурдан). Default style=dem_terrain.
+      dm = makeGwcWmtsLayer({
+        workspace: "geoname",
+        layer: "dem",
+        visible: false,
+        zIndex: 35,
+      });
+      dm.setOpacity(0.85);
       overlayBasemapRef.current = bm;
       overlayNomenclRef.current = nm;
+      overlayDemRef.current = dm;
+      map.addLayer(dm);
       map.addLayer(bm);
       map.addLayer(nm);
     };
@@ -1612,9 +1631,11 @@ function Map2() {
       if (map) {
         if (bm) map.removeLayer(bm);
         if (nm) map.removeLayer(nm);
+        if (dm) map.removeLayer(dm);
       }
       overlayBasemapRef.current = null;
       overlayNomenclRef.current = null;
+      overlayDemRef.current = null;
     };
   }, []);
   useEffect(() => {
@@ -1623,6 +1644,18 @@ function Map2() {
   useEffect(() => {
     if (overlayNomenclRef.current) overlayNomenclRef.current.setVisible(overlayNomencl);
   }, [overlayNomencl]);
+  useEffect(() => {
+    if (overlayDemRef.current) overlayDemRef.current.setVisible(overlayDem);
+  }, [overlayDem]);
+  // Overlay ил тод байдал
+  useEffect(() => {
+    if (overlayBasemapRef.current)
+      overlayBasemapRef.current.setOpacity(overlayOpacity.BASEMAP ?? 1);
+    if (overlayNomenclRef.current)
+      overlayNomenclRef.current.setOpacity(overlayOpacity.NOMENCLATURE ?? 1);
+    if (overlayDemRef.current)
+      overlayDemRef.current.setOpacity(overlayOpacity.DEM ?? 0.85);
+  }, [overlayOpacity]);
 
   const handleStopDrawing = useCallback(() => {
     const map = mapObjRef.current;
@@ -2663,6 +2696,12 @@ function Map2() {
           onToggleBasemap={() => setOverlayBasemap((v) => !v)}
           overlayNomencl={overlayNomencl}
           onToggleNomencl={() => setOverlayNomencl((v) => !v)}
+          overlayDem={overlayDem}
+          onToggleDem={() => setOverlayDem((v) => !v)}
+          overlayOpacity={overlayOpacity}
+          onOverlayOpacity={(key, val) =>
+            setOverlayOpacity((prev) => ({ ...prev, [key]: val }))
+          }
         />
 
         {featureSelector.show && (
