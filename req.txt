@@ -12,7 +12,8 @@ django-filter
 psycopg2-binary
 python-dotenv
 colorama
-fitz
+pymupdf
+
 # report
 Pillow
 pdfkit
