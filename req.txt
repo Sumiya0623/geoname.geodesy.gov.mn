@@ -12,7 +12,7 @@ django-filter
 psycopg2-binary
 python-dotenv
 colorama
-
+fitz
 # report
 Pillow
 pdfkit

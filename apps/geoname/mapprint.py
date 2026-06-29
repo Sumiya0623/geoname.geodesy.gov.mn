@@ -30,21 +30,52 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 logger = logging.getLogger(__name__)
 
-_TNR = '/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf'
-_TNR_B = '/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman_Bold.ttf'
+# TNR (Times New Roman) — серверт байхгүй байж болзошгүй тул хэд хэдэн нөөц зам:
+# msttcorefonts Times → Liberation Serif (метрик нийцтэй, Cyrillic) → DejaVu.
+# Аль нэг нь олдвол TNR/TNR-Bold нэрээр бүртгэнэ (prod-д ажиллана).
+_TNR_CANDIDATES = [
+    ('/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf',
+     '/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman_Bold.ttf'),
+    ('/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf',
+     '/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf'),
+    ('/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf',
+     '/usr/share/fonts/truetype/liberation2/LiberationSerif-Bold.ttf'),
+    ('/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf',
+     '/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf'),
+    ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
+]
+_DEJAVU_CANDIDATES = [
+    ('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'),
+    ('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
+]
 _fonts_registered = False
+
+
 def _ensure_fonts():
     global _fonts_registered
     if _fonts_registered:
         return
-    try:
-        pdfmetrics.registerFont(TTFont('TNR', _TNR))
-        pdfmetrics.registerFont(TTFont('TNR-Bold', _TNR_B))
-        pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-        pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-    except Exception as exc:
-        logger.warning("Font registration failed: %s", exc)
-    _fonts_registered = True
+    ok = False
+    for reg_path, bold_path in _TNR_CANDIDATES:
+        if os.path.exists(reg_path) and os.path.exists(bold_path):
+            try:
+                pdfmetrics.registerFont(TTFont('TNR', reg_path))
+                pdfmetrics.registerFont(TTFont('TNR-Bold', bold_path))
+                ok = True
+                logger.info("TNR fonts registered from %s", reg_path)
+                break
+            except Exception as exc:
+                logger.warning("Font %s failed: %s", reg_path, exc)
+    if not ok:
+        logger.error("No TNR-capable TTF found — PDF text will fail")
+    for nm, path in _DEJAVU_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                pdfmetrics.registerFont(TTFont(nm, path))
+            except Exception:
+                pass
+    _fonts_registered = ok
 
 def _gs_base():
     return (settings.GEOSERVER_URL or '').rstrip('/')
