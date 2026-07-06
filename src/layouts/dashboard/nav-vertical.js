@@ -49,7 +49,7 @@ export default function NavVertical({ openNav, onCloseNav }) {
       <Box sx={{ px: 2, py: 1.5, bgcolor: "primary.main" }}>
         <Stack
           component={RouterLink}
-          href="/dashboard/user/profile"
+          href="/dashboard/profile"
           direction="row"
           alignItems="center"
           spacing={1.25}

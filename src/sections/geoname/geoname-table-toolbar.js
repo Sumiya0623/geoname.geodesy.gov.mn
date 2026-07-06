@@ -29,6 +29,11 @@ export default function GeonameTableToolbar({
     [onFilters],
   );
 
+  const handleNumber = useCallback(
+    (event) => onFilters("number", event.target.value),
+    [onFilters],
+  );
+
   return (
     <Stack
       spacing={2}
@@ -40,11 +45,25 @@ export default function GeonameTableToolbar({
         fullWidth
         value={filters.search}
         onChange={handleSearch}
-        placeholder="Нэр, дугаараар хайх..."
+        placeholder="Нэрээр хайх..."
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
               <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+            </InputAdornment>
+          ),
+        }}
+      />
+
+      <TextField
+        value={filters.number}
+        onChange={handleNumber}
+        placeholder="Дугаараар хайх..."
+        sx={{ width: { xs: 1, md: 220 }, flexShrink: 0 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <Iconify icon="solar:hashtag-bold" sx={{ color: "text.disabled" }} />
             </InputAdornment>
           ),
         }}
@@ -65,6 +84,21 @@ export default function GeonameTableToolbar({
         justifyContent="flex-end"
         sx={{ flexShrink: 0 }}
       >
+        <Tooltip title="Газрын зураг (шинэ таб)">
+          <IconButton
+            color="inherit"
+            onClick={() =>
+              window.open(
+                "http://geoname.nextgis.mn:3002/dashboard/map/",
+                "_blank",
+                "noopener,noreferrer",
+              )
+            }
+          >
+            <Iconify icon="solar:map-bold" />
+          </IconButton>
+        </Tooltip>
+
         <Tooltip title="Дэлгэрэнгүй хайлт">
           <IconButton color="inherit" onClick={onAdvanced}>
             <Badge color="error" variant="dot" invisible={!advancedActive}>

@@ -1,7 +1,7 @@
 "use client";
 
 import PropTypes from "prop-types";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 import {
   Box,
@@ -10,8 +10,10 @@ import {
   Grid,
   Link,
   Stack,
+  Tooltip,
   Divider,
   Container,
+  IconButton,
   Typography,
   CardContent,
   CircularProgress,
@@ -23,12 +25,14 @@ import axiosInstance, { endpoints } from "src/utils/axios";
 
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 
+import GeonameAddDialog from "../geoname-add-dialog";
+
 // ----------------------------------------------------------------------
 
 const mediaUrl = (u) =>
   u && u.startsWith("/") ? `${process.env.NEXT_PUBLIC_HOST_API}${u}` : u;
 
-function Section({ icon, title, count, children }) {
+function Section({ icon, title, count, onAdd, children }) {
   return (
     <Card sx={{ height: "100%" }}>
       <CardContent>
@@ -37,6 +41,15 @@ function Section({ icon, title, count, children }) {
           <Typography variant="h6">{title}</Typography>
           {typeof count === "number" && (
             <Chip size="small" label={count} variant="soft" color="primary" />
+          )}
+          {onAdd && (
+            <Box sx={{ flexGrow: 1, display: "flex", justifyContent: "flex-end" }}>
+              <Tooltip title="Нэмэх">
+                <IconButton size="small" color="primary" onClick={onAdd}>
+                  <Icon icon="mingcute:add-line" width={20} />
+                </IconButton>
+              </Tooltip>
+            </Box>
           )}
         </Stack>
         <Divider sx={{ mb: 1.5 }} />
@@ -49,6 +62,7 @@ Section.propTypes = {
   icon: PropTypes.string,
   title: PropTypes.string,
   count: PropTypes.number,
+  onAdd: PropTypes.func,
   children: PropTypes.node,
 };
 
@@ -62,25 +76,25 @@ Empty.propTypes = { text: PropTypes.string };
 export default function GeonameDetailView({ id }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [addKind, setAddKind] = useState(null);
+
+  const load = useCallback(
+    (silent = false) => {
+      if (!silent) setLoading(true);
+      return axiosInstance
+        .get(endpoints.geoname.details(id))
+        .then((res) => setData(res?.data || null))
+        .catch(() => {
+          if (!silent) setData(null);
+        })
+        .finally(() => setLoading(false));
+    },
+    [id],
+  );
 
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    axiosInstance
-      .get(endpoints.geoname.details(id))
-      .then((res) => {
-        if (active) setData(res?.data || null);
-      })
-      .catch(() => {
-        if (active) setData(null);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [id]);
+    load();
+  }, [load]);
 
   if (loading) {
     return (
@@ -219,6 +233,7 @@ export default function GeonameDetailView({ id }) {
             icon="solar:document-text-bold"
             title="Эрх зүйн баримт бичиг"
             count={data.orders?.length}
+            onAdd={() => setAddKind("order")}
           >
             {data.orders?.length ? (
               <Stack spacing={1}>
@@ -250,6 +265,7 @@ export default function GeonameDetailView({ id }) {
             icon="solar:chat-round-line-bold"
             title="Хүсэлт"
             count={data.requests?.length}
+            onAdd={() => setAddKind("request")}
           >
             {data.requests?.length ? (
               <Stack spacing={1}>
@@ -291,6 +307,7 @@ export default function GeonameDetailView({ id }) {
             icon="solar:gallery-bold"
             title="Зураг"
             count={data.photos?.length}
+            onAdd={() => setAddKind("photo")}
           >
             {data.photos?.length ? (
               <Grid container spacing={1}>
@@ -332,6 +349,7 @@ export default function GeonameDetailView({ id }) {
             icon="solar:paperclip-bold"
             title="Баримт материал"
             count={data.attaches?.length}
+            onAdd={() => setAddKind("attach")}
           >
             {data.attaches?.length ? (
               <Stack spacing={1}>
@@ -354,6 +372,13 @@ export default function GeonameDetailView({ id }) {
           </Section>
         </Grid>
       </Grid>
+
+      <GeonameAddDialog
+        kind={addKind}
+        geonameId={id}
+        onClose={() => setAddKind(null)}
+        onDone={() => load(true)}
+      />
     </Container>
   );
 }

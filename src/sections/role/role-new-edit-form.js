@@ -27,7 +27,13 @@ import FormProvider, { RHFTextField } from "src/components/hook-form";
 
 // ----------------------------------------------------------------------
 
-export default function RoleNewEditForm({ currentRole, menus, view = false }) {
+export default function RoleNewEditForm({
+  currentRole,
+  menus,
+  view = false,
+  onCloseForm,
+  refetch,
+}) {
   const router = useRouter();
   const { enqueueSnackbar } = useSnackbar();
   const [openMenus, setOpenMenus] = useState({});
@@ -45,7 +51,7 @@ export default function RoleNewEditForm({ currentRole, menus, view = false }) {
     setSelectedActionIds((prev) =>
       prev.includes(actionId)
         ? prev.filter((id) => id !== actionId)
-        : [...prev, actionId]
+        : [...prev, actionId],
     );
   };
 
@@ -58,7 +64,7 @@ export default function RoleNewEditForm({ currentRole, menus, view = false }) {
       id: currentRole?.id || "",
       name: currentRole?.name || "",
     }),
-    [currentRole]
+    [currentRole],
   );
 
   const methods = useForm({
@@ -94,9 +100,16 @@ export default function RoleNewEditForm({ currentRole, menus, view = false }) {
       const response = await axiosInstance[method](URL, request_body);
       if (response.status === 200 || response.status === 201) {
         enqueueSnackbar(
-          `Эрх амжилттай ${currentRole ? "өөрчлөгдлөө" : "нэмэгдлээ"}`
+          `Эрх амжилттай ${currentRole ? "өөрчлөгдлөө" : "нэмэгдлээ"}`,
         );
-        router.push(paths.dashboard.role.root);
+        // Inline (таб доторх) горимд хуудас солихгүйгээр жагсаалтаа шинэчилж,
+        // формоо хаана. Бусад үед хуучин урсгалаар жагсаалт руу шилжинэ.
+        if (onCloseForm) {
+          refetch?.();
+          onCloseForm();
+        } else {
+          router.push(paths.dashboard.role.root);
+        }
       }
       reset();
     } catch (error) {
@@ -104,7 +117,7 @@ export default function RoleNewEditForm({ currentRole, menus, view = false }) {
         `Эрхийг ${currentRole ? "өөрчлөх" : "үүсгэх"} үед алдаа гарлаа`,
         {
           variant: "error",
-        }
+        },
       );
     }
   });
@@ -173,7 +186,7 @@ export default function RoleNewEditForm({ currentRole, menus, view = false }) {
                                 <Checkbox
                                   disabled={view}
                                   checked={selectedActionIds.includes(
-                                    action.id
+                                    action.id,
                                   )}
                                   onChange={() =>
                                     handleCheckboxChange(action.id)
@@ -198,7 +211,6 @@ export default function RoleNewEditForm({ currentRole, menus, view = false }) {
       {!view && (
         <Stack alignItems="flex-end" sx={{ mt: 3 }}>
           <LoadingButton
-            size="large"
             type="submit"
             color="primary"
             variant="contained"
@@ -216,4 +228,6 @@ RoleNewEditForm.propTypes = {
   view: PropTypes.bool,
   menus: PropTypes.array,
   currentRole: PropTypes.object,
+  onCloseForm: PropTypes.func,
+  refetch: PropTypes.func,
 };

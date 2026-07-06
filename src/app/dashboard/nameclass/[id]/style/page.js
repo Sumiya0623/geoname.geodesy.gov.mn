@@ -11,6 +11,9 @@ const GeoStylerEditor = dynamic(
 );
 
 // ----------------------------------------------------------------------
+// Style (дүрэм) засвар нь nameclass leaf‑д харьяалагдана. Иймд nav‑ийн
+// `nameclass` (/dashboard/nameclass) эрхээр хамгаалагдахын тулд энэ route‑ийг
+// nameclass дор байрлуулав.
 
 export default function NameClassStylePage({ params }) {
   return (

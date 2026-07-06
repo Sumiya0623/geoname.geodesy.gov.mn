@@ -1,5 +1,6 @@
 "use client";
 
+import PropTypes from "prop-types";
 import { useState, useMemo, useCallback } from "react";
 
 import {
@@ -9,8 +10,10 @@ import {
   Chip,
   Stack,
   Button,
+  Tooltip,
   Collapse,
   Container,
+  IconButton,
   Typography,
   CardActionArea,
   CircularProgress,
@@ -30,7 +33,7 @@ import WorkspaceViewsTable from "./workspace-views-table";
 
 // ----------------------------------------------------------------------
 
-export default function WorkspaceListView() {
+export default function WorkspaceListView({ embedded = false }) {
   const menuPermissions = useMenuPermissions({ content: "geoserver" });
 
   const rootForm = useBoolean();
@@ -54,35 +57,50 @@ export default function WorkspaceListView() {
   );
 
   return (
-    <Container maxWidth="xxl">
-      <CustomBreadcrumbs
-        heading="GeoServer"
-        links={[
-          { name: "Дашбоард", href: paths.dashboard.root },
-          { name: "GeoServer" },
-        ]}
-        action={
-          menuPermissions?.create && (
-            <Button
-              color="primary"
-              variant="contained"
-              onClick={rootForm.onToggle}
-              endIcon={
-                <Iconify
-                  icon="mingcute:down-line"
-                  sx={{
-                    transition: (theme) => theme.transitions.create("all"),
-                    ...(rootForm.value && { transform: "rotate(-180deg)" }),
-                  }}
-                />
-              }
-            >
-              Workspace нэмэх
-            </Button>
-          )
-        }
-        sx={{ mb: { xs: 3, md: 3 } }}
-      />
+    <Container
+      maxWidth={embedded ? false : "xxl"}
+      disableGutters={embedded}
+    >
+      {!embedded ? (
+        <CustomBreadcrumbs
+          heading="GeoServer"
+          links={[
+            { name: "Дашбоард", href: paths.dashboard.root },
+            { name: "GeoServer" },
+          ]}
+          action={
+            menuPermissions?.create && (
+              <Button
+                color="primary"
+                variant="contained"
+                onClick={rootForm.onToggle}
+                endIcon={
+                  <Iconify
+                    icon="mingcute:down-line"
+                    sx={{
+                      transition: (theme) => theme.transitions.create("all"),
+                      ...(rootForm.value && { transform: "rotate(-180deg)" }),
+                    }}
+                  />
+                }
+              >
+                Workspace нэмэх
+              </Button>
+            )
+          }
+          sx={{ mb: { xs: 3, md: 3 } }}
+        />
+      ) : (
+        menuPermissions?.create && (
+          <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
+            <Tooltip title="Workspace нэмэх">
+              <IconButton color="primary" onClick={rootForm.onToggle}>
+                <Iconify icon="mingcute:add-line" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        )
+      )}
 
       {/* Шинэ үндсэн workspace нэмэх */}
       <Collapse in={rootForm.value} timeout="auto" unmountOnExit>
@@ -192,3 +210,7 @@ export default function WorkspaceListView() {
     </Container>
   );
 }
+
+WorkspaceListView.propTypes = {
+  embedded: PropTypes.bool,
+};

@@ -71,7 +71,7 @@ const defaultFilters = {
 };
 
 // Дэлгэрэнгүй шүүлтийн талбарууд (badge/идэвх шалгахад)
-const ADVANCED_KEYS = ["name", "number", "aimag", "sum", "lat", "lon", "nomek"];
+const ADVANCED_KEYS = ["aimag", "sum", "nomek"];
 
 // ----------------------------------------------------------------------
 

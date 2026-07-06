@@ -16,6 +16,7 @@ export default function NetWorkTableToolbar({
   filters,
   canReset,
   onFilters,
+  action,
 }) {
   const handleFilterName = useCallback(
     (event) => {
@@ -58,6 +59,8 @@ export default function NetWorkTableToolbar({
           </Badge>
         </IconButton>
       </Tooltip>
+
+      {action}
     </Stack>
   );
 }
@@ -67,4 +70,5 @@ NetWorkTableToolbar.propTypes = {
   canReset: PropTypes.bool,
   filters: PropTypes.object,
   onFilters: PropTypes.func,
+  action: PropTypes.node,
 };

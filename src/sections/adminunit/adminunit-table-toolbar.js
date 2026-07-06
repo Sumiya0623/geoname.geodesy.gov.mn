@@ -16,6 +16,7 @@ export default function AdmunUnitTableToolbar({
   filters,
   canReset,
   onFilters,
+  action,
 }) {
   const handleFilterName = useCallback(
     (event) => {
@@ -58,6 +59,8 @@ export default function AdmunUnitTableToolbar({
           </Badge>
         </IconButton>
       </Tooltip>
+
+      {action}
     </Stack>
   );
 }
@@ -67,4 +70,5 @@ AdmunUnitTableToolbar.propTypes = {
   canReset: PropTypes.bool,
   filters: PropTypes.object,
   onFilters: PropTypes.func,
+  action: PropTypes.node,
 };

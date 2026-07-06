@@ -97,7 +97,6 @@ export default function AppWelcome({
           <ButtonBase
             ref={pop.anchorRef}
             onClick={pop.onOpen}
-            size="large"
             variant="contained"
             sx={(theme) => ({
               px: 4,
@@ -129,8 +128,7 @@ export default function AppWelcome({
           </ButtonBase>
 
           <Button
-            href={process.env.NEXT_PUBLIC_PORTAL_URL ?? "/login"}
-            size="large"
+            href={process.env.NEXT_PUBLIC_PORTAL_URL ?? "https://geodesy.gov.mn"}
             variant="contained"
             endIcon={<ArrowForwardRoundedIcon fontSize="medium" />}
             sx={(theme) => ({

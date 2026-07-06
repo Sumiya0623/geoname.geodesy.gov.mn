@@ -9,7 +9,8 @@ import { fromLonLat } from "ol/proj";
 import { boundingExtent } from "ol/extent";
 import Style from "ol/style/Style";
 import Stroke from "ol/style/Stroke";
-import { getIdByWmsFeatureInfo } from "./get-id-wmsfeatureinfo";
+import Fill from "ol/style/Fill";
+import CircleStyle from "ol/style/Circle";
 
 const WMS_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/point/wms`;
 
@@ -23,6 +24,8 @@ export function initMap(opts) {
     radiusCircleSourceRef,
     linkLineSourceRef,
     linkLineLayerRef,
+    nameGeomSourceRef,
+    nameGeomLayerRef,
     clusterLayerRef,
     measurementSearchLayerRef,
     drawInteractionRef,
@@ -50,7 +53,6 @@ export function initMap(opts) {
     cqlWmsLayerRef,
     setFeatureSelector,
     sidebarOpen,
-    activeGnssLayersRef,
     lastClickCoordinateRef,
   } = opts;
 
@@ -110,6 +112,29 @@ export function initMap(opts) {
   });
   linkLineLayerRef.current = linkLineLayer;
 
+  // Дарсан объектын геометрийг ТОД УЛААНААР тодруулах давхарга (цэг/шугам/талбай).
+  // Цагаан гадуур (casing) + улаан дотор → аль ч дэвсгэр дээр тод харагдана.
+  const nameGeomLayer = new VectorLayer({
+    source: nameGeomSourceRef.current,
+    style: [
+      new Style({
+        stroke: new Stroke({ color: "rgba(255,255,255,0.9)", width: 7 }),
+      }),
+      new Style({
+        stroke: new Stroke({ color: "#e11d48", width: 4 }),
+        fill: new Fill({ color: "rgba(225,29,72,0.15)" }),
+        image: new CircleStyle({
+          radius: 7,
+          fill: new Fill({ color: "#e11d48" }),
+          stroke: new Stroke({ color: "#ffffff", width: 2 }),
+        }),
+      }),
+    ],
+    zIndex: 2700,
+    visible: true,
+  });
+  nameGeomLayerRef.current = nameGeomLayer;
+
   const adminLayer = new TileLayer({
     source: (adminSourceRef.current = new TileWMS({
       url: WMS_URL,
@@ -129,6 +154,7 @@ export function initMap(opts) {
       measureLayer,
       radiusCircleLayer,
       linkLineLayer,
+      nameGeomLayer,
       measurementSearchLayer,
     ],
     view: new View({
@@ -188,47 +214,6 @@ export function initMap(opts) {
         setSidebarOpen(true);
         return;
       }
-    }
-
-    // WMTS дээр харагдаж байгаа GNSS цэгийн ID‑г (идэвхтэй GNSS давхаргуудын жагсаалтаас) WMS GetFeatureInfo‑оор авч, Map2 рүү эвентээр дамжуулах
-    try {
-      // Map дотор байгаа бүх GNSS WMS давхаргыг (isGnssWms=true) ашиглана –
-      // эхний ээлжинд ямар өгөгдөл ирж байгааг харах зорилготой.
-      const layers = map.getLayers().getArray();
-      const gnssLayers = [];
-      layers.forEach((layer) => {
-        if (!layer || typeof layer.get !== "function") return;
-        const isGnssWms = layer.get("isGnssWms");
-        if (!isGnssWms) return;
-        const name = layer.get("name");
-        if (name) gnssLayers.push(name);
-      });
-
-      let matched = null;
-
-      for (const layerName of gnssLayers) {
-        const wmsInfo = await getIdByWmsFeatureInfo({
-          map,
-          coordinate: event.coordinate,
-          layerName,
-          WMS_URL,
-        });
-
-        if (wmsInfo?.id) {
-          matched = wmsInfo;
-          break;
-        }
-      }
-
-      if (matched?.id) {
-        window.dispatchEvent(
-          new CustomEvent("map:show-measurements-for-point", {
-            detail: { pointId: matched.id, info: matched },
-          }),
-        );
-      }
-    } catch (e) {
-      console.error("getIdByWmsFeatureInfo failed", e);
     }
 
     const clusterHit = map.forEachFeatureAtPixel(
@@ -344,6 +329,8 @@ export function initMap(opts) {
                         props.final_x = coords[0];
                         props.final_y = coords[1];
                       }
+                      // Улаан highlight-д зориулж бүтэн геометрийг хадгална
+                      props._geom = feat.geometry || null;
                       allFeatures.push(props);
                     }
                   });
@@ -407,6 +394,8 @@ export function initMap(opts) {
                     props.final_y = coords[1];
                   }
 
+                  // Улаан highlight-д зориулж бүтэн геометрийг хадгална
+                  props._geom = feat.geometry || null;
                   props.isFromStaticLayer = isFromStaticLayer;
                   props.layerInfo = {
                     layerKey,
@@ -457,36 +446,11 @@ export function initMap(opts) {
   });
 
   const view = map.getView();
+  // Зөвхөн масштаб (scale badge)‑ыг шинэчилнэ. GNSS WMTS/WMS zoom‑switch логик нь
+  // энэ төсөлд GNSS давхарга байхгүй тул (point төслөөс хуулагдсан) хассан.
   const onResChange = () => {
     updateScaleFromView(view);
-    const rawZoom = view.getZoom();
-    if (rawZoom == null) return;
-    // OpenLayers‑ийн zoom нь float байдаг (жишээ нь 12.3).
-    // WMTS/WMS хооронд хоосон үе гарахгүйн тулд
-    // нэг жижиг давхцсан бүс (12.5 орчим) үлдээнэ.
-    const zoom = rawZoom;
-
-    const layers = map.getLayers().getArray();
-    const activeGnssSet =
-      (activeGnssLayersRef && activeGnssLayersRef.current) || new Set();
-    layers.forEach((layer) => {
-      if (!layer || typeof layer.get !== "function") return;
-      const isGnssWmts = layer.get("isGnssWmts");
-      const isGnssWms = layer.get("isGnssWms");
-      if (isGnssWmts) {
-        // WMTS: зөвхөн идэвхтэй GNSS layer + бага zoom (<12.5 орчим) дээр
-        const layerName = layer.get("name");
-        const isActive = activeGnssSet.has(layerName);
-        layer.setVisible(isActive && zoom < 12.5);
-      } else if (isGnssWms) {
-        // WMS: зөвхөн идэвхтэй GNSS WMS + өндөр zoom (>=12.5 орчим) дээр
-        const layerName = layer.get("name");
-        const isActive = activeGnssSet.has(layerName);
-        layer.setVisible(isActive && zoom >= 12.5);
-      }
-    });
   };
-  // Эхний ачаалал дээр шууд нэг удаа ажиллуулна
   onResChange();
   view.on("change:resolution", onResChange);
 

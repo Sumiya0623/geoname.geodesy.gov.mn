@@ -10,7 +10,6 @@ import {
   TextField,
   Typography,
   IconButton,
-  InputAdornment,
   Autocomplete,
 } from "@mui/material";
 
@@ -20,17 +19,13 @@ import Scrollbar from "src/components/scrollbar";
 
 // ----------------------------------------------------------------------
 // Дэлгэрэнгүй хайлт — баруунаас нээгддэг drawer.
-// Нэр, дугаар, засаг захиргааны нэгж (аймаг/сум), солбицол, нэрлэврээр
-// нэгтгэн хайна. "Хайх" дарахад л шүүлт хэрэгжинэ (draft → onApply).
+// Засаг захиргааны нэгж (аймаг/сум), нэрлэврээр шүүнэ. (Нэр/дугаар нь
+// toolbar дээр шууд байгаа тул эндээс хассан.) "Хайх" дарахад л хэрэгжинэ.
 // ----------------------------------------------------------------------
 
 const EMPTY = {
-  name: "",
-  number: "",
   aimag: null,
   sum: null,
-  lat: "",
-  lon: "",
   nomek: "",
 };
 
@@ -58,9 +53,6 @@ export default function GeonameAdvancedSearch({
 
   const handleAimag = (_e, v) =>
     setDraft((p) => ({ ...p, aimag: v, sum: null }));
-
-  const handleNum = (name) => (e) =>
-    set(name, e.target.value.replace(/[^0-9.-]/g, ""));
 
   const handleClear = () => setDraft(EMPTY);
 
@@ -96,18 +88,6 @@ export default function GeonameAdvancedSearch({
 
       <Scrollbar sx={{ flexGrow: 1 }}>
         <Stack spacing={2.5} sx={{ p: 2.5 }}>
-          <TextField
-            label="Нэр"
-            value={draft.name}
-            onChange={(e) => set("name", e.target.value)}
-          />
-
-          <TextField
-            label="Дугаар"
-            value={draft.number}
-            onChange={(e) => set("number", e.target.value)}
-          />
-
           <Box>
             <Typography variant="overline" color="text.secondary">
               Засаг захиргааны нэгж
@@ -137,34 +117,6 @@ export default function GeonameAdvancedSearch({
             </Stack>
           </Box>
 
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              Солбицол
-            </Typography>
-            <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                label="Өргөрөг (lat)"
-                value={draft.lat}
-                onChange={handleNum("lat")}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Iconify
-                        icon="solar:map-point-bold"
-                        sx={{ color: "text.disabled" }}
-                      />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-              <TextField
-                label="Уртраг (lon)"
-                value={draft.lon}
-                onChange={handleNum("lon")}
-              />
-            </Stack>
-          </Box>
-
           <TextField
             label="Нэрлэвэр"
             value={draft.nomek}
@@ -180,7 +132,7 @@ export default function GeonameAdvancedSearch({
       <Stack direction="row" spacing={1.5} sx={{ p: 2.5 }}>
         <Button
           fullWidth
-          size="large"
+          size="small"
           color="inherit"
           variant="outlined"
           onClick={handleClear}
@@ -189,7 +141,7 @@ export default function GeonameAdvancedSearch({
         </Button>
         <Button
           fullWidth
-          size="large"
+          size="small"
           variant="contained"
           startIcon={<Iconify icon="eva:search-fill" />}
           onClick={handleApply}

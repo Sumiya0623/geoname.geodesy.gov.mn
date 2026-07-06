@@ -50,6 +50,7 @@ const EMPTY = {
   bag: null,
   nomek: "",
   approved: false,
+  border: false,
 };
 const EMPTY_GEO = {
   mode: null,
@@ -77,6 +78,7 @@ function textCqlParts(f) {
   if (unitId) parts.push(`unit_ids LIKE '% ${unitId} %'`);
   if (f.nomek) parts.push(`nomek_codes ILIKE '%${esc(f.nomek)}%'`);
   if (f.approved) parts.push("is_approved = true");
+  if (f.border) parts.push("is_border = true");
   return parts;
 }
 
@@ -252,6 +254,7 @@ export default function AdvancedSearch({
     const unitId = unitIdOf(ff);
     if (unitId) params.unit_tree = unitId;
     if (ff.approved) params.is_approved = true;
+    if (ff.border) params.is_border = true;
     if ((g.mode === "rect" || g.mode === "polygon") && g.ring?.length >= 3) {
       params.geom = ringToGeoJson(g.ring);
     } else if (g.mode === "circle" && g.lat != null) {
@@ -352,7 +355,13 @@ export default function AdvancedSearch({
   useEffect(() => {
     if (autoTimer.current) clearTimeout(autoTimer.current);
     const hasFilter =
-      f.name || f.number || catIdOf(f) || unitIdOf(f) || f.nomek || f.approved;
+      f.name ||
+      f.number ||
+      catIdOf(f) ||
+      unitIdOf(f) ||
+      f.nomek ||
+      f.approved ||
+      f.border;
     if (!hasFilter) return undefined;
     autoTimer.current = setTimeout(
       () => runSearch(geoRef.current, fRef.current),
@@ -371,6 +380,7 @@ export default function AdvancedSearch({
     f.bag?.id,
     f.nomek,
     f.approved,
+    f.border,
   ]);
 
   const handleClear = () => {
@@ -538,8 +548,8 @@ export default function AdvancedSearch({
                 control={
                   <Switch
                     size="small"
-                    checked={f.approved}
-                    onChange={(e) => set("approved", e.target.checked)}
+                    checked={f.border}
+                    onChange={(e) => set("border", e.target.checked)}
                   />
                 }
                 label="Хилийн цэс"

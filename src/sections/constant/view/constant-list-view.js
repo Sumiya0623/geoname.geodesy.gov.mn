@@ -1,12 +1,13 @@
 "use client";
 
+import PropTypes from "prop-types";
 import { isEqual } from "lodash";
 import { useMemo, useState, useCallback } from "react";
 
 import Card from "@mui/material/Card";
 import Table from "@mui/material/Table";
 import Button from "@mui/material/Button";
-import { Box, Collapse } from "@mui/material";
+import { Box, Collapse, Tooltip, IconButton } from "@mui/material";
 import Container from "@mui/material/Container";
 import TableBody from "@mui/material/TableBody";
 import TableContainer from "@mui/material/TableContainer";
@@ -53,7 +54,7 @@ const defaultFilters = {
 
 // ----------------------------------------------------------------------
 
-export default function ConstantListView() {
+export default function ConstantListView({ embedded = false }) {
   const settings = useSettingsContext();
   const { enqueueSnackbar } = useSnackbar();
   const table = useTable({
@@ -138,6 +139,14 @@ export default function ConstantListView() {
     [constantsMutation, enqueueSnackbar]
   );
 
+  const createAction = menuPermissions?.create ? (
+    <Tooltip title="Тогтмол нэмэх">
+      <IconButton color="primary" onClick={form.onToggle} id="constant-create">
+        <Iconify icon="mingcute:add-line" />
+      </IconButton>
+    </Tooltip>
+  ) : null;
+
   const renderTableToolbar = (
     <ConstantTableToolbar
       filters={filters}
@@ -145,6 +154,7 @@ export default function ConstantListView() {
       //
       canReset={canReset}
       onReset={handleResetFilters}
+      action={embedded ? createAction : undefined}
     />
   );
 
@@ -167,43 +177,48 @@ export default function ConstantListView() {
   const renderTableEmpty = <TableNoData notFound={constantsEmpty} />;
 
   return (
-    <Container maxWidth={settings.themeStretch ? false : "xxl"}>
-      <CustomBreadcrumbs
-        heading="Тогтмолын жагсаалт"
-        links={[
-          {
-            name: "Тогтмол",
-            href: paths.dashboard.constant.root,
-          },
-          {
-            name: "Жагсаалт",
-          },
-        ]}
-        action={
-          menuPermissions?.create && (
-            <Button
-              color="primary"
-              variant="contained"
-              onClick={form.onToggle}
-              id="constant-create"
-              endIcon={
-                <Iconify
-                  icon="mingcute:down-line"
-                  sx={{
-                    transition: (theme) => theme.transitions.create("all"),
-                    ...(form.value && {
-                      transform: "rotate(-180deg)",
-                    }),
-                  }}
-                />
-              }
-            >
-              Тогтмол нэмэх
-            </Button>
-          )
-        }
-        sx={{ mb: { xs: 3, md: 1 } }}
-      />
+    <Container
+      maxWidth={embedded ? false : settings.themeStretch ? false : "xxl"}
+      disableGutters={embedded}
+    >
+      {!embedded && (
+        <CustomBreadcrumbs
+          heading="Тогтмолын жагсаалт"
+          links={[
+            {
+              name: "Тогтмол",
+              href: paths.dashboard.constant.root,
+            },
+            {
+              name: "Жагсаалт",
+            },
+          ]}
+          action={
+            menuPermissions?.create && (
+              <Button
+                color="primary"
+                variant="contained"
+                onClick={form.onToggle}
+                id="constant-create"
+                endIcon={
+                  <Iconify
+                    icon="mingcute:down-line"
+                    sx={{
+                      transition: (theme) => theme.transitions.create("all"),
+                      ...(form.value && {
+                        transform: "rotate(-180deg)",
+                      }),
+                    }}
+                  />
+                }
+              >
+                Тогтмол нэмэх
+              </Button>
+            )
+          }
+          sx={{ mb: { xs: 3, md: 1 } }}
+        />
+      )}
 
       <Collapse in={form.value} timeout="auto" unmountOnExit>
         <Box sx={{ mb: { xs: 3, md: 1 } }}>
@@ -260,3 +275,7 @@ export default function ConstantListView() {
     </Container>
   );
 }
+
+ConstantListView.propTypes = {
+  embedded: PropTypes.bool,
+};

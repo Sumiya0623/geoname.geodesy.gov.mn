@@ -167,6 +167,10 @@ export const endpoints = {
     delete: (id) => `/api/n/geoname/${id}/`,
     details: (id) => `/api/n/geoname/${id}/`,
     types: `/api/n/geoname/types/`,
+    addPhoto: (id) => `/api/n/geoname/${id}/add-photo/`,
+    addAttach: (id) => `/api/n/geoname/${id}/add-attach/`,
+    addOrder: (id) => `/api/n/geoname/${id}/add-order/`,
+    addRequest: (id) => `/api/n/geoname/${id}/add-request/`,
   },
 
   raster: {

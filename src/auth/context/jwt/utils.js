@@ -1,5 +1,3 @@
-import { paths } from 'src/routes/paths';
-
 import axios from 'src/utils/axios';
 
 // ----------------------------------------------------------------------
@@ -51,7 +49,9 @@ export const tokenExpired = (exp) => {
 
     sessionStorage.removeItem('accessToken');
 
-    window.location.href = paths.auth.jwt.login;
+    // Login хуудас байхгүй — гадаад геодези порталын нэвтрэлт рүү шилжүүлнэ.
+    window.location.href =
+      process.env.NEXT_PUBLIC_PORTAL_URL || 'https://geodesy.gov.mn';
   }, timeLeft);
 };
 

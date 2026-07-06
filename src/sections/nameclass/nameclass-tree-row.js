@@ -198,7 +198,7 @@ export default function NameClassTreeRow({
               color="primary"
               onClick={() =>
                 window.open(
-                  `/dashboard/geoserver/nameclass/${item.id}/style/`,
+                  `/dashboard/nameclass/${item.id}/style/`,
                   "_blank",
                   "noopener,noreferrer"
                 )

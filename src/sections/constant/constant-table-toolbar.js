@@ -11,7 +11,7 @@ import Iconify from 'src/components/iconify';
 
 // ----------------------------------------------------------------------
 
-export default function ConstantTableToolbar({ onReset, filters, canReset, onFilters }) {
+export default function ConstantTableToolbar({ onReset, filters, canReset, onFilters, action }) {
   const handleFilterField = useCallback(
     (field) => (event) => {
       onFilters(field, event.target.value);
@@ -67,6 +67,8 @@ export default function ConstantTableToolbar({ onReset, filters, canReset, onFil
           </Badge>
         </IconButton>
       </Tooltip>
+
+      {action}
     </Stack>
   );
 }
@@ -76,4 +78,5 @@ ConstantTableToolbar.propTypes = {
   canReset: PropTypes.bool,
   filters: PropTypes.object,
   onFilters: PropTypes.func,
+  action: PropTypes.node,
 };

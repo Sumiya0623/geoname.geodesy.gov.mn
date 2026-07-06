@@ -16,7 +16,7 @@ import { useSnackbar } from "src/components/snackbar";
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 import { useTable, TablePaginationCustom } from "src/components/table";
 import { useGetMenus } from "src/api/constant";
-import { Collapse } from "@mui/material";
+import { Collapse, Tooltip, IconButton } from "@mui/material";
 import { useBoolean } from "src/hooks/use-boolean";
 import { Box } from "@mui/system";
 import MenuNewEditForm from "src/sections/usermenu/menu-new-edit-form";
@@ -27,7 +27,7 @@ const defaultFilters = {
   name: "",
   parent: "",
 };
-export default function MenukListView({ iconOptions = [] }) {
+export default function MenukListView({ iconOptions = [], embedded = false }) {
   const form = useBoolean();
   const { enqueueSnackbar } = useSnackbar();
   const menuPermissions = useMenuPermissions({ content: "menus" });
@@ -91,52 +91,66 @@ export default function MenukListView({ iconOptions = [] }) {
     [menusMutation, enqueueSnackbar],
   );
 
+  const createAction = menuPermissions?.create ? (
+    <Tooltip title="Нэмэх">
+      <IconButton color="primary" onClick={form.onToggle} id="menu-create">
+        <Iconify icon="mingcute:add-line" />
+      </IconButton>
+    </Tooltip>
+  ) : null;
+
   const renderTableToolbar = (
     <NetWorkTableToolbar
       filters={filters}
       onFilters={handleFilters}
       canReset={canReset}
       onReset={handleResetFilters}
+      action={embedded ? createAction : undefined}
     />
   );
 
   return (
-    <Container maxWidth="xxl">
-      <CustomBreadcrumbs
-        heading="Хэрэглэгчийн цэс"
-        links={[
-          {
-            name: "Цэс",
-            href: paths.dashboard.activity,
-          },
-          {
-            name: "Жагсаалт",
-          },
-        ]}
-        action={
-          menuPermissions?.create && (
-            <Button
-              color="primary"
-              variant="contained"
-              onClick={form.onToggle}
-              id="menu-create"
-              endIcon={
-                <Iconify
-                  icon="mingcute:down-line"
-                  sx={{
-                    transition: (theme) => theme.transitions.create("all"),
-                    ...(form.value && {
-                      transform: "rotate(-180deg)",
-                    }),
-                  }}
-                />
-              }
-            >
-              нэмэх
-            </Button>
-          )
-        }
-      />
+    <Container
+      maxWidth={embedded ? false : "xxl"}
+      disableGutters={embedded}
+    >
+      {!embedded && (
+        <CustomBreadcrumbs
+          heading="Хэрэглэгчийн цэс"
+          links={[
+            {
+              name: "Цэс",
+              href: paths.dashboard.activity,
+            },
+            {
+              name: "Жагсаалт",
+            },
+          ]}
+          action={
+            menuPermissions?.create && (
+              <Button
+                color="primary"
+                variant="contained"
+                onClick={form.onToggle}
+                id="menu-create"
+                endIcon={
+                  <Iconify
+                    icon="mingcute:down-line"
+                    sx={{
+                      transition: (theme) => theme.transitions.create("all"),
+                      ...(form.value && {
+                        transform: "rotate(-180deg)",
+                      }),
+                    }}
+                  />
+                }
+              >
+                нэмэх
+              </Button>
+            )
+          }
+        />
+      )}
       <Collapse in={form.value} timeout="auto" unmountOnExit>
         <Box sx={{ mb: { xs: 3, md: 5 } }}>
           <MenuNewEditForm
@@ -196,4 +210,5 @@ MenukListView.propTypes = {
       src: PropTypes.string.isRequired,
     }),
   ),
+  embedded: PropTypes.bool,
 };

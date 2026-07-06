@@ -1,10 +1,13 @@
 "use client";
 
+import PropTypes from "prop-types";
 import { isEqual } from "lodash";
 import { useMemo, useState, useCallback } from "react";
 import Card from "@mui/material/Card";
 import Button from "@mui/material/Button";
+import Tooltip from "@mui/material/Tooltip";
 import Container from "@mui/material/Container";
+import IconButton from "@mui/material/IconButton";
 import { paths } from "src/routes/paths";
 import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 import axiosInstance, { endpoints } from "src/utils/axios";
@@ -27,7 +30,7 @@ const defaultFilters = {
 
 // ----------------------------------------------------------------------
 
-export default function AdminUnitListView() {
+export default function AdminUnitListView({ embedded = false }) {
   const form = useBoolean();
   const { enqueueSnackbar } = useSnackbar();
   const menuPermissions = useMenuPermissions({ content: "au" });
@@ -90,52 +93,66 @@ export default function AdminUnitListView() {
     [constantsMutation, enqueueSnackbar],
   );
 
+  const createAction = menuPermissions?.create ? (
+    <Tooltip title="Нэмэх">
+      <IconButton color="primary" onClick={form.onToggle} id="unit-create">
+        <Iconify icon="mingcute:add-line" />
+      </IconButton>
+    </Tooltip>
+  ) : null;
+
   const renderTableToolbar = (
     <AdmunUnitTableToolbar
       filters={filters}
       onFilters={handleFilters}
       canReset={canReset}
       onReset={handleResetFilters}
+      action={embedded ? createAction : undefined}
     />
   );
 
   return (
-    <Container maxWidth="xxl">
-      <CustomBreadcrumbs
-        heading="Засаг захиргааны нэгж"
-        links={[
-          {
-            name: "Аймаг, сум, дүүрэг",
-            href: paths.dashboard.activity,
-          },
-          {
-            name: "Жагсаалт",
-          },
-        ]}
-        action={
-          menuPermissions?.create && (
-            <Button
-              color="primary"
-              variant="contained"
-              onClick={form.onToggle}
-              id="unit-create"
-              endIcon={
-                <Iconify
-                  icon="mingcute:down-line"
-                  sx={{
-                    transition: (theme) => theme.transitions.create("all"),
-                    ...(form.value && {
-                      transform: "rotate(-180deg)",
-                    }),
-                  }}
-                />
-              }
-            >
-              Нэмэх
-            </Button>
-          )
-        }
-      />
+    <Container
+      maxWidth={embedded ? false : "xxl"}
+      disableGutters={embedded}
+    >
+      {!embedded && (
+        <CustomBreadcrumbs
+          heading="Засаг захиргааны нэгж"
+          links={[
+            {
+              name: "Аймаг, сум, дүүрэг",
+              href: paths.dashboard.activity,
+            },
+            {
+              name: "Жагсаалт",
+            },
+          ]}
+          action={
+            menuPermissions?.create && (
+              <Button
+                color="primary"
+                variant="contained"
+                onClick={form.onToggle}
+                id="unit-create"
+                endIcon={
+                  <Iconify
+                    icon="mingcute:down-line"
+                    sx={{
+                      transition: (theme) => theme.transitions.create("all"),
+                      ...(form.value && {
+                        transform: "rotate(-180deg)",
+                      }),
+                    }}
+                  />
+                }
+              >
+                Нэмэх
+              </Button>
+            )
+          }
+        />
+      )}
       <Collapse in={form.value} timeout="auto" unmountOnExit>
         <Box sx={{ mb: { xs: 3, md: 5 } }}>
           <AdminUnitNewEditForm
@@ -184,3 +201,7 @@ export default function AdminUnitListView() {
     </Container>
   );
 }
+
+AdminUnitListView.propTypes = {
+  embedded: PropTypes.bool,
+};

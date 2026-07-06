@@ -11,7 +11,7 @@ import Iconify from 'src/components/iconify';
 
 // ----------------------------------------------------------------------
 
-export default function UserTableToolbar({ onReset, filters, canReset, onFilters }) {
+export default function UserTableToolbar({ onReset, filters, canReset, onFilters, action }) {
   const handleFilterFirstName = useCallback(
     (event) => {
       onFilters('first_name', event.target.value);
@@ -53,6 +53,8 @@ export default function UserTableToolbar({ onReset, filters, canReset, onFilters
           </Badge>
         </IconButton>
       </Tooltip>
+
+      {action}
     </Stack>
   );
 }
@@ -62,4 +64,5 @@ UserTableToolbar.propTypes = {
   canReset: PropTypes.bool,
   filters: PropTypes.object,
   onFilters: PropTypes.func,
+  action: PropTypes.node,
 };

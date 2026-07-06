@@ -1,5 +1,6 @@
 "use client";
 
+import PropTypes from "prop-types";
 import { isEqual } from "lodash";
 import { useMemo, useState, useCallback } from "react";
 import Card from "@mui/material/Card";
@@ -43,7 +44,7 @@ const defaultFilters = {
   first_name: "",
 };
 
-export default function UserListView() {
+export default function UserListView({ embedded = false }) {
   const { enqueueSnackbar } = useSnackbar();
   const table = useTable({
     defaultDense: true,
@@ -149,18 +150,23 @@ export default function UserListView() {
   const renderTableEmpty = <TableNoData notFound={usersEmpty} />;
 
   return (
-    <Container maxWidth="xxl">
-      <CustomBreadcrumbs
-        heading="Хэрэглэгчийн жагсаалт"
-        links={[
-          {
-            name: "Хэрэглэгч",
-          },
-          {
-            name: "Жагсаалт",
-          },
-        ]}
-      />
+    <Container
+      maxWidth={embedded ? false : "xxl"}
+      disableGutters={embedded}
+    >
+      {!embedded && (
+        <CustomBreadcrumbs
+          heading="Хэрэглэгчийн жагсаалт"
+          links={[
+            {
+              name: "Хэрэглэгч",
+            },
+            {
+              name: "Жагсаалт",
+            },
+          ]}
+        />
+      )}
 
       <Card>
         {renderTableStatus}
@@ -200,3 +206,7 @@ export default function UserListView() {
     </Container>
   );
 }
+
+UserListView.propTypes = {
+  embedded: PropTypes.bool,
+};

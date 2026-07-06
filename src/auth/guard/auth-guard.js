@@ -138,13 +138,15 @@ const hasAccessToPath = (menuEntries, pathname) => {
   );
 };
 
+// Гадаад порталын нэвтрэлт — систем дотор login хуудас байхгүй.
+const PORTAL_URL =
+  process.env.NEXT_PUBLIC_PORTAL_URL || "https://geodesy.gov.mn";
+
 const ALWAYS_PUBLIC_PATHS = [
   paths.page403,
   paths.page404,
   paths.page500,
   paths.maintenance,
-  paths.auth?.jwt?.login,
-  "/login",
 ];
 
 const ALWAYS_PUBLIC_ENTRIES = ALWAYS_PUBLIC_PATHS.map((publicPath) =>
@@ -155,7 +157,6 @@ const CONFIG_PUBLIC_ENTRIES = publicPaths
   .map((publicPath) => createPathEntry(publicPath, { allowChildren: false }))
   .filter(Boolean);
 
-const NORMALIZED_LOGIN_PATH = normalizePath("/login");
 
 const NORMALIZED_MAINTENANCE_PATH = normalizePath(paths.maintenance);
 
@@ -221,9 +222,8 @@ function Container({ children }) {
     }
 
     if (!authenticated) {
-      if (!matchNormalizedPath(normalizedPathname, NORMALIZED_LOGIN_PATH)) {
-        router.replace("/login");
-      }
+      // Login хуудас байхгүй — гадаад геодези порталын нэвтрэлт рүү шилжүүлнэ.
+      window.location.href = PORTAL_URL;
       return;
     }
 

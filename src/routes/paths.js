@@ -4,6 +4,7 @@ const ROOTS = {
   AUTH: "/auth",
   AUTH_DEMO: "/auth-demo",
   DASHBOARD: "/dashboard",
+  SETTINGS: "/settings",
 };
 
 // ----------------------------------------------------------------------
@@ -23,12 +24,8 @@ export const paths = {
   docs: "https://docs.minimals.cc",
   changelog: "https://docs.minimals.cc/changelog",
 
-  // AUTH
-  auth: {
-    jwt: {
-      login: `${ROOTS.AUTH}/jwt/login`,
-    },
-  },
+  // AUTH — систем дотор login/register хуудас байхгүй. Нэвтрэлт нь гадаад
+  // геодези порталаар (NEXT_PUBLIC_PORTAL_URL / https://geodesy.gov.mn) явагдана.
   // authDemo: {
   //   classic: {
   //     login: `${ROOTS.AUTH_DEMO}/classic/login`,
@@ -73,14 +70,19 @@ export const paths = {
       root: `${ROOTS.DASHBOARD}/order`,
       details: (id) => `${ROOTS.DASHBOARD}/order/${id}`,
     },
+    settings: {
+      root: `${ROOTS.SETTINGS}`,
+      system: `${ROOTS.SETTINGS}/system`,
+      gis: `${ROOTS.SETTINGS}/gis`,
+    },
     user: {
-      root: `${ROOTS.DASHBOARD}/user`,
-      new: `${ROOTS.DASHBOARD}/user/new`,
-      list: `${ROOTS.DASHBOARD}/user/list`,
-      cards: `${ROOTS.DASHBOARD}/user/cards`,
-      profile: `${ROOTS.DASHBOARD}/user/profile`,
-      account: `${ROOTS.DASHBOARD}/user/account`,
-      edit: (id) => `${ROOTS.DASHBOARD}/user/${id}/edit`,
+      root: `${ROOTS.SETTINGS}/user`,
+      new: `${ROOTS.SETTINGS}/user/new`,
+      list: `${ROOTS.SETTINGS}/user/list`,
+      cards: `${ROOTS.SETTINGS}/user/cards`,
+      profile: `${ROOTS.DASHBOARD}/profile`,
+      account: `${ROOTS.SETTINGS}/user/account`,
+      edit: (id) => `${ROOTS.SETTINGS}/user/${id}/edit`,
     },
     point: {
       root: `${ROOTS.DASHBOARD}/ready`,
@@ -93,10 +95,10 @@ export const paths = {
       },
     },
     menu: {
-      root: `${ROOTS.DASHBOARD}/menu`,
-      new: `${ROOTS.DASHBOARD}/menu/new`,
-      details: (id) => `${ROOTS.DASHBOARD}/menu/${id}`,
-      edit: (id) => `${ROOTS.DASHBOARD}/menu/${id}/edit`,
+      root: `${ROOTS.SETTINGS}/menu`,
+      new: `${ROOTS.SETTINGS}/menu/new`,
+      details: (id) => `${ROOTS.SETTINGS}/menu/${id}`,
+      edit: (id) => `${ROOTS.SETTINGS}/menu/${id}/edit`,
     },
     nl: {
       root: `${ROOTS.DASHBOARD}/nl`,
@@ -112,7 +114,7 @@ export const paths = {
       details: (id) => `${ROOTS.DASHBOARD}/champaign/${id}`,
     },
     constant: {
-      root: `${ROOTS.DASHBOARD}/constant`,
+      root: `${ROOTS.SETTINGS}/constant`,
     },
     nameclass: {
       root: `${ROOTS.DASHBOARD}/nameclass`,
@@ -131,10 +133,10 @@ export const paths = {
       details: (id) => `${ROOTS.DASHBOARD}/name/${id}`,
     },
     role: {
-      root: `${ROOTS.DASHBOARD}/role`,
-      new: `${ROOTS.DASHBOARD}/role/new`,
-      details: (id) => `${ROOTS.DASHBOARD}/role/${id}`,
-      edit: (id) => `${ROOTS.DASHBOARD}/role/${id}/edit`,
+      root: `${ROOTS.SETTINGS}/role`,
+      new: `${ROOTS.SETTINGS}/role/new`,
+      details: (id) => `${ROOTS.SETTINGS}/role/${id}`,
+      edit: (id) => `${ROOTS.SETTINGS}/role/${id}/edit`,
     },
     level: {
       root: `${ROOTS.DASHBOARD}/level`,

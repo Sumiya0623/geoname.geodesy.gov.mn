@@ -197,6 +197,8 @@ function Map2() {
   const radiusCircleLayerRef = useRef(null);
   const linkLineSourceRef = useRef(new VectorSource());
   const linkLineLayerRef = useRef(null);
+  const nameGeomSourceRef = useRef(new VectorSource());
+  const nameGeomLayerRef = useRef(null);
   const clusterSourceRef = useRef(null);
   const clusterLayerRef = useRef(null);
   const drawInteractionRef = useRef(null);
@@ -1164,6 +1166,8 @@ function Map2() {
       radiusCircleSourceRef,
       linkLineSourceRef,
       linkLineLayerRef,
+      nameGeomSourceRef,
+      nameGeomLayerRef,
       clusterLayerRef,
       measurementSearchLayerRef,
       drawInteractionRef,
@@ -2249,6 +2253,32 @@ function Map2() {
     source.addFeature(feature);
   }, [anchorPosition]);
 
+  // Дарсан объектын бүтэн геометрийг ТОД УЛААНААР тодруулна (цэг/шугам/талбай).
+  useEffect(() => {
+    const src = nameGeomSourceRef.current;
+    if (!src) return;
+    src.clear();
+    const geom = selectedName?._geom;
+    if (!geom || !geom.type || !geom.coordinates) return;
+    try {
+      // GetFeatureInfo GeoJSON — SRS-ийг координатын хэмжээгээр таамаглана
+      // (градус ≤180/≤90 бол EPSG:4326, эс бөгөөс EPSG:3857).
+      let flat = geom.coordinates;
+      while (Array.isArray(flat[0])) flat = flat[0];
+      const isDeg = Math.abs(flat[0]) <= 180 && Math.abs(flat[1]) <= 90;
+      const feature = new GeoJSON().readFeature(
+        { type: "Feature", geometry: geom, properties: {} },
+        {
+          dataProjection: isDeg ? "EPSG:4326" : "EPSG:3857",
+          featureProjection: "EPSG:3857",
+        },
+      );
+      src.addFeature(feature);
+    } catch (e) {
+      /* геометр уншиж чадсангүй — алгасна */
+    }
+  }, [selectedName]);
+
   const handleClearHighlight = useCallback(() => {
     const existingFeatures =
       measurementSearchSourceRef.current?.getFeatures() || [];
@@ -2669,6 +2699,7 @@ function Map2() {
             setSidebarOpen(false);
             handleClearHighlight();
             linkLineSourceRef.current?.clear();
+            nameGeomSourceRef.current?.clear();
           }}
           selectedName={selectedName}
           anchorPosition={anchorPosition}

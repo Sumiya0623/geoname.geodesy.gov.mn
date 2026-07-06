@@ -81,7 +81,11 @@ GeoStylerLegend.propTypes = { gsStyle: PropTypes.object };
 export default function GeoStylerEditor({ layerId, onClose }) {
   const router = useRouter();
   const { enqueueSnackbar } = useSnackbar();
-  const parser = useMemo(() => new SldStyleParser(), []);
+  // SLD 1.1.0 (SE) хэрэглэнэ. LineSymbolizer‑ийн `perpendicularOffset` (шугамыг
+  // перпендикуляр чиглэлд зөөх) нь зөвхөн SE 1.1‑д байдаг — 1.0.0 үед бичсэн ч
+  // GeoServer үл тоомсорлож, offset хадгалагдахгүй/харагдахгүй байсан. Уншихдаа
+  // parser нь XML‑ээс хувилбарыг өөрөө таних тул хуучин 1.0 SLD‑үүд ачаалагдана.
+  const parser = useMemo(() => new SldStyleParser({ sldVersion: "1.1.0" }), []);
 
   const [gsStyle, setGsStyle] = useState(null);
   const [loading, setLoading] = useState(true);
