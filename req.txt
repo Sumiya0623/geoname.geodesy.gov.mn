@@ -13,6 +13,7 @@ psycopg2-binary
 python-dotenv
 colorama
 pymupdf
+pyproj
 
 # report
 Pillow
