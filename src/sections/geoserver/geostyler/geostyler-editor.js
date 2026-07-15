@@ -7,11 +7,7 @@ import { useRouter } from "next/navigation";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SldStyleParser from "geostyler-sld-parser";
 import { LegendRenderer } from "geostyler-legend";
-import {
-  Style as GeoStylerStyle,
-  CodeEditor,
-  PreviewMap,
-} from "geostyler";
+import { Style as GeoStylerStyle, CodeEditor, PreviewMap } from "geostyler";
 import { useRef, useMemo, useState, useEffect, useCallback } from "react";
 
 import {
@@ -41,9 +37,8 @@ if (
     "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
       (
         c ^
-        (window.crypto.getRandomValues(new Uint8Array(1))[0] &
-          (15 >> (c / 4)))
-      ).toString(16)
+        (window.crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
+      ).toString(16),
     );
 }
 
@@ -78,9 +73,23 @@ GeoStylerLegend.propTypes = { gsStyle: PropTypes.object };
 // Graphical Editor (Style), баруун талд Display (Split View = Code + Preview).
 // ----------------------------------------------------------------------
 
-export default function GeoStylerEditor({ layerId, onClose }) {
+export default function GeoStylerEditor({
+  layerId,
+  sldUrl,
+  uploadUrl,
+  title,
+  belowEditor,
+  hideSave = false,
+  sldRef,
+  onClose,
+}) {
   const router = useRouter();
   const { enqueueSnackbar } = useSnackbar();
+  // SLD унших/бичих URL: workspace layer‑ийн хувьд props‑оор, geoname навчийн
+  // хувьд nameclass endpoint (layerId)‑оор. Хоёулаа GET/PUT ижил URL хэрэглэнэ.
+  const readUrl = sldUrl || (layerId ? endpoints.nameclass.sld(layerId) : null);
+  const upUrl =
+    uploadUrl || (layerId ? endpoints.nameclass.uploadSymbol(layerId) : null);
   // SLD 1.1.0 (SE) хэрэглэнэ. LineSymbolizer‑ийн `perpendicularOffset` (шугамыг
   // перпендикуляр чиглэлд зөөх) нь зөвхөн SE 1.1‑д байдаг — 1.0.0 үед бичсэн ч
   // GeoServer үл тоомсорлож, offset хадгалагдахгүй/харагдахгүй байсан. Уншихдаа
@@ -98,13 +107,13 @@ export default function GeoStylerEditor({ layerId, onClose }) {
   const [loadKey, setLoadKey] = useState(0);
 
   useEffect(() => {
-    if (!layerId) return undefined;
+    if (!readUrl) return undefined;
     let active = true;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await axiosInstance.get(endpoints.nameclass.sld(layerId));
+        const res = await axiosInstance.get(readUrl);
         const sld = res?.data?.sld;
         const { output, errors } = await parser.readStyle(sld);
         if (!active) return;
@@ -123,7 +132,7 @@ export default function GeoStylerEditor({ layerId, onClose }) {
     return () => {
       active = false;
     };
-  }, [layerId, parser]);
+  }, [readUrl, parser]);
 
   // GeoStyler‑ийн Icon Source талбар дахь upload товч (patch‑аар нэмсэн) энэ
   // global handler‑ийг дуудна: файлыг backend media‑д хуулж absolute URL буцаана.
@@ -131,19 +140,18 @@ export default function GeoStylerEditor({ layerId, onClose }) {
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     window.__geostylerUploadImage = async (file) => {
+      if (!upUrl) return "";
       const fd = new FormData();
       fd.append("file", file);
-      const res = await axiosInstance.post(
-        endpoints.nameclass.uploadSymbol(layerId),
-        fd,
-        { headers: { "Content-Type": "multipart/form-data" } }
-      );
+      const res = await axiosInstance.post(upUrl, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       return res?.data?.url || "";
     };
     return () => {
       delete window.__geostylerUploadImage;
     };
-  }, [layerId]);
+  }, [upUrl]);
 
   // Monaco editor болон OpenLayers map нь контейнерийн хэмжээ өөрчлөгдөхөд өөрөө
   // дахин хэмжихгүй (хоосон харагдана). Display солих бүрд resize event илгээж
@@ -176,7 +184,7 @@ export default function GeoStylerEditor({ layerId, onClose }) {
     try {
       const { output: sld, errors } = await parser.writeStyle(gsStyle);
       if (!sld) throw new Error(errors?.[0]?.message || "SLD үүсгэхэд алдаа");
-      await axiosInstance.put(endpoints.nameclass.sld(layerId), { sld });
+      await axiosInstance.put(readUrl, { sld });
       enqueueSnackbar("Style амжилттай хадгалагдлаа", { variant: "success" });
     } catch (e) {
       enqueueSnackbar(e?.response?.data?.detail || e.message, {
@@ -185,7 +193,25 @@ export default function GeoStylerEditor({ layerId, onClose }) {
     } finally {
       setSaving(false);
     }
-  }, [gsStyle, parser, layerId, enqueueSnackbar]);
+  }, [gsStyle, parser, readUrl, enqueueSnackbar]);
+
+  // Одоогийн GeoStyler style‑ийн SLD‑г гаднаас авах (хил дагуу нэр хамт хадгалахад
+  // base болгон ашиглана — rule засвар алдагдахгүй).
+  useEffect(() => {
+    if (!sldRef) return undefined;
+    sldRef.current = async () => {
+      if (!gsStyle) return null;
+      try {
+        const { output } = await parser.writeStyle(gsStyle);
+        return output || null;
+      } catch {
+        return null;
+      }
+    };
+    return () => {
+      if (sldRef) sldRef.current = null;
+    };
+  }, [sldRef, gsStyle, parser]);
 
   if (loading) {
     return (
@@ -215,7 +241,7 @@ export default function GeoStylerEditor({ layerId, onClose }) {
   );
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={1}>
       <Stack
         direction="row"
         alignItems="center"
@@ -241,57 +267,66 @@ export default function GeoStylerEditor({ layerId, onClose }) {
             Буцах
           </Button>
           <Typography variant="h6">
-            GeoStyler{layerId ? ` · Layer #${layerId}` : ""}
+            {title || `GeoStyler${layerId ? ` · Layer #${layerId}` : ""}`}
           </Typography>
         </Stack>
-        <Button variant="contained" onClick={handleSave} disabled={saving}>
-          {saving ? "Хадгалж байна…" : "Хадгалах"}
-        </Button>
       </Stack>
 
       {/* Демогийн адил 2 багана: зүүн Graphical Editor, баруун Display панель */}
       <Box
         sx={{
           display: "grid",
-          gap: 2,
-          gridTemplateColumns: { xs: "1fr", md: "1.2fr 1fr" },
+          gap: 1,
+          gridTemplateColumns: { xs: "1fr", md: "2fr 1fr" },
           alignItems: "start",
         }}
       >
-        {/* Зүүн — Graphical Editor (үргэлж харагдана) */}
-        <Card
-          ref={nameGuardRef}
-          sx={{
-            p: 2,
-            overflow: "auto",
-            // Style нэр = view нэр тул засагдахгүй (зөвхөн харах). antd Input нь
-            // gs-namefield class‑ыг input элемент дээр шууд тавьдаг.
-            "& .gs-namefield, & input.gs-namefield": {
-              pointerEvents: "none",
-              backgroundColor: "action.disabledBackground",
-              color: "text.disabled",
-              cursor: "not-allowed",
-            },
-          }}
-        >
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Graphical Editor
-          </Typography>
-          {gsStyle && (
-            <GeoStylerStyle
-              key={loadKey}
-              style={gsStyle}
-              onStyleChange={setGsStyle}
-            />
-          )}
-        </Card>
+        {/* Зүүн багана — Graphical Editor + доор нь нэмэлт (belowEditor) */}
+        <Stack spacing={1}>
+          <Card
+            ref={nameGuardRef}
+            sx={{
+              py: 1,
+              overflow: "auto",
+              // Style нэр = view нэр тул засагдахгүй (зөвхөн харах). antd Input нь
+              // gs-namefield class‑ыг input элемент дээр шууд тавьдаг.
+              "& .gs-namefield, & input.gs-namefield": {
+                pointerEvents: "none",
+                backgroundColor: "action.disabledBackground",
+                color: "text.disabled",
+                cursor: "not-allowed",
+              },
+            }}
+          >
+            {gsStyle && (
+              <GeoStylerStyle
+                key={loadKey}
+                style={gsStyle}
+                onStyleChange={setGsStyle}
+              />
+            )}
+            {/* Хадгалах — rule‑ийн доор, мөрний баруун төгсгөлд. Хил дагуу нэр
+              идэвхтэй үед нуугдана (нэг зэрэг зөвхөн нэг save товч). */}
+            {!hideSave && (
+              <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2 }}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleSave}
+                  disabled={saving}
+                >
+                  {saving ? "Хадгалж байна…" : "Хадгалах"}
+                </Button>
+              </Stack>
+            )}
+          </Card>
+          {belowEditor}
+        </Stack>
 
         {/* Баруун — Display: Split View / Code Editor / Preview Map / Legend */}
         <Card
           sx={{
-            p: 2,
-            // Monaco кодын editor‑т өндөр өгнө. Code Editor горимд viewport‑ын
-            // доод хүртэл бүтэн (демогийн адил), Split горимд богино (доор preview).
+            p: 1,
             "& .gs-code-editor-monaco": {
               height: display === "code" ? "calc(100vh - 230px)" : 360,
               minHeight: display === "code" ? 520 : 360,
@@ -301,25 +336,23 @@ export default function GeoStylerEditor({ layerId, onClose }) {
             },
           }}
         >
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={1}
-            sx={{ mb: 2 }}
-          >
-            <Typography variant="caption" color="text.secondary">
-              Display:
-            </Typography>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
             <ToggleButtonGroup
               size="small"
               exclusive
               value={display}
               onChange={(_, v) => v && setDisplay(v)}
             >
-              <ToggleButton value="split">Split View</ToggleButton>
-              <ToggleButton value="code">Code Editor</ToggleButton>
-              <ToggleButton value="preview">Preview Map</ToggleButton>
-              <ToggleButton value="legend">Legend</ToggleButton>
+              <ToggleButton size="small" value="split">
+                Split View
+              </ToggleButton>
+
+              <ToggleButton size="small" value="preview">
+                Preview Map
+              </ToggleButton>
+              <ToggleButton size="small" value="legend">
+                Legend
+              </ToggleButton>
             </ToggleButtonGroup>
           </Stack>
 
@@ -329,7 +362,7 @@ export default function GeoStylerEditor({ layerId, onClose }) {
               <Box>{previewMap}</Box>
             </Stack>
           )}
-          {display === "code" && <Box>{codeEditor}</Box>}
+
           {display === "preview" && <Box>{previewMap}</Box>}
           {display === "legend" && <GeoStylerLegend gsStyle={gsStyle} />}
         </Card>
@@ -340,5 +373,11 @@ export default function GeoStylerEditor({ layerId, onClose }) {
 
 GeoStylerEditor.propTypes = {
   layerId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+  sldUrl: PropTypes.string,
+  uploadUrl: PropTypes.string,
+  title: PropTypes.string,
+  belowEditor: PropTypes.node,
+  hideSave: PropTypes.bool,
+  sldRef: PropTypes.object,
   onClose: PropTypes.func,
 };

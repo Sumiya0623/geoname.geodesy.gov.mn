@@ -9,6 +9,7 @@ import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 
 import { AdminUnitListView } from "src/sections/adminunit/view";
 import WorkspaceListView from "src/sections/geoserver/workspace-list-view";
+import { BaseMapLayerListView } from "src/sections/basemap/view";
 
 // ----------------------------------------------------------------------
 // Тав бүр нь өөрийн SubMenu-ийн `content` түлхүүрээр харах (`list`) эрхээ шалгана.
@@ -20,6 +21,7 @@ export default function GisTabsView() {
 
   const auPerm = useMenuPermissions({ content: "au" });
   const geoserverPerm = useMenuPermissions({ content: "geoserver" });
+  const basemapPerm = useMenuPermissions({ content: "basemap" });
 
   const TABS = useMemo(
     () => [
@@ -37,8 +39,16 @@ export default function GisTabsView() {
         allowed: geoserverPerm.list,
         render: () => <WorkspaceListView embedded />,
       },
+      {
+        value: "basemap",
+        label: "Газрын зургийн давхарга",
+        icon: <Iconify icon="solar:layers-bold" width={24} />,
+        // Тусдаа "basemap" эрх байвал түүгээр, эс бөгөөс geoserver эрхээр
+        allowed: basemapPerm.list || geoserverPerm.list,
+        render: () => <BaseMapLayerListView />,
+      },
     ],
-    [auPerm.list, geoserverPerm.list],
+    [auPerm.list, geoserverPerm.list, basemapPerm.list],
   );
 
   const allowedTabs = useMemo(() => TABS.filter((t) => t.allowed), [TABS]);

@@ -32,14 +32,18 @@ const LayerControl = ({
   recountEnabled = false,
   recountVisible = false,
   onToggleRecount,
-  overlayBasemap = false,
-  onToggleBasemap,
-  overlayNomencl = false,
-  onToggleNomencl,
-  overlayDem = false,
-  onToggleDem,
+  overlayLegal = false,
+  onToggleLegal,
   overlayOpacity = {},
   onOverlayOpacity,
+  // Backend‑ээс role‑оор шүүсэн тохиргоо. baseConfigs өгвөл суурь радиог түүгээр
+  // (нэр/өнгө/дараалал), overlayConfigs өгвөл зөвхөн зөвшөөрсөн overlay‑г харуулна.
+  baseConfigs = null,
+  overlayConfigs = null,
+  // Backend‑ээс ирсэн ДУРЫН overlay (hardcoded бус) — generic checkbox‑оор.
+  extraOverlays = [],
+  extraOverlayOn = {},
+  onToggleExtraOverlay,
 }) => {
   const { baseLayers } = useGetBaseLayers();
 
@@ -131,15 +135,10 @@ const LayerControl = ({
                 onBaseMapChange && onBaseMapChange(e.target.value)
               }
             >
-              {[
-                "CRV",
-                "OSM",
-                "GMS",
-                "ESRI",
-                "TOPO",
-                "M100k",
-                "M100kGeoName",
-              ].map((key) => {
+              {(baseConfigs?.length
+                ? baseConfigs.map((c) => c.key)
+                : ["CRV", "OSM", "GMS", "ESRI", "TOPO", "M100k", "M100kGeoName"]
+              ).map((key) => {
                 const colorMap = {
                   CRV: "#1976d2",
                   OSM: "#4caf50",
@@ -168,8 +167,9 @@ const LayerControl = ({
                   BASEMAP: "Суурь зураг",
                   NOMENCLATURE: "Нэрлэвэр",
                 };
+                const cfg = (baseConfigs || []).find((c) => c.key === key);
                 const selected = baseMap === key;
-                const color = colorMap[key] || "#607d8b";
+                const color = cfg?.color || colorMap[key] || "#607d8b";
 
                 return (
                   <Box key={key}>
@@ -200,7 +200,7 @@ const LayerControl = ({
                             {iconFor(key)}
                           </Avatar>
                           <Typography variant="body2">
-                            {labelMap[key] || key}
+                            {cfg?.label || labelMap[key] || key}
                           </Typography>
                         </Box>
                       }
@@ -276,50 +276,49 @@ const LayerControl = ({
               />
             )}
 
-            {[
-              {
-                key: "DEM",
-                label: "Газрын гадарга (DEM)",
-                checked: overlayDem,
-                toggle: onToggleDem,
-                def: 0.85,
-                color: "#8d6e63",
-              },
-              {
-                key: "BASEMAP",
-                label: "Суурь зураг",
-                checked: overlayBasemap,
-                toggle: onToggleBasemap,
-                def: 1,
-                color: "#e91e63",
-              },
-              {
-                key: "NOMENCLATURE",
-                label: "Нэрлэвэр",
-                checked: overlayNomencl,
-                toggle: onToggleNomencl,
-                def: 1,
-                color: "#00bcd4",
-              },
-            ].map((ov) => (
-              <Box key={ov.key}>
+            {/* LEGAL — тусгай (вектор) overlay. Зөвхөн тохиргоо байвал. */}
+            {overlayConfigs &&
+              overlayConfigs.some((c) => c.key === "LEGAL") && (
                 <FormControlLabel
                   sx={{ ml: 0, display: "flex" }}
                   control={
                     <Checkbox
                       size="small"
-                      checked={ov.checked}
-                      onChange={() => ov.toggle && ov.toggle()}
+                      checked={overlayLegal}
+                      onChange={() => onToggleLegal && onToggleLegal()}
                     />
                   }
-                  label={ov.label}
+                  label={
+                    (overlayConfigs.find((c) => c.key === "LEGAL") || {})
+                      .label || "Шийдвэрийн сан"
+                  }
                 />
-                {ov.checked && onOverlayOpacity && (
+              )}
+
+            {/* Backend‑ээс ирсэн бусад бүх overlay — generic */}
+            {extraOverlays.map((oc) => (
+              <Box key={oc.key}>
+                <FormControlLabel
+                  sx={{ ml: 0, display: "flex" }}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={!!extraOverlayOn[oc.key]}
+                      onChange={() =>
+                        onToggleExtraOverlay && onToggleExtraOverlay(oc.key)
+                      }
+                    />
+                  }
+                  label={oc.label || oc.key}
+                />
+                {extraOverlayOn[oc.key] && onOverlayOpacity && (
                   <Box onClick={(e) => e.stopPropagation()}>
                     <OpacityController
-                      value={overlayOpacity[ov.key] ?? ov.def}
-                      onChange={(v) => onOverlayOpacity(ov.key, v)}
-                      color={ov.color}
+                      value={
+                        overlayOpacity[oc.key] ?? oc?.params?.opacity ?? 1
+                      }
+                      onChange={(v) => onOverlayOpacity(oc.key, v)}
+                      color={oc.color || "#607d8b"}
                       label="Ил тод байдал"
                       showLabel={false}
                       showValue

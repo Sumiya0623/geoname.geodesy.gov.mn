@@ -8,7 +8,6 @@ import {
   Stack,
   Switch,
   Button,
-  Divider,
   Tooltip,
   TextField,
   Typography,
@@ -16,7 +15,6 @@ import {
   Autocomplete,
   FormControlLabel,
   ToggleButtonGroup,
-  ListItemButton,
 } from "@mui/material";
 import {
   Clear as ClearIcon,
@@ -82,6 +80,22 @@ function textCqlParts(f) {
   return parts;
 }
 
+// Type‑ээс БУСАД CQL хэсгүүд — модны ангиллын давхаргад нэмэхэд. Тэдгээр давхарга
+// төрлөө өөрөө өгдөг тул зөвхөн нэгж/нэр/дугаар/нэрлэвэр/байршил г.м.‑ийг л нэмнэ.
+function nonTypeCqlParts(f, geo) {
+  const parts = [];
+  if (f.name) parts.push(`name ILIKE '%${esc(f.name)}%'`);
+  if (f.number) parts.push(`number ILIKE '%${esc(f.number)}%'`);
+  const unitId = unitIdOf(f);
+  if (unitId) parts.push(`unit_ids LIKE '% ${unitId} %'`);
+  if (f.nomek) parts.push(`nomek_codes ILIKE '%${esc(f.nomek)}%'`);
+  if (f.approved) parts.push("is_approved = true");
+  if (f.border) parts.push("is_border = true");
+  const gp = geoCqlPart(geo);
+  if (gp) parts.push(gp);
+  return parts.join(" AND ");
+}
+
 function closeRing(ring) {
   if (!ring.length) return ring;
   const [a, b] = [ring[0], ring[ring.length - 1]];
@@ -130,10 +144,9 @@ const MODES = [
   },
 ];
 
-// Хүснэгтээр харуулах босго (10‑с дээш) ба автоматаар татах дээд хязгаар
+// Хүснэгтээр харуулах босго (10‑с дээш) ба "Хүснэгтээр харах" товч гарах хязгаар
 const TABLE_THRESHOLD = 0;
 const AUTO_LIMIT = 100;
-const MAX_FETCH = 500;
 
 export default function AdvancedSearch({
   onSearch,
@@ -145,6 +158,8 @@ export default function AdvancedSearch({
   onStartDrawPolygon,
   onClearSearchArea,
   onResults,
+  onTreeFilters,
+  onExtraCql,
 }) {
   const [tab, setTab] = useState(0);
   const [f, setF] = useState(EMPTY);
@@ -243,9 +258,10 @@ export default function AdvancedSearch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.nomek]);
 
-  // Хайлтын query params бэлдэх
+  // Хайлтын query params бэлдэх (pageSize өгвөл л page_size нэмнэ)
   const buildParams = (g, ff, pageSize) => {
-    const params = { page_size: pageSize };
+    const params = {};
+    if (pageSize) params.page_size = pageSize;
     if (ff.name) params.name = ff.name;
     if (ff.number) params.number = ff.number;
     if (ff.nomek) params.nomek = ff.nomek;
@@ -267,6 +283,21 @@ export default function AdvancedSearch({
 
   const lastQueryRef = useRef({ g: EMPTY_GEO, ff: EMPTY });
 
+  // Модны тоо хэмжээг хайлттай уялдуулах params. Мод нь ЗӨВХӨН газрын зурагт
+  // харагдах (geom‑той) нэрийг тоолдог тул:
+  //  • type‑аар шүүхгүй (мод бүх ангиллыг харуулна)
+  //  • нэгжээр шүүхэд ОРОН ЗАЙГААР (unit_geom) — газрын зураг дээрхтэй таарна,
+  //    M2M гишүүнчлэл (unit_tree)‑ээр биш (координатгүй импортын нэрс орж ирдэг)
+  const treeFilterParams = (g, ff) => {
+    const p = buildParams(g, ff);
+    delete p.type;
+    if (p.unit_tree) {
+      p.unit_geom = p.unit_tree;
+      delete p.unit_tree;
+    }
+    return p;
+  };
+
   // ----- Хайлт гүйцэтгэх (текст + байршил) -----
   const runSearch = async (g, ff) => {
     lastQueryRef.current = { g, ff };
@@ -275,41 +306,40 @@ export default function AdvancedSearch({
     if (gp) parts.push(gp);
     onSearch && onSearch(parts.length ? parts.join(" AND ") : "INCLUDE");
 
+    // Ангиллын модны тоог хайлтын дагуу шинэчлэх
+    onTreeFilters && onTreeFilters(treeFilterParams(g, ff));
+    // Модны ангиллын давхаргад нэмэх нэгж/бусад шүүлтийн CQL
+    onExtraCql && onExtraCql(nonTypeCqlParts(ff, g));
+
     setSearching(true);
     try {
-      const q = new URLSearchParams(buildParams(g, ff, AUTO_LIMIT)).toString();
+      const baseParams = buildParams(g, ff);
+      // Зөвхөн тоог мэдэхэд page_size=1 хангалттай (хүснэгтийг эх сурвалж
+      // тал нь хуудаслан татна)
+      const q = new URLSearchParams({ ...baseParams, page_size: 1 }).toString();
       const res = await axiosInstance.get(endpoints.geoname.list(q));
       const count = res?.data?.count ?? 0;
-      const items = res?.data?.results || [];
       const big = count > AUTO_LIMIT;
-      setResult({ count, items, big });
-      // 10‑с дээш → тусдаа хүснэгтээр (газрын зургийн дээд талд).
-      // 100‑с дээш бол эхлээд "Хайх" товч дарж ачаална.
+      setResult({ count, big });
+      // ≤100 → шууд хүснэгтээр (хуудаслалттай). >100 → "Хүснэгтээр харах" товч.
       if (onResults) {
-        if (count > TABLE_THRESHOLD && !big) onResults(items);
-        else onResults([]);
+        if (count > TABLE_THRESHOLD && !big) onResults({ params: baseParams, count });
+        else onResults(null);
       }
     } catch (e) {
-      setResult({ count: 0, items: [], big: false });
-      onResults && onResults([]);
+      setResult({ count: 0, big: false });
+      onResults && onResults(null);
     } finally {
       setSearching(false);
     }
   };
 
-  // 100‑с дээш үед "Хайх" дарахад бүх илэрцийг (дээд хязгаартай) хүснэгтэд ачаална
-  const showAll = async () => {
+  // 100‑с дээш үед "Хүснэгтээр харах" дарахад хуудаслалттай хүснэгтийг нээнэ
+  // (бүх илэрцийг серверээс хуудас хуудсаар татна)
+  const showAll = () => {
     const { g, ff } = lastQueryRef.current;
-    setSearching(true);
-    try {
-      const q = new URLSearchParams(buildParams(g, ff, MAX_FETCH)).toString();
-      const res = await axiosInstance.get(endpoints.geoname.list(q));
-      onResults && onResults(res?.data?.results || []);
-    } catch (e) {
-      /* ignore */
-    } finally {
-      setSearching(false);
-    }
+    onResults &&
+      onResults({ params: buildParams(g, ff), count: result?.count ?? 0 });
   };
 
   // ----- Байршил: горим сонгомогц шууд зурж эхлэх -----
@@ -362,7 +392,12 @@ export default function AdvancedSearch({
       f.nomek ||
       f.approved ||
       f.border;
-    if (!hasFilter) return undefined;
+    if (!hasFilter) {
+      // Бүх шүүлт цэвэрлэгдсэн — мод + ангиллын давхаргын шүүлтийг сэргээнэ
+      onTreeFilters && onTreeFilters(null);
+      onExtraCql && onExtraCql("");
+      return undefined;
+    }
     autoTimer.current = setTimeout(
       () => runSearch(geoRef.current, fRef.current),
       600,
@@ -388,7 +423,9 @@ export default function AdvancedSearch({
     setGeo(EMPTY_GEO);
     setResult(null);
     onClearSearchArea && onClearSearchArea();
-    onResults && onResults([]);
+    onResults && onResults(null);
+    onTreeFilters && onTreeFilters(null);
+    onExtraCql && onExtraCql("");
     onClear && onClear();
   };
 
@@ -645,7 +682,7 @@ export default function AdvancedSearch({
               </Button>
             )}
 
-            {/* 10‑с дээш (≤100) — газрын зургийн дээд талд хүснэгтээр харагдана */}
+            {/* ≤100 — газрын зургийн дээд талд хуудаслалттай хүснэгтээр харагдана */}
             {!result.big && result.count > TABLE_THRESHOLD && (
               <Typography
                 variant="caption"
@@ -655,56 +692,6 @@ export default function AdvancedSearch({
                 Илэрцийг газрын зургийн дээд талд хүснэгтээр харууллаа
               </Typography>
             )}
-
-            {/* ≤10 — энд жагсаалтаар */}
-            {!result.big &&
-              result.count > 0 &&
-              result.count <= TABLE_THRESHOLD &&
-              result.items?.length > 0 && (
-                <Stack
-                  sx={{
-                    mt: 1,
-                    maxHeight: 220,
-                    overflowY: "auto",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 1,
-                    bgcolor: "#fff",
-                  }}
-                  divider={<Divider />}
-                >
-                  {result.items.map((it) => (
-                    <ListItemButton
-                      key={it.id}
-                      dense
-                      onClick={() =>
-                        it.lat != null &&
-                        onFlyTo &&
-                        onFlyTo({ center: [it.lon, it.lat], zoom: 14 })
-                      }
-                    >
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography
-                          variant="body2"
-                          noWrap
-                          sx={{ fontWeight: 600 }}
-                        >
-                          {it.name || "—"}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          noWrap
-                        >
-                          {it.number}
-                          {it.lat != null
-                            ? ` · ${it.lat.toFixed(4)}, ${it.lon.toFixed(4)}`
-                            : ""}
-                        </Typography>
-                      </Box>
-                    </ListItemButton>
-                  ))}
-                </Stack>
-              )}
           </Box>
         )}
       </Box>
@@ -722,4 +709,6 @@ AdvancedSearch.propTypes = {
   onStartDrawPolygon: PropTypes.func,
   onClearSearchArea: PropTypes.func,
   onResults: PropTypes.func,
+  onTreeFilters: PropTypes.func,
+  onExtraCql: PropTypes.func,
 };

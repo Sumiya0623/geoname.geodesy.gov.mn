@@ -67,11 +67,13 @@
 .ol-mouse-position {
   position: absolute;
   top: auto;
-  bottom: 20px;
-  left: 40%;
+  bottom: 52px; /* scale badge‑ийн дээр (доод‑төв) */
+  left: 50%;
+  transform: translateX(-50%);
   padding: 2px 6px;
   font-family: monospace;
   font-size: 12px;
+  text-align: center;
   display: block;
 }
 

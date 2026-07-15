@@ -106,6 +106,71 @@ export function useGetWorkspaceStores(id) {
 }
 
 // ----------------------------------------------------------------------
+// Workspace доторх БҮХ нийтэлсэн layer (vector/raster/wms/wmts) — store болон
+// төрлийн шошготой. geoname‑ээс бусад workspace‑уудын layer жагсаахад.
+// ----------------------------------------------------------------------
+
+export function useGetWorkspaceLayers(id) {
+  const URL = id ? endpoints.workspace.gsAllLayers(id) : null;
+  const { data, isLoading, error, mutate } = useSWR(
+    id ? [URL, axiosInstance, "get"] : null,
+    fetcher,
+    { shouldRetryOnError: false }
+  );
+  return useMemo(
+    () => ({
+      layers: data?.results || [],
+      workspaceName: data?.workspace || "",
+      layersLoading: isLoading,
+      layersError: error,
+      layersMutation: mutate,
+    }),
+    [data, error, isLoading, mutate]
+  );
+}
+
+// ----------------------------------------------------------------------
+// Workspace доторх GeoServer layer group‑ууд (нэрс)
+// ----------------------------------------------------------------------
+
+export function useGetWorkspaceLayergroups(id) {
+  const URL = id ? endpoints.workspace.gsLayergroups(id) : null;
+  const { data, isLoading, error, mutate } = useSWR(
+    id ? [URL, axiosInstance, "get"] : null,
+    fetcher,
+    { shouldRetryOnError: false }
+  );
+  return useMemo(
+    () => ({
+      groups: data?.results || [],
+      groupsLoading: isLoading,
+      groupsError: error,
+      groupsMutation: mutate,
+    }),
+    [data, error, isLoading, mutate]
+  );
+}
+
+// Нэг layer group‑ийн дэлгэрэнгүй (эрэмбэлэгдсэн layer жагсаалт)
+export function useGetWorkspaceLayergroup(id, name) {
+  const URL = id && name ? endpoints.workspace.gsLayergroup(id, name) : null;
+  const { data, isLoading, error, mutate } = useSWR(
+    URL ? [URL, axiosInstance, "get"] : null,
+    fetcher,
+    { shouldRetryOnError: false }
+  );
+  return useMemo(
+    () => ({
+      group: data || null,
+      groupLoading: isLoading,
+      groupError: error,
+      groupMutation: mutate,
+    }),
+    [data, error, isLoading, mutate]
+  );
+}
+
+// ----------------------------------------------------------------------
 // Store доторх layer‑ууд (PG view‑д суурилсан featuretype)
 // ----------------------------------------------------------------------
 

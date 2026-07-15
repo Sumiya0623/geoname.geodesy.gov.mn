@@ -9,6 +9,7 @@ import {
   Grid,
   Table,
   Stack,
+  Button,
   Collapse,
   Container,
   Typography,
@@ -19,6 +20,7 @@ import {
 } from "@mui/material";
 
 import { paths } from "src/routes/paths";
+import { RouterLink } from "src/routes/components";
 import { useBoolean } from "src/hooks/use-boolean";
 import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 import axiosInstance, { endpoints } from "src/utils/axios";
@@ -168,6 +170,17 @@ export default function LegalListView() {
           { name: "Дашбоард", href: paths.dashboard.root },
           { name: "Тогтоол, шийдвэрийн сан" },
         ]}
+        action={
+          <Button
+            component={RouterLink}
+            href={`${paths.dashboard.map.root}?overlay=legal`}
+            variant="contained"
+            color="primary"
+            startIcon={<Iconify icon="solar:map-point-bold" />}
+          >
+            Газрын зураг
+          </Button>
+        }
         sx={{ mb: 3 }}
       />
 

@@ -197,7 +197,7 @@ TreeNode.propTypes = {
   hasCheckedDescendant: PropTypes.func,
 };
 
-export default function NameCategoryTree({ onToggle, checkedSet }) {
+export default function NameCategoryTree({ onToggle, checkedSet, filters }) {
   const [roots, setRoots] = useState([]);
   const [total, setTotal] = useState(0);
   const [rootLoading, setRootLoading] = useState(true);
@@ -205,14 +205,25 @@ export default function NameCategoryTree({ onToggle, checkedSet }) {
   const [expandedSet, setExpandedSet] = useState(() => new Set());
   const [loadingSet, setLoadingSet] = useState(() => new Set());
 
-  const fetchNodes = useCallback(async (parent) => {
-    const q = parent ? new URLSearchParams({ parent }).toString() : "";
-    const res = await axiosInstance.get(endpoints.nameCategory.list(q));
-    return res?.data || { results: [], total: 0 };
-  }, []);
+  // Хайлтын шүүлтүүрийг тоолол дуудлагад дамжуулна (тоо хэмжээ хайлттай уялдана)
+  const fetchNodes = useCallback(
+    async (parent) => {
+      const qp = { ...(filters || {}) };
+      if (parent) qp.parent = parent;
+      const q = new URLSearchParams(qp).toString();
+      const res = await axiosInstance.get(endpoints.nameCategory.list(q));
+      return res?.data || { results: [], total: 0 };
+    },
+    [filters],
+  );
 
+  // Root‑ийг ачаална. filters өөрчлөгдөх бүрд дахин татаж, задарсан
+  // дэд ангиллуудыг цэвэрлэнэ (шинэ тоо хэмжээгээр дахин задартал).
   useEffect(() => {
     let active = true;
+    setRootLoading(true);
+    setChildrenMap({});
+    setExpandedSet(new Set());
     (async () => {
       try {
         const data = await fetchNodes(null);
@@ -333,4 +344,5 @@ export default function NameCategoryTree({ onToggle, checkedSet }) {
 NameCategoryTree.propTypes = {
   onToggle: PropTypes.func,
   checkedSet: PropTypes.object,
+  filters: PropTypes.object,
 };

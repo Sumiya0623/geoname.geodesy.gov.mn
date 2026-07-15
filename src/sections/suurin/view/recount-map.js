@@ -84,6 +84,7 @@ const BASES = [
           },
           crossOrigin: "anonymous",
           serverType: "geoserver",
+          hidpi: false, // GWC 256×256 — HiDPI 282px зөрүүнээс сэргийлнэ
         }),
       }),
   },

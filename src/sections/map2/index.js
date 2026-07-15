@@ -13,12 +13,15 @@ import {
   Paper,
   Tooltip,
   TableRow,
+  TextField,
   TableBody,
   TableCell,
   TableHead,
   Typography,
   IconButton,
   TableContainer,
+  InputAdornment,
+  TablePagination,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import {
@@ -27,11 +30,15 @@ import {
   Layers as LayersIcon,
   Straighten as RulerIcon,
   PlaceOutlined as PlaceIcon,
+  Search as SearchIcon,
 } from "@mui/icons-material";
 
 import "ol/ol.css";
 import "ol-layerswitcher/dist/ol-layerswitcher.css";
 import TileLayer from "ol/layer/Tile";
+import ImageLayer from "ol/layer/Image";
+import ImageWMS from "ol/source/ImageWMS";
+import LayerGroup from "ol/layer/Group";
 import OSM from "ol/source/OSM";
 import XYZ from "ol/source/XYZ";
 import TileWMS from "ol/source/TileWMS";
@@ -54,14 +61,19 @@ import Draw, { createBox } from "ol/interaction/Draw";
 import Snap from "ol/interaction/Snap";
 import GeoJSON from "ol/format/GeoJSON";
 import { boundingExtent } from "ol/extent";
-import { registerMapDraw } from "../../components/map/mapDraw";
+import { registerMapDraw, registerMapExtent } from "../../components/map/mapDraw";
 import NameSidebar from "../../components/map/NameSidebar";
 import LayerControl from "../../components/map/LayerControl";
 
 import FeatureSelector from "../../components/map/FeatureSelector";
 
-import { buildLayersByName, makeViewWmtsLayer, makeGwcWmtsLayer } from "./layers-wmts";
-import { useGetGeoserver } from "src/api/map";
+import {
+  buildLayersByName,
+  makeViewWmtsLayer,
+  makeGwcWmtsLayer,
+} from "./layers-wmts";
+import { createLegalOverlay } from "./legal-overlay";
+import { useGetGeoserver, useGetBaseLayers } from "src/api/map";
 import GeoserverDialog from "src/components/map/geoserverDialog";
 import MapHeader from "src/components/map/MapHeader";
 import axiosInstance, { endpoints } from "src/utils/axios";
@@ -102,6 +114,87 @@ const buildAdminWmsParams = (overrides = {}) => ({
   ...ADMIN_WMS_PARAMS,
   ...overrides,
 });
+
+// Backend‑ийн BaseMapLayer тохиргооноос OpenLayers давхарга байгуулна.
+// source_type: osm | xyz | wms | wmts. params: {maxZoom, cached, styles, cql}.
+function buildOlBaseLayer(cfg) {
+  const p = cfg?.params || {};
+  const st = cfg?.source_type;
+  if (st === "osm") return new TileLayer({ source: new OSM() });
+  if (st === "xyz")
+    return new TileLayer({
+      source: new XYZ({
+        url: cfg.url,
+        ...(p.maxZoom ? { maxZoom: p.maxZoom } : {}),
+      }),
+    });
+  const gsBase = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+  const parts = String(cfg?.gs_layer || "").split(":");
+  const ws = cfg?.workspace || parts[0] || "";
+  const layerName = parts.length > 1 ? parts[1] : parts[0];
+  // Амьд WMS давхарга (workspace‑ийн /wms) — өндөр зумд бүрэн чанартай рендер
+  const liveWms = (minZoom) =>
+    new TileLayer({
+      source: new TileWMS({
+        url: `${gsBase}/${ws}/wms`,
+        params: {
+          LAYERS: cfg.gs_layer,
+          STYLES: p.styles || "",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          TILED: "true",
+          VERSION: "1.1.1",
+          ...(p.cql ? { CQL_FILTER: p.cql } : {}),
+        },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+        hidpi: false,
+      }),
+      visible: true,
+      ...(minZoom != null ? { minZoom } : {}),
+    });
+
+  if (st === "wmts") {
+    // WMTS (GWC кэш, WebMercatorQuad) — layer нэр workspace‑гүй
+    const wmts = makeGwcWmtsLayer({ workspace: ws, layer: layerName, visible: true });
+    // params.wmts_max өгвөл: z≤wmts_max GWC кэш, z>wmts_max АМЬД WMS (чанар
+    // унахгүй — WMS эх өгөгдлөөс бүрэн нягтралаар рендерлэнэ). Group‑оор нэгтгэнэ.
+    const wmtsMax = Number(p.wmts_max ?? p.wmtsMax);
+    if (wmtsMax) {
+      wmts.setMaxZoom(wmtsMax); // z ≤ wmtsMax
+      return new LayerGroup({ layers: [wmts, liveWms(wmtsMax)] }); // wms: z > wmtsMax
+    }
+    return wmts;
+  }
+  // wms — cached=true бол GWC кэш (WMS‑C), эс бөгөөс workspace‑ийн амьд WMS
+  const cached = !!p.cached;
+  if (!cached) return liveWms();
+  const cachedWms = new TileLayer({
+    source: new TileWMS({
+      url: `${gsBase}/gwc/service/wms`,
+      params: {
+        LAYERS: cfg.gs_layer,
+        STYLES: p.styles || "",
+        FORMAT: "image/png",
+        TRANSPARENT: "true",
+        TILED: "true",
+        VERSION: "1.1.1",
+        ...(p.cql ? { CQL_FILTER: p.cql } : {}),
+      },
+      serverType: "geoserver",
+      crossOrigin: "anonymous",
+      hidpi: false, // GWC 256×256 — HiDPI 282px зөрүүнээс сэргийлнэ
+    }),
+    visible: true,
+  });
+  // wms + cached + wmts_max: z≤max кэш, z>max амьд
+  const cmax = Number(p.wmts_max ?? p.wmtsMax);
+  if (cmax) {
+    cachedWms.setMaxZoom(cmax);
+    return new LayerGroup({ layers: [cachedWms, liveWms(cmax)] });
+  }
+  return cachedWms;
+}
 
 // GeoJSON geometry (EPSG:4326)‑оос [minLon, minLat, maxLon, maxLat] bbox олох.
 // Цэг/шугам/талбай (Multi‑, GeometryCollection орно) бүгдэд ажиллана.
@@ -218,17 +311,30 @@ function Map2() {
 
   // Төслийн газрын зураг (champaign/<id>/map) — тухайн төслийн recount (тодруулалт) WMS
   const pathname = usePathname();
-  const _cmMatch = (pathname || "").match(/^\/dashboard\/champaign\/([^/]+)\/map/);
+  const _cmMatch = (pathname || "").match(
+    /^\/dashboard\/champaign\/([^/]+)\/map/,
+  );
   const recountProjectId = _cmMatch ? _cmMatch[1] : null;
   const [recountOn, setRecountOn] = useState(true);
   const recountLayerRef = useRef(null);
-  // Overlay давхаргууд (basemap radio‑оос тусдаа, checkbox‑оор асаах/унтраах)
-  const [overlayBasemap, setOverlayBasemap] = useState(false);
-  const [overlayNomencl, setOverlayNomencl] = useState(false);
-  const [overlayDem, setOverlayDem] = useState(false);
-  const overlayBasemapRef = useRef(null);
-  const overlayNomenclRef = useRef(null);
-  const overlayDemRef = useRef(null);
+  // Backend‑ээс ирсэн overlay‑ууд (hardcoded биш) — config‑оор нь generic
+  // рендерлэнэ. key → OL layer, key → on/off.
+  const [mapReady, setMapReady] = useState(false);
+  const [extraOverlayOn, setExtraOverlayOn] = useState({});
+  const extraOverlayLayersRef = useRef({});
+  // "Шийдвэрийн сан" overlay (ЗЗ нэгжийн тогтоол/шийдвэрийн тоо). URL ?overlay=legal
+  // үед автоматаар асна (legal хуудасны "Газрын зураг" товчноос ирэхэд).
+  const [overlayLegal, setOverlayLegal] = useState(false);
+  const legalOverlayRef = useRef(null);
+  // Badge дээр дарахад тухайн нэгжийн шийдвэрүүд + улсын хэмжээний тоо (zoom 2‑5)
+  const [legalDocsUnit, setLegalDocsUnit] = useState(null); // {id,name,level,count}
+  const [legalDocs, setLegalDocs] = useState([]);
+  const [legalDocsCount, setLegalDocsCount] = useState(0);
+  const [legalDocsPage, setLegalDocsPage] = useState(1); // 1‑based
+  const [legalDocsSearch, setLegalDocsSearch] = useState("");
+  const [legalDocsLoading, setLegalDocsLoading] = useState(false);
+  const [legalNational, setLegalNational] = useState(null);
+  const LEGAL_PAGE_SIZE = 10;
   // Overlay давхаргуудын ил тод байдал (key→0..1)
   const [overlayOpacity, setOverlayOpacity] = useState({
     BASEMAP: 1,
@@ -311,8 +417,16 @@ function Map2() {
   const [geonameSearchTerm, setGeonameSearchTerm] = useState(null);
   const headerSearchNonce = useRef(0);
   const [forceGeoserverTab, setForceGeoserverTab] = useState(null);
-  // Их хэмжээний (100+) хайлтын илэрцийг газрын зургийн дээд талд жагсаах
+  // Хайлтын илэрцийг газрын зургийн дээд талд хуудаслалттай хүснэгтээр жагсаах.
+  // searchQuery = {params, count}; nameResults = одоогийн хуудасны мөрүүд.
   const [nameResults, setNameResults] = useState([]);
+  const [searchQuery, setSearchQuery] = useState(null);
+  const [searchPage, setSearchPage] = useState(0); // 0‑based
+  const [nameResultsLoading, setNameResultsLoading] = useState(false);
+  const NAME_PAGE_SIZE = 50;
+  // Илэрцийн хүснэгтийг чирж хэмжээ өөрчлөх (resizable)
+  const [resTableSize, setResTableSize] = useState(null); // {w,h} px | null=default
+  const resDragRef = useRef(null);
   const [featureSelector, setFeatureSelector] = useState({
     show: false,
     features: [],
@@ -320,6 +434,31 @@ function Map2() {
   });
 
   const { geoserver } = useGetGeoserver();
+
+  // Backend‑ээс role‑оор шүүсэн суурь/нэмэлт давхаргын тохиргоо (/settings/gis
+  // → basemap). LayerControl эдгээрээр л радио/checkbox‑оо харуулна — эрхгүй
+  // давхарга харагдахгүй, нэр/дараалал/өнгө backend‑ээс ирнэ.
+  const { baseLayers, baseLayersLoading } = useGetBaseLayers();
+  // Ачаалж дуустал null (LayerControl hardcoded fallback харуулна, фликкер
+  // гарахгүй). Ачаалсны дараа л role‑оор шүүсэн жагсаалтаар удирдана.
+  const baseConfigs = useMemo(
+    () =>
+      baseLayersLoading
+        ? null
+        : (baseLayers || [])
+            .filter((l) => l.layer_type === "base")
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
+    [baseLayers, baseLayersLoading],
+  );
+  const overlayConfigs = useMemo(
+    () =>
+      baseLayersLoading
+        ? null
+        : (baseLayers || [])
+            .filter((l) => l.layer_type === "overlay")
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
+    [baseLayers, baseLayersLoading],
+  );
 
   // Systems‑оос WMS давхаргууд үүсгэж map дээр нэмэх
   const [systemLayersByName, setSystemLayersByName] = useState({});
@@ -389,84 +528,30 @@ function Map2() {
   const networks = [];
   const systems = [];
 
-  // ----- Basemap choices as LAYERS (so we can include LayerGroup too)
-  const baseMapLayers = useMemo(
-    () => ({
+  // ----- Суурь давхаргууд — backend BaseMapLayer тохиргооноос ДИНАМИК байгуулна.
+  // Нэр/gs_layer/төрөл/source_type өөрчлөгдвөл газрын зурагт шууд тусна.
+  // Ачаалж дуустал (baseConfigs=null) энгийн fallback (CRV/OSM).
+  const baseMapLayers = useMemo(() => {
+    if (baseConfigs && baseConfigs.length) {
+      const out = {};
+      baseConfigs.forEach((cfg) => {
+        try {
+          out[cfg.key] = buildOlBaseLayer(cfg);
+        } catch (e) {
+          /* алгасна */
+        }
+      });
+      return out;
+    }
+    return {
       CRV: new TileLayer({
         source: new XYZ({
           url: "https://{a-c}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
         }),
       }),
       OSM: new TileLayer({ source: new OSM() }),
-      GMS: new TileLayer({
-        source: new XYZ({
-          url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-        }),
-      }),
-      ESRI: new TileLayer({
-        source: new XYZ({
-          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          maxZoom: 19,
-        }),
-      }),
-      TOPO: new TileLayer({
-        source: new XYZ({
-          url: "https://tile.opentopomap.org/{z}/{x}/{y}.png",
-          maxZoom: 17,
-        }),
-      }),
-      M100k: new TileLayer({
-        source: new TileWMS({
-          url: `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/gwc/service/wms`,
-          params: {
-            LAYERS: "point:raster",
-            STYLES: "",
-            FORMAT: "image/png",
-            TRANSPARENT: "true",
-            TILED: "true",
-            VERSION: "1.1.1",
-          },
-          crossOrigin: "anonymous",
-          serverType: "geoserver",
-        }),
-      }),
-      // Суурь давхарга: geoname:geoname — нэрсийн M100k растер (geoname:raster
-      // ImageMosaic store). GWC‑д зөвхөн WebMercatorQuad тул WMTS‑ээр дуудна.
-      // visible:true — суурь болгож сонгоход харагдана (бусад суурьтай адил).
-      M100kGeoName: makeGwcWmtsLayer({
-        workspace: "geoname",
-        layer: "geoname",
-        visible: true,
-      }),
-      BASEMAP: new TileLayer({
-        source: new TileWMS({
-          url: `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/point/wms`,
-          params: {
-            LAYERS: "point:basemap",
-            FORMAT: "image/png",
-            TRANSPARENT: true,
-            VERSION: "1.1.1",
-          },
-          serverType: "geoserver",
-          crossOrigin: "anonymous",
-        }),
-      }),
-      NOMENCLATURE: new TileLayer({
-        source: new TileWMS({
-          url: `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/point/wms`,
-          params: {
-            LAYERS: "point:nomeklatur",
-            FORMAT: "image/png",
-            TRANSPARENT: true,
-            VERSION: "1.1.1",
-          },
-          serverType: "geoserver",
-          crossOrigin: "anonymous",
-        }),
-      }),
-    }),
-    [],
-  );
+    };
+  }, [baseConfigs]);
 
   const measureStyle = useMemo(
     () =>
@@ -947,6 +1032,57 @@ function Map2() {
       const layerKey = `geoserver_${filterId}`;
 
       if (!geoserverLayerMap.current.has(layerKey)) {
+        // Нэрийн ангилал — ГАНЦ geoname_view.
+        // zoom <11: GWC кэш (WMS‑C, default style geoname_types — ерөнхийлсөн,
+        //           давхцах label нуугдана, цэвэрхэн).
+        // zoom ≥11: АМЬД WMS + geoname_types_full style — ЕРӨНХИЙЛӨЛГҮЙ (бүх
+        //           нэр, давхцал арилгахгүй: conflictResolution=false).
+        // CQL‑ээр төрөл (+ сонгосон нэгж) шүүнэ.
+        if (filterData.nameCached) {
+          const gsBase = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+          const wmsParams = buildWmsParams({
+            LAYERS: "geoname:geoname_view",
+            TILED: true,
+            ...(filterData.cql_filter
+              ? { CQL_FILTER: filterData.cql_filter }
+              : {}),
+          });
+          // zoom <11 — GWC кэш (256×256 tile — HiDPI 282px‑ээс сэргийлж hidpi:false)
+          const cachedLayer = new TileLayer({
+            source: new TileWMS({
+              url: `${gsBase}/gwc/service/wms`,
+              params: wmsParams,
+              serverType: "geoserver",
+              crossOrigin: "anonymous",
+              hidpi: false,
+            }),
+            opacity: 0.9,
+            visible: true,
+            maxZoom: 11, // z<11
+            zIndex: 300 + (Number(filterId) || 0),
+          });
+          cachedLayer.set("filterId", filterId);
+          geoserverLayerMap.current.set(`${layerKey}__wmts`, cachedLayer);
+          map.addLayer(cachedLayer);
+          // zoom ≥11 — амьд WMS, ЕРӨНХИЙЛӨЛГҮЙ style (бүх нэр)
+          const liveLayer = new TileLayer({
+            source: new TileWMS({
+              url: `${gsBase}/geoname/wms`,
+              params: { ...wmsParams, STYLES: "geoname_types_full" },
+              serverType: "geoserver",
+              crossOrigin: "anonymous",
+            }),
+            opacity: 0.9,
+            visible: true,
+            minZoom: 11, // z≥11 — ерөнхийлөлгүй
+            zIndex: 100 + (Number(filterId) || 0),
+          });
+          liveLayer.set("filterId", filterId);
+          liveLayer.set("filterData", filterData);
+          geoserverLayerMap.current.set(layerKey, liveLayer);
+          map.addLayer(liveLayer);
+          return;
+        }
         // Per‑type view (GeoStyler style‑тай) — zoom ≤14 WMTS cache, >14 амьд WMS.
         // CQL/STYLES хэрэггүй (view нь өөрөө шүүсэн, default style = засагдсан SLD).
         if (filterData.viewName) {
@@ -1042,6 +1178,9 @@ function Map2() {
           params,
           serverType: "geoserver",
           crossOrigin: "anonymous",
+          // GWC кэштэй (gwc/service/wms) давхаргад HiDPI 282px tile нь 256
+          // gridset‑тэй таарахгүй (400) — GWC зам дээр hidpi‑г унтраана.
+          hidpi: !String(baseUrl).includes("/gwc/"),
         });
 
         const wmsLayer = new TileLayer({
@@ -1200,16 +1339,150 @@ function Map2() {
       lastClickCoordinateRef,
     });
 
+    // "Шийдвэрийн сан" overlay‑ыг үүсгэнэ (эхэндээ унтраалттай)
+    if (mapObjRef.current) {
+      legalOverlayRef.current = createLegalOverlay(mapObjRef.current, {
+        onNational: setLegalNational,
+        onSelectUnit: (props) => {
+          // Зөвхөн state тавина — доорх effect нь хайлт/хуудаслалтаар татна
+          setLegalDocsSearch("");
+          setLegalDocsPage(1);
+          setLegalDocsUnit({
+            id: props.id,
+            name: props.name,
+            level: props.level,
+            count: props.count,
+          });
+        },
+      });
+    }
+
+    if (mapObjRef.current) setMapReady(true);
+
     return () => {
       if (cleanup && typeof cleanup === "function") {
         cleanup();
+      }
+      if (legalOverlayRef.current) {
+        legalOverlayRef.current.destroy();
+        legalOverlayRef.current = null;
       }
       if (mapObjRef.current) {
         mapObjRef.current.setTarget(null);
         mapObjRef.current = null;
       }
+      setMapReady(false);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "Шийдвэрийн сан" overlay‑г асаах/унтраах
+  useEffect(() => {
+    legalOverlayRef.current?.setEnabled(overlayLegal);
+  }, [overlayLegal]);
+
+  // URL ?overlay=legal → автоматаар асаах (legal хуудасны товчноос ирэхэд)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ov = new URLSearchParams(window.location.search).get("overlay");
+    if (ov === "legal") setOverlayLegal(true);
+  }, []);
+
+  // Badge дарсан нэгжийн шийдвэрүүд — хайлт + хуудаслалттай (search үед debounce)
+  useEffect(() => {
+    if (!legalDocsUnit) return undefined;
+    const run = async () => {
+      setLegalDocsLoading(true);
+      try {
+        const qs = new URLSearchParams({
+          map_unit: String(legalDocsUnit.id),
+          page: String(legalDocsPage),
+          page_size: String(LEGAL_PAGE_SIZE),
+          ordering: "-order_date",
+        });
+        if (legalDocsSearch.trim()) qs.set("search", legalDocsSearch.trim());
+        const res = await axiosInstance.get(
+          endpoints.legal.list(qs.toString()),
+        );
+        setLegalDocs(res?.data?.results || []);
+        setLegalDocsCount(res?.data?.count || 0);
+      } catch (e) {
+        setLegalDocs([]);
+        setLegalDocsCount(0);
+      } finally {
+        setLegalDocsLoading(false);
+      }
+    };
+    const t = setTimeout(run, legalDocsSearch ? 300 : 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legalDocsUnit, legalDocsPage, legalDocsSearch]);
+
+  // Дэлгэрэнгүй хайлтаас илэрц ирэхэд ({params, count}) — хуудаслалттай хүснэгт
+  const handleNameSearchResults = useCallback((meta) => {
+    if (!meta || !meta.count) {
+      setSearchQuery(null);
+      setSearchPage(0);
+      setNameResults([]);
+      return;
+    }
+    setSearchQuery(meta);
+    setSearchPage(0);
+  }, []);
+
+  // Идэвхтэй хайлтын одоогийн хуудсыг серверээс татна
+  useEffect(() => {
+    if (!searchQuery) return undefined;
+    let active = true;
+    setNameResultsLoading(true);
+    (async () => {
+      try {
+        const q = new URLSearchParams({
+          ...searchQuery.params,
+          page: searchPage + 1,
+          page_size: NAME_PAGE_SIZE,
+        }).toString();
+        const res = await axiosInstance.get(endpoints.geoname.list(q));
+        if (active) setNameResults(res?.data?.results || []);
+      } catch (e) {
+        if (active) setNameResults([]);
+      } finally {
+        if (active) setNameResultsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, searchPage]);
+
+  // Илэрцийн хүснэгтийн баруун‑доод булангаас чирж хэмжээ өөрчлөх
+  const startResTableResize = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const paper = e.currentTarget.parentElement;
+    const rect = paper.getBoundingClientRect();
+    resDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      w: rect.width,
+      h: rect.height,
+    };
+    const onMove = (ev) => {
+      const d = resDragRef.current;
+      if (!d) return;
+      setResTableSize({
+        w: Math.max(320, d.w + (ev.clientX - d.startX)),
+        h: Math.max(160, d.h + (ev.clientY - d.startY)),
+      });
+    };
+    const onUp = () => {
+      resDragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
 
   // === Switch basemap when baseMap or wmsGroup changes ===
   useEffect(() => {
@@ -1532,6 +1805,22 @@ function Map2() {
     return () => registerMapDraw(null);
   }, [startTypedDraw]);
 
+  // Харагдах хүрээ (EPSG:4326) авах гүүр — батлагдсан нэрийг сумын нутгаар хайхад
+  useEffect(() => {
+    registerMapExtent(() => {
+      const map = mapObjRef.current;
+      const size = map?.getSize();
+      if (!map || !size) return null;
+      const view = map.getView();
+      return transformExtent(
+        view.calculateExtent(size),
+        view.getProjection(),
+        "EPSG:4326",
+      );
+    });
+    return () => registerMapExtent(null);
+  }, []);
+
   // Тодруулалт — тухайн төслийн recount (ReCount.loc) WMS давхарга
   useEffect(() => {
     if (!recountProjectId) return undefined;
@@ -1552,14 +1841,18 @@ function Map2() {
           ),
         )
         .catch(() => {});
-      // WMS — GeoServer‑ийн type symbol style‑аар, төслийн id‑р CQL шүүлттэй
+      // WMS — GeoServer‑ийн type symbol style‑аар, төслийн id‑р CQL шүүлттэй.
+      // ImageWMS (тайл БИШ, харагдах хэсгийг НЭГ зураг) — recount цөөн тул тайлын
+      // де‑confliction/захын таслалтгүйгээр БҮХ label харагдана (geoname_types_full).
       const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
-      layer = new TileLayer({
-        source: new TileWMS({
+      layer = new ImageLayer({
+        source: new ImageWMS({
           url: `${GS}/geoname/wms`,
           params: {
             LAYERS: "geoname:recount_view",
-            TILED: true,
+            STYLES: "geoname_types_full",
+            FORMAT: "image/png",
+            TRANSPARENT: true,
             CQL_FILTER: `project_id=${recountProjectId}`,
           },
           serverType: "geoserver",
@@ -1586,80 +1879,61 @@ function Map2() {
     if (recountLayerRef.current) recountLayerRef.current.setVisible(recountOn);
   }, [recountOn]);
 
-  // Суурь зураг / Нэрлэвэр — overlay давхаргууд (point:basemap, point:nomeklatur)
+  // === Backend‑ээс ирсэн БҮХ overlay‑ууд (LEGAL‑ээс бусад) — config‑оор нь
+  // generic рендерлэнэ (buildOlBaseLayer). Hardcoded давхарга байхгүй. ===
+  const extraOverlayConfigs = useMemo(
+    () =>
+      (overlayConfigs || []).filter((c) => c?.params?.special !== "legal"),
+    [overlayConfigs],
+  );
+
   useEffect(() => {
-    const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
-    let bm = null;
-    let nm = null;
-    let dm = null;
-    let cancelled = false;
-    const mk = (layers, z) =>
-      new TileLayer({
-        source: new TileWMS({
-          url: `${GS}/point/wms`,
-          params: { LAYERS: layers, FORMAT: "image/png", TRANSPARENT: true, VERSION: "1.1.1" },
-          serverType: "geoserver",
-          crossOrigin: "anonymous",
-        }),
-        zIndex: z,
-        visible: false,
-      });
-    const attach = () => {
-      const map = mapObjRef.current;
-      if (cancelled) return;
-      if (!map) {
-        setTimeout(attach, 300);
-        return;
+    const map = mapObjRef.current;
+    if (!map || !mapReady) return undefined;
+    const built = {};
+    extraOverlayConfigs.forEach((cfg) => {
+      try {
+        const lyr = buildOlBaseLayer(cfg);
+        lyr.setVisible(!!extraOverlayOn[cfg.key]);
+        lyr.setZIndex(300 + (cfg.sort_order || 0));
+        const op = overlayOpacity[cfg.key] ?? cfg?.params?.opacity;
+        if (op != null) lyr.setOpacity(op);
+        map.addLayer(lyr);
+        built[cfg.key] = lyr;
+      } catch (e) {
+        /* алгасна */
       }
-      bm = mk("point:basemap", 40);
-      nm = mk("point:nomeklatur", 45);
-      // Газрын гадарга (DEM) — WMTS (GWC tilecache, хурдан). Default style=dem_terrain.
-      dm = makeGwcWmtsLayer({
-        workspace: "geoname",
-        layer: "dem",
-        visible: false,
-        zIndex: 35,
-      });
-      dm.setOpacity(0.85);
-      overlayBasemapRef.current = bm;
-      overlayNomenclRef.current = nm;
-      overlayDemRef.current = dm;
-      map.addLayer(dm);
-      map.addLayer(bm);
-      map.addLayer(nm);
-    };
-    attach();
+    });
+    extraOverlayLayersRef.current = built;
     return () => {
-      cancelled = true;
-      const map = mapObjRef.current;
-      if (map) {
-        if (bm) map.removeLayer(bm);
-        if (nm) map.removeLayer(nm);
-        if (dm) map.removeLayer(dm);
-      }
-      overlayBasemapRef.current = null;
-      overlayNomenclRef.current = null;
-      overlayDemRef.current = null;
+      Object.values(built).forEach((l) => {
+        try {
+          map.removeLayer(l);
+        } catch (e) {
+          /* алгасна */
+        }
+      });
+      extraOverlayLayersRef.current = {};
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraOverlayConfigs, mapReady]);
+
+  // Тэдгээрийн visibility / opacity
   useEffect(() => {
-    if (overlayBasemapRef.current) overlayBasemapRef.current.setVisible(overlayBasemap);
-  }, [overlayBasemap]);
+    Object.entries(extraOverlayLayersRef.current).forEach(([key, lyr]) => {
+      lyr.setVisible(!!extraOverlayOn[key]);
+    });
+  }, [extraOverlayOn]);
+
   useEffect(() => {
-    if (overlayNomenclRef.current) overlayNomenclRef.current.setVisible(overlayNomencl);
-  }, [overlayNomencl]);
-  useEffect(() => {
-    if (overlayDemRef.current) overlayDemRef.current.setVisible(overlayDem);
-  }, [overlayDem]);
-  // Overlay ил тод байдал
-  useEffect(() => {
-    if (overlayBasemapRef.current)
-      overlayBasemapRef.current.setOpacity(overlayOpacity.BASEMAP ?? 1);
-    if (overlayNomenclRef.current)
-      overlayNomenclRef.current.setOpacity(overlayOpacity.NOMENCLATURE ?? 1);
-    if (overlayDemRef.current)
-      overlayDemRef.current.setOpacity(overlayOpacity.DEM ?? 0.85);
+    Object.entries(extraOverlayLayersRef.current).forEach(([key, lyr]) => {
+      if (overlayOpacity[key] != null) lyr.setOpacity(overlayOpacity[key]);
+    });
   }, [overlayOpacity]);
+
+  const handleToggleExtraOverlay = useCallback((key) => {
+    setExtraOverlayOn((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const handleStopDrawing = useCallback(() => {
     const map = mapObjRef.current;
@@ -2446,16 +2720,19 @@ function Map2() {
 
         {/* Их хэмжээний хайлтын илэрц — газрын зургийн дээд талд тусдаа хүснэгт,
             формын ард (z-index формоос бага) */}
-        {nameResults.length > 0 && (
+        {searchQuery && searchQuery.count > 0 && (
           <Paper
             elevation={6}
             sx={{
               position: "absolute",
               top: 8,
               left: { xs: 8, sm: 452 }, // формын (440) ард талаас эхлэх
-              right: 8,
+              right: resTableSize?.w ? "auto" : 8,
+              width: resTableSize?.w ?? undefined,
+              height: resTableSize?.h ?? undefined,
               zIndex: 1200, // формоос (1201) бага
-              maxHeight: "45%",
+              maxHeight: resTableSize?.h ? "none" : "45%",
+              minWidth: 320,
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
@@ -2474,11 +2751,14 @@ function Map2() {
               }}
             >
               <Typography variant="subtitle2">
-                Хайлтын илэрц — {nameResults.length}
+                Хайлтын илэрц — {searchQuery.count}
               </Typography>
               <IconButton
                 size="small"
-                onClick={() => setNameResults([])}
+                onClick={() => {
+                  setSearchQuery(null);
+                  setNameResults([]);
+                }}
                 sx={{ color: "#fff" }}
               >
                 <CloseRoundedIcon fontSize="small" />
@@ -2511,7 +2791,9 @@ function Map2() {
                         }}
                         sx={{ cursor: canFly ? "pointer" : "default" }}
                       >
-                        <TableCell>{i + 1}</TableCell>
+                        <TableCell>
+                          {searchPage * NAME_PAGE_SIZE + i + 1}
+                        </TableCell>
                         <TableCell sx={{ fontWeight: 600 }}>
                           {it.name || "—"}
                         </TableCell>
@@ -2524,9 +2806,209 @@ function Map2() {
                       </TableRow>
                     );
                   })}
+                  {!nameResultsLoading && nameResults.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center">
+                        Ачаалж байна…
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </TableContainer>
+            {searchQuery.count > NAME_PAGE_SIZE && (
+              <TablePagination
+                component="div"
+                count={searchQuery.count}
+                page={searchPage}
+                onPageChange={(e, p) => setSearchPage(p)}
+                rowsPerPage={NAME_PAGE_SIZE}
+                rowsPerPageOptions={[]}
+                labelDisplayedRows={({ from, to, count }) =>
+                  `${from}–${to} / ${count}`
+                }
+                sx={{
+                  borderTop: (t) => `1px solid ${t.palette.divider}`,
+                  "& .MuiTablePagination-toolbar": { minHeight: 40 },
+                }}
+              />
+            )}
+            {/* Хэмжээ өөрчлөх бариул (баруун‑доод булан) */}
+            <Box
+              onMouseDown={startResTableResize}
+              sx={{
+                position: "absolute",
+                right: 0,
+                bottom: 0,
+                width: 18,
+                height: 18,
+                cursor: "nwse-resize",
+                zIndex: 3,
+                "&::after": {
+                  content: '""',
+                  position: "absolute",
+                  right: 3,
+                  bottom: 3,
+                  width: 8,
+                  height: 8,
+                  borderRight: "2px solid #94a3b8",
+                  borderBottom: "2px solid #94a3b8",
+                },
+              }}
+            />
+          </Paper>
+        )}
+
+        {/* Улсын хэмжээ (ЗЗ нэгжгүй) шийдвэрийн тоо — zoom 2‑5 дээр */}
+        {overlayLegal && legalNational != null && (
+          <Paper
+            elevation={6}
+            sx={{
+              position: "absolute",
+              top: 8,
+              left: { xs: 8, sm: 452 },
+              zIndex: 1200,
+              px: 1.5,
+              py: 0.75,
+              borderRadius: 1.5,
+              bgcolor: "#1d4ed8",
+              color: "#fff",
+            }}
+          >
+            <Typography variant="subtitle2">
+              Улсын хэмжээний шийдвэр: {legalNational}
+            </Typography>
+          </Paper>
+        )}
+
+        {/* Badge дээр дарахад — тухайн нэгжийн шийдвэрүүд */}
+        {legalDocsUnit && (
+          <Paper
+            elevation={8}
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              bottom: 8,
+              width: { xs: "calc(100% - 16px)", sm: 460 },
+              maxHeight: "calc(100% - 16px)",
+              zIndex: 1300,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              borderRadius: 1.5,
+            }}
+          >
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                px: 1.5,
+                py: 0.75,
+                bgcolor: "#1d4ed8",
+                color: "#fff",
+              }}
+            >
+              <Typography variant="subtitle2" noWrap>
+                {legalDocsUnit.name} — {legalDocsUnit.count} шийдвэр
+              </Typography>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setLegalDocsUnit(null);
+                  setLegalDocs([]);
+                  setLegalDocsSearch("");
+                  setLegalDocsPage(1);
+                }}
+                sx={{ color: "#fff" }}
+              >
+                <CloseRoundedIcon fontSize="small" />
+              </IconButton>
+            </Box>
+
+            {/* Хайлт */}
+            <Box sx={{ px: 1.5, py: 1 }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Нэр, дугаараар хайх…"
+                value={legalDocsSearch}
+                onChange={(e) => {
+                  setLegalDocsSearch(e.target.value);
+                  setLegalDocsPage(1);
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon
+                        fontSize="small"
+                        sx={{ color: "text.disabled" }}
+                      />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
+
+            <TableContainer sx={{ flex: 1, overflowY: "auto" }}>
+              {legalDocsLoading ? (
+                <Box
+                  sx={{ py: 3, textAlign: "center", color: "text.secondary" }}
+                >
+                  <Typography variant="body2">Ачаалж байна…</Typography>
+                </Box>
+              ) : (
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell width={32}>Nº</TableCell>
+                      <TableCell>Нэр</TableCell>
+                      <TableCell width={96}>Огноо</TableCell>
+                      <TableCell width={64}>Дугаар</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {legalDocs.map((d, i) => (
+                      <TableRow key={d.id} hover>
+                        <TableCell>
+                          {(legalDocsPage - 1) * LEGAL_PAGE_SIZE + i + 1}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
+                        <TableCell>{d.order_date || "—"}</TableCell>
+                        <TableCell>{d.order_number || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                    {!legalDocs.length && (
+                      <TableRow>
+                        <TableCell colSpan={4} align="center">
+                          Шийдвэр алга
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </TableContainer>
+
+            {/* Хуудаслалт */}
+            {legalDocsCount > LEGAL_PAGE_SIZE && (
+              <TablePagination
+                component="div"
+                count={legalDocsCount}
+                page={legalDocsPage - 1}
+                onPageChange={(e, p) => setLegalDocsPage(p + 1)}
+                rowsPerPage={LEGAL_PAGE_SIZE}
+                rowsPerPageOptions={[]}
+                labelDisplayedRows={({ from, to, count }) =>
+                  `${from}–${to} / ${count}`
+                }
+                sx={{
+                  borderTop: (t) => `1px solid ${t.palette.divider}`,
+                  "& .MuiTablePagination-toolbar": { minHeight: 44 },
+                }}
+              />
+            )}
           </Paper>
         )}
 
@@ -2556,7 +3038,7 @@ function Map2() {
           onStartDrawRectangle={handleStartDrawRectangle}
           onStartDrawPolygon={handleStartDrawPolygon}
           onClearSearchArea={handleClearSearchArea}
-          onResults={setNameResults}
+          onResults={handleNameSearchResults}
           onHighlightPoint={handleHighlightPoint}
           forceOpen={forceGeoserverOpen}
           forceTab={forceGeoserverTab}
@@ -2723,16 +3205,17 @@ function Map2() {
           recountEnabled={!!recountProjectId}
           recountVisible={recountOn}
           onToggleRecount={() => setRecountOn((v) => !v)}
-          overlayBasemap={overlayBasemap}
-          onToggleBasemap={() => setOverlayBasemap((v) => !v)}
-          overlayNomencl={overlayNomencl}
-          onToggleNomencl={() => setOverlayNomencl((v) => !v)}
-          overlayDem={overlayDem}
-          onToggleDem={() => setOverlayDem((v) => !v)}
+          overlayLegal={overlayLegal}
+          onToggleLegal={() => setOverlayLegal((v) => !v)}
           overlayOpacity={overlayOpacity}
           onOverlayOpacity={(key, val) =>
             setOverlayOpacity((prev) => ({ ...prev, [key]: val }))
           }
+          baseConfigs={baseConfigs}
+          overlayConfigs={overlayConfigs}
+          extraOverlays={extraOverlayConfigs}
+          extraOverlayOn={extraOverlayOn}
+          onToggleExtraOverlay={handleToggleExtraOverlay}
         />
 
         {featureSelector.show && (

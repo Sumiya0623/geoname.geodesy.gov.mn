@@ -192,6 +192,8 @@ export const endpoints = {
     details: (id) => `/api/r/legal/${id}/`,
     attachProject: (id) => `/api/r/legal/${id}/attach-project/`,
     detachProject: (id) => `/api/r/legal/${id}/detach-project/`,
+    // Газрын зургийн overlay — ЗЗ нэгжийн тогтоол/шийдвэрийн тоо (GeoJSON)
+    mapCounts: (request_body) => `/api/r/legal/map-counts/?${request_body}`,
     units: (request_body) =>
       `/api/r/legal-unit/?pagination=false&${request_body}`,
     unitExtent: (id) => `/api/r/legal-unit/${id}/extent/`,
@@ -232,9 +234,36 @@ export const endpoints = {
     gsCreateStore: (id) => `/api/g/ws/${id}/gs-create-store/`,
     gsDeleteStore: (id) => `/api/g/ws/${id}/gs-delete-store/`,
     gsLayers: (id, q) => `/api/g/ws/${id}/gs-layers/?${q}`,
+    gsAllLayers: (id) => `/api/g/ws/${id}/gs-all-layers/`,
+    gsLayerSld: (id, layer) =>
+      `/api/g/ws/${id}/gs-layer-sld/?layer=${encodeURIComponent(layer)}`,
+    gsUploadSymbol: (id) => `/api/g/ws/${id}/gs-upload-symbol/`,
+    gsLayerFields: (id, layer) =>
+      `/api/g/ws/${id}/gs-layer-fields/?layer=${encodeURIComponent(layer)}`,
+    gsCreateGroupedView: (id) => `/api/g/ws/${id}/gs-create-grouped-view/`,
+    gsDeleteView: (id) => `/api/g/ws/${id}/gs-delete-view/`,
+    gsBoundaryLabel: (id) => `/api/g/ws/${id}/gs-boundary-label/`,
+    gsBoundaryLabelState: (id, layer) =>
+      `/api/g/ws/${id}/gs-boundary-label/?layer=${encodeURIComponent(layer)}`,
+    gsLayergroups: (id) => `/api/g/ws/${id}/gs-layergroups/`,
+    gsLayergroup: (id, name) =>
+      `/api/g/ws/${id}/gs-layergroup/?name=${encodeURIComponent(name)}`,
+    gsSaveLayergroup: (id) => `/api/g/ws/${id}/gs-save-layergroup/`,
+    gsDeleteLayergroup: (id) => `/api/g/ws/${id}/gs-delete-layergroup/`,
     gsCreateLayer: (id) => `/api/g/ws/${id}/gs-create-layer/`,
     gsUpdateLayer: (id) => `/api/g/ws/${id}/gs-update-layer/`,
     gsDeleteLayer: (id) => `/api/g/ws/${id}/gs-delete-layer/`,
+  },
+
+  // Газрын зургийн суурь/нэмэлт давхаргын удирдлага (/settings/gis?tab=basemap)
+  basemap: {
+    list: (request_body) => `/api/g/basemap/?${request_body}`,
+    create: `/api/g/basemap/`,
+    edit: (id) => `/api/g/basemap/${id}/`,
+    delete: (id) => `/api/g/basemap/${id}/`,
+    details: (id) => `/api/g/basemap/${id}/`,
+    available: (request_body) => `/api/g/basemap/available/?${request_body || ""}`,
+    forMap: `/api/g/basemap/for-map/`,
   },
 
   // GeoServer — backend нь /api/g/ дээр (ws/st/fs/rule/group/item).

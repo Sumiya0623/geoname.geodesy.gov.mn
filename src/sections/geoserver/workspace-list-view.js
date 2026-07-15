@@ -30,6 +30,8 @@ import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 
 import WorkspaceInlineForm from "./workspace-inline-form";
 import WorkspaceViewsTable from "./workspace-views-table";
+import WorkspaceLayersTable from "./workspace-layers-table";
+import WorkspaceLayerGroups from "./workspace-layergroups";
 
 // ----------------------------------------------------------------------
 
@@ -200,13 +202,26 @@ export default function WorkspaceListView({ embedded = false }) {
         </Grid>
       )}
 
-      {/* Сонгосон workspace — geoname/wms доторх view‑ийн хүснэгт */}
-      {selectedRoot && (
-        <WorkspaceViewsTable
-          workspaceId={selectedRoot.id}
-          workspaceName={selectedRoot.name}
-        />
-      )}
+      {/* Сонгосон workspace — geoname бол нэрийн төрлийн view‑ийн баялаг
+          хүснэгт; бусад (raster, basemap, ...) бол GeoServer layer жагсаалт */}
+      {selectedRoot &&
+        (selectedRoot.name === "geoname" ? (
+          <WorkspaceViewsTable
+            workspaceId={selectedRoot.id}
+            workspaceName={selectedRoot.name}
+          />
+        ) : (
+          <>
+            <WorkspaceLayersTable
+              workspaceId={selectedRoot.id}
+              workspaceName={selectedRoot.name}
+            />
+            <WorkspaceLayerGroups
+              workspaceId={selectedRoot.id}
+              workspaceName={selectedRoot.name}
+            />
+          </>
+        ))}
     </Container>
   );
 }

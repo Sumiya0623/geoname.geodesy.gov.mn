@@ -299,12 +299,53 @@ function GeoserverDialog({
   const [nameChecked, setNameChecked] = useState(() => new Set());
   // Дэлгэрэнгүй хайлтын формыг ангиллын дээр харуулах эсэх
   const [searchOpen, setSearchOpen] = useState(false);
+  // Хайлтын шүүлтүүр — ангиллын модны тоог хайлттай уялдуулахад
+  const [treeFilters, setTreeFilters] = useState(null);
+  // Type‑ээс бусад хайлтын CQL (нэгж/нэр г.м.) — ангиллын давхаргад нэмнэ
+  const [extraCql, setExtraCql] = useState("");
   const [printOpen, setPrintOpen] = useState(false);
 
   // Толгойн хайлтаас (илэрц 1‑с их) ирвэл дэлгэрэнгүй формыг нээнэ
   useEffect(() => {
     if (geonameSearchTerm?.term) setSearchOpen(true);
   }, [geonameSearchTerm]);
+
+  // Идэвхтэй ангиллын нод‑уудыг (extraCql өөрчлөгдөхөд дахин тавихад) санана
+  const checkedNodesRef = useRef(new Map());
+  // onFilterChange / extraCql‑ийг ref‑ээр барина — applyNameLayer‑ыг тогтвортой
+  // (empty deps) болгож, доорх effect‑ийг зөвхөн extraCql өөрчлөгдөхөд ажиллуулна.
+  // (onFilterChange нь index.js‑д useCallback биш тул рендер бүрд шинэ reference —
+  //  deps‑д оруулбал infinite render loop үүснэ.)
+  const onFilterChangeRef = useRef(onFilterChange);
+  onFilterChangeRef.current = onFilterChange;
+  const extraCqlRef = useRef(extraCql);
+  extraCqlRef.current = extraCql;
+
+  // Ангиллын давхаргыг газрын зурагт тавих/авах. extraCql (нэгж/нэр/дугаар г.м.
+  // хайлтын шүүлт) байвал төрлийн CQL дээр нэмж, зөвхөн тухайн шүүлтэд
+  // тохирох нэрсийг харуулна (жишээ нь сонгосон аймгийн уулс).
+  const applyNameLayer = useCallback((node, enabled) => {
+    const onFilterChange = onFilterChangeRef.current;
+    if (!onFilterChange) return;
+    const fid = `name_${node.id}`;
+    // Хуучин давхаргыг эхлээд авна — CQL солигдоход зөв шинэчлэгдэнэ
+    onFilterChange(fid, false, { id: fid });
+    if (!enabled) return;
+    // ГАНЦ geoname_view (default style = geoname_types, per‑type тэмдэг).
+    // type_l1/l2/id‑ээр ангиллыг, + сонгосон нэгж/бусад шүүлтийг (extraCql) шүүнэ.
+    const typeCql = `type_l1=${node.id} OR type_l2=${node.id} OR type_id=${node.id}`;
+    const extra = extraCqlRef.current;
+    const cql = extra ? `(${typeCql}) AND (${extra})` : typeCql;
+    onFilterChange(fid, true, {
+      id: fid,
+      name: node.name,
+      layer: "geoname:geoname_view",
+      cql_filter: cql,
+      nameCached: true, // z5‑12 GWC кэш, >12 амьд WMS
+      groupUrl: GEONAME_VIEW_URL,
+      isFromStaticLayer: false,
+    });
+  }, []);
 
   const handleNameToggle = useCallback(
     (node, enabled) => {
@@ -314,25 +355,18 @@ function GeoserverDialog({
         else next.delete(node.id);
         return next;
       });
-      if (!onFilterChange) return;
-      const fid = `name_${node.id}`;
-      onFilterChange(fid, enabled, {
-        id: fid,
-        name: node.name,
-        // Навч (view_name‑тэй) бол per‑type view‑г WMTS cache‑аар (засагдсан SLD).
-        // Эцэг ангилал бол geoname:names GROUP‑ийг id‑гаар CQL шүүнэ — group нь
-        // member view бүрийн default таних тэмдэг style‑аар рендерлэнэ (STYLES өгөхгүй).
-        layer: node.view_name ? "geoname:geoname_view" : "geoname:names",
-        // type массив [type_l2, type_id] дотор энэ id байгааг (бүх түвшинд) шүүнэ
-        cql_filter: `type_l1=${node.id} OR type_l2=${node.id} OR type_id=${node.id}`,
-        viewName: node.view_name || undefined,
-        styles: node.view_name || undefined,
-        groupUrl: GEONAME_VIEW_URL,
-        isFromStaticLayer: false,
-      });
+      if (enabled) checkedNodesRef.current.set(node.id, node);
+      else checkedNodesRef.current.delete(node.id);
+      applyNameLayer(node, enabled);
     },
-    [onFilterChange],
+    [applyNameLayer],
   );
+
+  // Хайлтын шүүлт (extraCql) өөрчлөгдөхөд идэвхтэй ангиллын давхаргуудыг
+  // шинэ CQL‑ээр дахин тавина — сонгосон нэгжийн нэрс л харагдана.
+  useEffect(() => {
+    checkedNodesRef.current.forEach((node) => applyNameLayer(node, true));
+  }, [extraCql, applyNameLayer]);
 
   const handleClearNames = useCallback(() => {
     if (onFilterChange) {
@@ -340,6 +374,7 @@ function GeoserverDialog({
         onFilterChange(`name_${id}`, false, { id: `name_${id}` }),
       );
     }
+    checkedNodesRef.current.clear();
     setNameChecked(new Set());
   }, [nameChecked, onFilterChange]);
 
@@ -903,6 +938,8 @@ function GeoserverDialog({
                       onStartDrawPolygon={onStartDrawPolygon}
                       onClearSearchArea={onClearSearchArea}
                       onResults={onResults}
+                      onTreeFilters={setTreeFilters}
+                      onExtraCql={setExtraCql}
                     />
                   </Collapse>
                   {addProjectId && (
@@ -917,6 +954,7 @@ function GeoserverDialog({
                     <NameCategoryTree
                       onToggle={handleNameToggle}
                       checkedSet={nameChecked}
+                      filters={treeFilters}
                     />
                   </Box>
                   <RasterPrintPanel

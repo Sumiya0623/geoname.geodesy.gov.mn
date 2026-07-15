@@ -5,8 +5,9 @@ export default function ScaleBadge({ scaleDenom, mdUp }) {
     <div
       style={{
         position: "absolute",
-        left: 15,
-        bottom: 15,
+        left: "50%",
+        bottom: 12,
+        transform: "translateX(-50%)",
         background: "rgba(17,25,40,0.75)",
         color: "#e7eef7",
         padding: "8px 12px",

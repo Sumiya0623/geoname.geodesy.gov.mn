@@ -1,16 +1,19 @@
 "use client";
 
 import PropTypes from "prop-types";
-import { useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 
 import {
   Box,
   Stack,
+  Switch,
   Button,
+  Divider,
   MenuItem,
   TextField,
   Typography,
   Autocomplete,
+  FormControlLabel,
 } from "@mui/material";
 import { Create as DrawIcon } from "@mui/icons-material";
 import { enqueueSnackbar } from "notistack";
@@ -18,7 +21,7 @@ import { enqueueSnackbar } from "notistack";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
-import { requestMapDraw } from "./mapDraw";
+import { requestMapDraw, getMapExtent } from "./mapDraw";
 
 // Ангиллын desc (Цэг/Шугам/Талбай) → OpenLayers Draw төрөл
 function olDrawType(desc) {
@@ -47,6 +50,13 @@ export default function MapAddName({ onClose, projectId }) {
   const [drawType, setDrawType] = useState(null);
   const [geojson, setGeojson] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // Батлагдсан нэрэнд геометр оноох горим (байршил зөрүүтэй)
+  const [approvedMode, setApprovedMode] = useState(false);
+  const [apprName, setApprName] = useState(null); // сонгосон батлагдсан GeoName
+  const [apprOpts, setApprOpts] = useState([]);
+  const [apprLoading, setApprLoading] = useState(false);
+  const apprTimer = useRef(null);
 
   const { constants: rStatuses } = useGetConstantsFordropdown("RECOUNT_STATUS");
   const { constants: rSteps } = useGetConstantsFordropdown("RECOUNT_STEPS");
@@ -104,6 +114,50 @@ export default function MapAddName({ onClose, projectId }) {
     }
   };
 
+  // Батлагдсан нэрсийг харагдаж буй сумын нутгаас хайх (debounce)
+  const searchApproved = (text) => {
+    if (apprTimer.current) clearTimeout(apprTimer.current);
+    apprTimer.current = setTimeout(async () => {
+      setApprLoading(true);
+      try {
+        const ext = getMapExtent(); // [minx,miny,maxx,maxy] 4326
+        const params = new URLSearchParams({
+          is_approved: "true",
+          page_size: "30",
+          ordering: "name",
+        });
+        if (text && text.trim()) params.set("search", text.trim());
+        if (ext) params.set("unit_bbox", ext.join(","));
+        const res = await axiosInstance.get(
+          endpoints.geoname.list(params.toString()),
+        );
+        setApprOpts(res?.data?.results || []);
+      } catch (e) {
+        setApprOpts([]);
+      } finally {
+        setApprLoading(false);
+      }
+    }, 350);
+  };
+
+  // Батлагдсан нэр сонгоход — төрлөөсөө зурах хэрэгслийг тогтооно
+  const onSelectApproved = async (name) => {
+    setApprName(name);
+    setGeojson(null);
+    setDrawType(null);
+    const typeId = name?.type_id || name?.type?.id || name?.type;
+    if (!typeId) {
+      setDrawType("Point");
+      return;
+    }
+    try {
+      const res = await axiosInstance.get(endpoints.constant.details(typeId));
+      setDrawType(olDrawType(res?.data?.desc));
+    } catch (e) {
+      setDrawType("Point");
+    }
+  };
+
   const onDraw = async () => {
     enqueueSnackbar(
       `Газрын зураг дээр ${DRAW_LABEL[drawType]} зурна уу (ESC — болих)`,
@@ -125,15 +179,24 @@ export default function MapAddName({ onClose, projectId }) {
     setNm("");
     setDrawType(null);
     setGeojson(null);
+    setApprName(null);
+    setApprOpts([]);
   };
 
   const onSave = async () => {
     if (!drawType) {
-      enqueueSnackbar("Дэд ангилал сонгоно уу", { variant: "warning" });
+      enqueueSnackbar(
+        approvedMode ? "Батлагдсан нэр сонгоно уу" : "Дэд ангилал сонгоно уу",
+        { variant: "warning" },
+      );
       return;
     }
-    if (!nm.trim()) {
+    if (!approvedMode && !nm.trim()) {
       enqueueSnackbar("Нэр бичнэ үү", { variant: "warning" });
+      return;
+    }
+    if (approvedMode && !apprName?.id) {
+      enqueueSnackbar("Батлагдсан нэр сонгоно уу", { variant: "warning" });
       return;
     }
     if (!geojson) {
@@ -142,15 +205,32 @@ export default function MapAddName({ onClose, projectId }) {
     }
     setSaving(true);
     try {
-      const statusId = rStatuses.find((s) => s.name === statusName)?.id || null;
-      await axiosInstance.post(endpoints.recount.create, {
-        project_id: projectId,
-        draft: nm.trim(),
-        ...(rStep?.id ? { step_id: rStep.id } : {}),
-        ...(statusId ? { status_id: statusId } : {}),
-        loc: geojson,
-      });
-      enqueueSnackbar(`"${nm}" — ${statusName} төлөвөөр бүртгэгдлээ`);
+      if (approvedMode) {
+        // Батлагдсан нэрэнд геометр оноох — статус "байршил" (зөрүүтэй)
+        const statusId =
+          rStatuses.find((s) => s.name === "байршил")?.id || null;
+        await axiosInstance.post(endpoints.recount.create, {
+          project_id: projectId,
+          name_id: apprName.id,
+          ...(rStep?.id ? { step_id: rStep.id } : {}),
+          ...(statusId ? { status_id: statusId } : {}),
+          loc: geojson,
+        });
+        enqueueSnackbar(
+          `"${apprName.name}" — байршил зөрүүтэй байдлаар геометр оногдлоо`,
+        );
+      } else {
+        const statusId =
+          rStatuses.find((s) => s.name === statusName)?.id || null;
+        await axiosInstance.post(endpoints.recount.create, {
+          project_id: projectId,
+          draft: nm.trim(),
+          ...(rStep?.id ? { step_id: rStep.id } : {}),
+          ...(statusId ? { status_id: statusId } : {}),
+          loc: geojson,
+        });
+        enqueueSnackbar(`"${nm}" — ${statusName} төлөвөөр бүртгэгдлээ`);
+      }
       reset();
       onClose?.();
     } catch (e) {
@@ -178,36 +258,95 @@ export default function MapAddName({ onClose, projectId }) {
 
   return (
     <Box sx={{ p: 1.5 }}>
-      <Typography variant="overline" color="text.secondary">
-        Ангилал
-      </Typography>
-      <Stack direction="row" spacing={1} sx={{ mt: 0.5, mb: 1.5 }}>
-        {ac(cat1, 1, cat1Opts, false, "Үндсэн")}
-        {ac(cat2, 2, cat2Opts, !cat1?.id, "Анхдагч")}
-        {ac(cat3, 3, cat3Opts, !cat2?.id, "Дэд")}
-      </Stack>
-
-      <TextField
-        size="small"
-        label="Нэр"
-        fullWidth
-        value={nm}
-        onChange={(e) => setNm(e.target.value)}
-        sx={{ mb: 1.5 }}
+      {/* Горим сэлгэх: шинэ нэр ↔ батлагдсан нэрэнд геометр оноох */}
+      <FormControlLabel
+        sx={{ mb: 1 }}
+        control={
+          <Switch
+            size="small"
+            checked={approvedMode}
+            onChange={(e) => {
+              setApprovedMode(e.target.checked);
+              reset();
+            }}
+          />
+        }
+        label={
+          <Typography variant="body2">
+            Батлагдсан нэрэнд геометр оноох
+          </Typography>
+        }
       />
+      <Divider sx={{ mb: 1.5 }} />
 
-      <TextField
-        select
-        size="small"
-        label="Төлөв"
-        fullWidth
-        value={statusName}
-        onChange={(e) => setStatusName(e.target.value)}
-        sx={{ mb: 1.5 }}
-      >
-        <MenuItem value="шинэ">Шинэ нэр (Маягт 6)</MenuItem>
-        <MenuItem value="батлагдаагүй">Батлагдаагүй / уламжлалт (Маягт 2)</MenuItem>
-      </TextField>
+      {approvedMode ? (
+        <>
+          <Autocomplete
+            size="small"
+            fullWidth
+            filterOptions={(x) => x}
+            options={apprOpts}
+            loading={apprLoading}
+            value={apprName}
+            onChange={(_e, v) => onSelectApproved(v)}
+            onInputChange={(_e, v, reason) => {
+              if (reason === "input") searchApproved(v);
+            }}
+            getOptionLabel={(o) =>
+              o?.name ? `${o.name}${o.number ? ` (${o.number})` : ""}` : ""
+            }
+            isOptionEqualToValue={(o, v) => o?.id === v?.id}
+            noOptionsText="Харагдаж буй хүрээнд батлагдсан нэр алга"
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Батлагдсан нэр хайх (харагдах сумын нутгаас)"
+              />
+            )}
+            sx={{ mb: 1.5 }}
+          />
+          {apprName && (
+            <Typography variant="body2" sx={{ mb: 1.5 }} color="warning.main">
+              Төлөв: <b>Байршил зөрүүтэй</b> (автоматаар)
+            </Typography>
+          )}
+        </>
+      ) : (
+        <>
+          <Typography variant="overline" color="text.secondary">
+            Ангилал
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mt: 0.5, mb: 1.5 }}>
+            {ac(cat1, 1, cat1Opts, false, "Үндсэн")}
+            {ac(cat2, 2, cat2Opts, !cat1?.id, "Анхдагч")}
+            {ac(cat3, 3, cat3Opts, !cat2?.id, "Дэд")}
+          </Stack>
+
+          <TextField
+            size="small"
+            label="Нэр"
+            fullWidth
+            value={nm}
+            onChange={(e) => setNm(e.target.value)}
+            sx={{ mb: 1.5 }}
+          />
+
+          <TextField
+            select
+            size="small"
+            label="Төлөв"
+            fullWidth
+            value={statusName}
+            onChange={(e) => setStatusName(e.target.value)}
+            sx={{ mb: 1.5 }}
+          >
+            <MenuItem value="шинэ">Шинэ нэр (Маягт 6)</MenuItem>
+            <MenuItem value="батлагдаагүй">
+              Батлагдаагүй / уламжлалт (Маягт 2)
+            </MenuItem>
+          </TextField>
+        </>
+      )}
 
       {drawType && (
         <Stack spacing={1} sx={{ mb: 1.5 }}>

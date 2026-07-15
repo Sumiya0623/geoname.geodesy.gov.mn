@@ -17,3 +17,13 @@ export function requestMapDraw(type) {
 export function isMapDrawReady() {
   return typeof _drawFn === "function";
 }
+
+// Газрын зургийн одоогийн харагдах хүрээг (EPSG:4326 [minx,miny,maxx,maxy])
+// авах гүүр. Map2 mount үедээ бүртгэнэ; форм getMapExtent()‑ээр авна.
+let _extentFn = null;
+export function registerMapExtent(fn) {
+  _extentFn = fn;
+}
+export function getMapExtent() {
+  return typeof _extentFn === "function" ? _extentFn() : null;
+}

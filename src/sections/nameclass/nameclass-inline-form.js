@@ -137,7 +137,7 @@ export default function NameClassInlineForm({
       {showGeom && (
         <RHFSwitch
           name="is_active"
-          label="GeoServer view идэвхтэй (geoname workspace‑д үүсгэх)"
+          label="Газрын зурагт харуулах"
           sx={{ mb: 1 }}
         />
       )}

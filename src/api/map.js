@@ -263,19 +263,19 @@ export function useGetGeoserver() {
 }
 
 export function useGetBaseLayers() {
-  // Layer model устгагдсан тул /api/g/fs/baselayers/ endpoint байхгүй (404).
-  // Fetch хийхгүй — хоосон жагсаалт буцаана.
+  // Хэрэглэгчийн role‑д тохирсон, идэвхтэй суурь/нэмэлт давхаргууд (backend‑с).
+  // /settings/gis?tab=basemap дээр удирдана.
   const { data, isLoading, error, isValidating, mutate } = useSWR(
-    null,
+    endpoints.basemap.forMap,
     fetcher,
-    { shouldRetryOnError: false },
+    { revalidateOnFocus: false, shouldRetryOnError: false },
   );
   const memoizedValue = useMemo(
     () => ({
       baseLayers: data?.results || [],
       baseLayersEmpty: !isLoading && !data?.results?.length,
       baseLayersError: error,
-      baseLayersCount: data?.count || 0,
+      baseLayersCount: data?.results?.length || 0,
       baseLayersLoading: isLoading,
       baseLayersMutation: mutate,
       baseLayersValidating: isValidating,
