@@ -34,6 +34,7 @@ from core.models import (
 	StyleRule,
 	LayerGroupItem,
 	LayerGroup,
+	BaseMapLayer,
 )
 
 from core.userapiview import (
@@ -44,7 +45,8 @@ from .serializer import (
 	StoreSerializer,
 	StyleRuleSerializer,
 	LayerGroupSerializer,
-	LayerGroupItemSerializer
+	LayerGroupItemSerializer,
+	BaseMapLayerSerializer,
 )
 
 def _filters_as_list(filters_qs_or_list):
@@ -140,18 +142,20 @@ _MEDIA_SYM_RE = _re.compile(r'https?://[^"\'<>]*?/api/media/geoname_symbols/([^"
 _REL_SYM_RE = _re.compile(r'href="symbols/([^"\'<>]+)"')
 
 
-def _localize_sld_symbols(sld):
+def _localize_sld_symbols(sld, ws=None):
     """SLD доторх absolute media symbol URL бүрийг GeoServer‑ийн локал
     styles/symbols/ рүү REST‑ээр байршуулж, href‑ийг relative 'symbols/<нэр>'
-    болгож rewrite хийнэ. GeoServer‑ийн рендерт ашиглах хувилбар."""
+    болгож rewrite хийнэ. `ws` нь тухайн style байрлах workspace (symbol нь ижил
+    ws‑д байх ёстой — эс бол GeoServer рендерт олдохгүй); default GEONAME_WS."""
     import os
     from django.conf import settings as _st
+    ws = ws or GEONAME_WS
     for basename in set(_MEDIA_SYM_RE.findall(sld)):
         src = os.path.join(_st.MEDIA_ROOT, 'geoname_symbols', basename)
         if os.path.exists(src):
             try:
                 with open(src, 'rb') as fh:
-                    _gs_upload_symbol_bytes(GEONAME_WS, basename, fh.read())
+                    _gs_upload_symbol_bytes(ws, basename, fh.read())
             except requests.RequestException:
                 pass
     return _MEDIA_SYM_RE.sub(lambda m: f'symbols/{m.group(1)}', sld)
@@ -279,7 +283,14 @@ def _geoname_type_select(type_ids):
         "    COALESCE((SELECT json_agg(gn.nomek_id ORDER BY gn.nomek_id)\n"
         "              FROM core_geoname_nomek gn WHERE gn.geoname_id = g.id), '[]'::json) AS nomek,\n"
         "    COALESCE((SELECT json_agg(go.legalorder_id ORDER BY go.legalorder_id)\n"
-        "              FROM core_legalorder_names go WHERE go.geoname_id = g.id), '[]'::json) AS orders\n"
+        "              FROM core_legalorder_names go WHERE go.geoname_id = g.id), '[]'::json) AS orders,\n"
+        # name_spaced — нэрийг шугамын урт/тэмдэгтийн тооны харьцаагаар үсэг хооронд
+        # зайлуулж бэлдсэн багана. GeoServer‑ийн charSpacing нь илэрхийлэл авдаггүй
+        # (зөвхөн статик тоо) тул уртынхаа дагуу дүүрэх labelийг өгөгдөл дээр бэлднэ.
+        "    CASE WHEN g.name IS NULL OR char_length(g.name) < 2 THEN g.name\n"
+        "         ELSE array_to_string(regexp_split_to_array(g.name, ''),\n"
+        "              repeat(' ', GREATEST(1, LEAST(5,\n"
+        "                round((ST_Length(g.geoloc) / NULLIF(char_length(g.name),0)) * 900)::int)))) END AS name_spaced\n"
         "FROM core_geoname g\n"
         "LEFT JOIN core_constant t  ON t.id = g.type_id\n"
         "LEFT JOIN core_constant t2 ON t2.id = t.parent_id\n"
@@ -354,13 +365,17 @@ WHERE g.geoloc IS NOT NULL"""
 def ensure_geoname_search_view():
     """geoname_view (хайлтын нэгдсэн view) байхгүй бол үүсгэж нийтэлнэ — өөрөө сэргэнэ."""
     try:
+        created = False
         with connection.cursor() as c:
             c.execute("SELECT to_regclass('public.geoname_view')")
-            if c.fetchone()[0]:
-                return
-            c.execute('CREATE VIEW public."%s" AS %s' % (GEONAME_SEARCH_VIEW, _GEONAME_SEARCH_SQL))
-        _ensure_geoname_store()
-        _publish_or_recalc(GEONAME_SEARCH_VIEW, 'Газар зүйн нэр (хайлт)')
+            if not c.fetchone()[0]:
+                c.execute('CREATE VIEW public."%s" AS %s' % (GEONAME_SEARCH_VIEW, _GEONAME_SEARCH_SQL))
+                created = True
+        if created:
+            _ensure_geoname_store()
+            _publish_or_recalc(GEONAME_SEARCH_VIEW, 'Газар зүйн нэр (хайлт)')
+        # geoname_types style + geoname_view‑ийн default болгоно (ганц view архитектур)
+        ensure_geoname_type_style()
     except Exception:
         import logging
         logging.getLogger(__name__).warning("ensure_geoname_search_view failed", exc_info=True)
@@ -430,28 +445,204 @@ def _build_recount_type_sld():
 _GEONAME_TYPE_STYLE = 'geoname_types'
 _geoname_type_style_done = False
 
+# --- Нэгдсэн geoname_types style дотор НЭГ type_id‑ийн rule‑уудыг ялгах/нэгтгэх ---
+# (per-type view/style хассан тул style засвар нь нэгдсэн style дээр type_id‑ээр).
+_SLD_NS = 'http://www.opengis.net/sld'
+_OGC_NS = 'http://www.opengis.net/ogc'
+_XLINK_NS = 'http://www.w3.org/1999/xlink'
+
+
+def _rule_type_ids(rule):
+    """rule‑ийн Filter доторх type_id литералуудыг буцаана."""
+    ids = []
+    for eq in rule.iter(f'{{{_OGC_NS}}}PropertyIsEqualTo'):
+        pn = eq.find(f'{{{_OGC_NS}}}PropertyName')
+        li = eq.find(f'{{{_OGC_NS}}}Literal')
+        if pn is not None and li is not None and (pn.text or '').strip() == 'type_id':
+            ids.append((li.text or '').strip())
+    return ids
+
+
+def _make_type_eq(tid):
+    import xml.etree.ElementTree as ET
+    eq = ET.Element(f'{{{_OGC_NS}}}PropertyIsEqualTo')
+    ET.SubElement(eq, f'{{{_OGC_NS}}}PropertyName').text = 'type_id'
+    ET.SubElement(eq, f'{{{_OGC_NS}}}Literal').text = str(tid)
+    return eq
+
+
+def _remove_type_eq(rule, tid):
+    """rule‑ийн Filter‑ээс type_id==tid нөхцөлийг хасна (Or дотор 1 үлдвэл хялбарчилна)."""
+    import xml.etree.ElementTree as ET
+    flt = rule.find(f'{{{_SLD_NS}}}Filter')
+    if flt is None:
+        return
+    for parent in list(flt.iter()):
+        for eq in list(parent.findall(f'{{{_OGC_NS}}}PropertyIsEqualTo')):
+            pn = eq.find(f'{{{_OGC_NS}}}PropertyName')
+            li = eq.find(f'{{{_OGC_NS}}}Literal')
+            if (pn is not None and li is not None and (pn.text or '').strip() == 'type_id'
+                    and (li.text or '').strip() == str(tid)):
+                parent.remove(eq)
+    # Or дотор ганц operand үлдвэл Or‑г түүгээрээ орлуулна (SLD Or ≥2 шаарддаг)
+    orel = flt.find(f'{{{_OGC_NS}}}Or')
+    if orel is not None:
+        kids = list(orel)
+        if len(kids) == 1:
+            flt.remove(orel)
+            flt.append(kids[0])
+
+
+_SE_NS = 'http://www.opengis.net/se'  # SLD 1.1 Symbology Encoding namespace
+
+
+def _normalize_rule_to_sld10(rule):
+	"""SLD 1.1 (se:) rule‑ийг SLD 1.0 (sld:) болгож хөрвүүлнэ — geoname_types нь 1.0
+	тул нэгтгэхэд таарна. se:→sld:, SvgParameter→CssParameter. ogc: (filter) хэвээр."""
+	for el in rule.iter():
+		if el.tag.startswith(f'{{{_SE_NS}}}'):
+			local = el.tag.split('}', 1)[1]
+			if local == 'SvgParameter':
+				local = 'CssParameter'
+			el.tag = f'{{{_SLD_NS}}}{local}'
+	return rule
+
+
+def _sld11_to_sld10(sld_xml):
+	"""Бүхэл SLD 1.1 (se:) баримтыг SLD 1.0 (sld:) болгож хөрвүүлнэ — geoname‑тэй
+	ижил зарчим (se:→sld:, SvgParameter→CssParameter, version=1.0.0). GeoStyler нь
+	SLD 1.1/SE илгээдэг ба GeoServer‑т 1.0 гэж задлуулбал SvgParameter (өнгө/өргөн)
+	алдагддаг тул бичихийн өмнө найдвартай 1.0 болгоно."""
+	import xml.etree.ElementTree as ET
+	ET.register_namespace('sld', _SLD_NS)
+	ET.register_namespace('ogc', _OGC_NS)
+	ET.register_namespace('xlink', _XLINK_NS)
+	try:
+		root = ET.fromstring(sld_xml)
+	except Exception:
+		return sld_xml
+	for el in root.iter():
+		if el.tag.startswith(f'{{{_SE_NS}}}'):
+			local = el.tag.split('}', 1)[1]
+			if local == 'SvgParameter':
+				local = 'CssParameter'
+			el.tag = f'{{{_SLD_NS}}}{local}'
+	if root.tag.split('}', 1)[-1] == 'StyledLayerDescriptor':
+		root.set('version', '1.0.0')
+	return ET.tostring(root, encoding='unicode')
+
+
+def _fix_sld_dasharray(sld_xml):
+	"""geostyler-sld-parser нь stroke-dasharray‑г .split‑ддэг ба XML parser нь ганц
+	тоон утгыг (жишээ '4.0') NUMBER болгон хувиргадаг тул 'l.split is not a function'
+	алдаа өгдөг. Ганц утгыг зайтай хос ('4.0 4.0') болгож STRING хэвээр үлдээнэ."""
+	import re as _re
+
+	def _rep(m):
+		val = (m.group(2) or '').strip()
+		if val and ' ' not in val:
+			val = f'{val} {val}'
+		return f'{m.group(1)}{val}{m.group(3)}'
+
+	return _re.sub(r'(name="(?:stroke|outline)-dasharray">)([^<]*)(</)',
+				   _rep, sld_xml)
+
+
+def _strip_boundary_fts(sld_xml):
+	"""SLD‑ээс ХИЛ ДАГУУ НЭР (followLine)‑ийн FeatureTypeStyle‑ийг хасна — GeoStyler‑т
+	зөвхөн GeoStyler‑ийн rule‑ийг (ogc:Function‑гүй) харуулахын тулд. FeatureTypeStyle
+	үлдэхгүй бол None (default рүү унана)."""
+	import xml.etree.ElementTree as ET
+	ET.register_namespace('sld', _SLD_NS)
+	ET.register_namespace('ogc', _OGC_NS)
+	ET.register_namespace('xlink', _XLINK_NS)
+	try:
+		root = ET.fromstring(sld_xml)
+	except Exception:
+		return sld_xml
+	for us in root.iter(f'{{{_SLD_NS}}}UserStyle'):
+		for fts in list(us.findall(f'{{{_SLD_NS}}}FeatureTypeStyle')):
+			if 'followLine' in ET.tostring(fts, encoding='unicode'):
+				us.remove(fts)
+	if not root.findall(f'.//{{{_SLD_NS}}}FeatureTypeStyle'):
+		return None
+	return ET.tostring(root, encoding='unicode')
+
+
+def _sanitize_sld_marks(sld_xml):
+	"""GeoStyler‑ийн parser нь WellKnownName‑гүй Mark‑ийг задалж чаддаггүй
+	('MarkSymbolizer cannot be parsed. WellKnownName undefined is not supported').
+	ExternalGraphic ч, WellKnownName ч үгүй хоосон Mark‑д default 'circle' нэмж,
+	editor ачаалагдахуйц болгоно."""
+	import xml.etree.ElementTree as ET
+	ET.register_namespace('sld', _SLD_NS)
+	ET.register_namespace('ogc', _OGC_NS)
+	ET.register_namespace('xlink', _XLINK_NS)
+	try:
+		root = ET.fromstring(sld_xml)
+	except Exception:
+		return sld_xml
+	changed = False
+	for el in root.iter():
+		if el.tag.split('}', 1)[-1] != 'Mark':
+			continue
+		child_locals = {c.tag.split('}', 1)[-1] for c in el}
+		if child_locals & {'WellKnownName', 'ExternalGraphic', 'OnlineResource'}:
+			continue
+		ns = el.tag.split('}', 1)[0].strip('{') if '}' in el.tag else _SLD_NS
+		wkn = ET.Element(f'{{{ns}}}WellKnownName')
+		wkn.text = 'circle'
+		el.insert(0, wkn)  # WellKnownName нь Mark‑ийн эхний хүүхэд байх ёстой
+		changed = True
+	return ET.tostring(root, encoding='unicode') if changed else sld_xml
+
+
+def _set_type_filter(rule, tid):
+    """rule‑д type_id==tid filter‑ийг тавина. Байгаа (type‑бус) filter‑г AND‑лэнэ."""
+    import xml.etree.ElementTree as ET
+    existing = rule.find(f'{{{_SLD_NS}}}Filter')
+    new_flt = ET.Element(f'{{{_OGC_NS}}}Filter')
+    if existing is not None and list(existing):
+        # байгаа filter‑ийн доторхийг And(type_id, ...) болгоно
+        andel = ET.SubElement(new_flt, f'{{{_OGC_NS}}}And')
+        andel.append(_make_type_eq(tid))
+        for ch in list(existing):
+            andel.append(ch)
+        rule.remove(existing)
+    else:
+        new_flt.append(_make_type_eq(tid))
+        if existing is not None:
+            rule.remove(existing)
+    rule.insert(0, new_flt)  # Filter‑ийг эхэнд (SLD дараалал)
+
 
 def ensure_geoname_type_style():
     """geoname_view‑д type symbol бүхий combined NAMED style (geoname_types) үүсгэж,
-    нэрийг буцаана (default болгохгүй — print дэх STYLES param-д ашиглана). Нэг удаа."""
+    geoname_view‑ийн DEFAULT style болгоно. Нэгдсэн ганц view нь энэ style‑аар
+    ангилал бүрийг өөрийн тэмдгээр рендерлэнэ (per-type view/style хэрэггүй)."""
     global _geoname_type_style_done
     name = _GEONAME_TYPE_STYLE
-    if _geoname_type_style_done:
-        return name
     try:
-        sld = _build_recount_type_sld()  # type_id-д суурилсан тул geoname_view-д хүчинтэй
-        if not sld:
-            return ''
-        sld = sld.replace(f'>{RECOUNT_VIEW}<', f'>{GEONAME_SEARCH_VIEW}<')  # NamedLayer
         base, auth = _gs_rest_auth()
-        chk = requests.get(f"{base}/workspaces/{GEONAME_WS}/styles/{name}.json",
-                           auth=auth, timeout=10)
-        if chk.status_code != 200:
-            requests.post(f"{base}/workspaces/{GEONAME_WS}/styles",
-                          json={"style": {"name": name, "filename": f"{name}.sld"}},
-                          auth=auth, timeout=10)
-        _gs_style_write_sld(GEONAME_WS, name, sld)
-        _geoname_type_style_done = True
+        if not _geoname_type_style_done:
+            sld = _build_recount_type_sld()  # type_id-д суурилсан тул geoname_view-д хүчинтэй
+            if not sld:
+                return ''
+            sld = sld.replace(f'>{RECOUNT_VIEW}<', f'>{GEONAME_SEARCH_VIEW}<')  # NamedLayer
+            chk = requests.get(f"{base}/workspaces/{GEONAME_WS}/styles/{name}.json",
+                               auth=auth, timeout=10)
+            if chk.status_code != 200:
+                requests.post(f"{base}/workspaces/{GEONAME_WS}/styles",
+                              json={"style": {"name": name, "filename": f"{name}.sld"}},
+                              auth=auth, timeout=10)
+            _gs_style_write_sld(GEONAME_WS, name, sld)
+            _geoname_type_style_done = True
+        # geoname_view‑ийн default style болгоно (үргэлж баталгаажуулна — хямд PUT)
+        requests.put(
+            f"{base}/layers/{GEONAME_WS}:{GEONAME_SEARCH_VIEW}",
+            data=f'<layer><defaultStyle><name>{name}</name>'
+                 f'<workspace>{GEONAME_WS}</workspace></defaultStyle></layer>',
+            auth=auth, headers={"Content-Type": "text/xml"}, timeout=10)
         return name
     except Exception:
         import logging
@@ -554,9 +745,10 @@ NAMES_LAYERGROUP = 'names'
 
 
 def ensure_names_layergroup():
-    """Бүх per-type view‑г нэгтгэсэн 'geoname:names' LayerGroup‑г одоогийн view‑ийн
-    жагсаалтаар дахин барина — нэр бүр өөрийн тохируулсан таних тэмдгээрээ нэг WMS
-    давхаргаар гарна. View нэмэгдэх/устах бүрд дуудагдаж автоматаар синк байна."""
+    """DEPRECATED — ганц geoname_view архитектур руу шилжсэн тул per-type
+    'geoname:names' LayerGroup үүсгэхээ больсон (no-op). Хуучин код доор үлдсэн."""
+    return
+    # pylint: disable=unreachable
     try:
         base, auth = _gs_rest_auth()
         r = requests.get(
@@ -618,7 +810,11 @@ def is_geoname_leaf(const):
 
 
 def sync_geoname_type_view(const):
-    """Навч ангиллын view‑г үүсгэх/шинэчилж GeoServer‑т нийтэлнэ. Нэрийг буцаана."""
+    """DEPRECATED — ганц geoname_view архитектур руу шилжсэн тул per-type view
+    үүсгэхээ больсон (no-op). Бүх ангилал geoname_view + geoname_types style‑аар
+    CQL (type_l1/l2/id)‑ээр рендерлэгдэнэ."""
+    return None
+    # pylint: disable=unreachable
     if not is_geoname_leaf(const):
         return None
     name = geoname_type_view_name(const)
@@ -1075,6 +1271,55 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 			return Response({'detail': f'GeoServer холбогдсонгүй: {e}'}, status=502)
 		return Response({'workspace': ws.name, 'results': out}, status=200)
 
+	# Store‑ийн төрөл бүрийн GeoServer REST зам: (store‑ийн kind, доторх
+	# featuretype/coverage‑ийн kind, харагдах төрлийн шошго)
+	_STORE_KINDS = [
+		('datastores', 'featuretypes', 'vector'),
+		('coveragestores', 'coverages', 'raster'),
+		('wmsstores', 'wmslayers', 'wms'),
+		('wmtsstores', 'wmtslayers', 'wmts'),
+	]
+
+	@action(detail=True, methods=['get'], url_path='gs-all-layers')
+	def gs_all_layers(self, request, *args, **kwargs):
+		"""Workspace доторх БҮХ нийтэлсэн layer (vector featuretype, raster
+		coverage, WMS/WMTS cascade) — store болон төрлийн шошготойгоор жагсаана.
+		gs-layers нь зөвхөн vector datastore‑той тул raster workspace‑д
+		хангалтгүй; энэ endpoint нь store‑ийн бүх төрлийг хамруулна."""
+		ws = self.get_object()
+		base, auth = self._gs_rest(), self._gs_auth()
+		out = []
+		try:
+			for skind, lkind, gtype in self._STORE_KINDS:
+				sr = requests.get(f"{base}/workspaces/{ws.name}/{skind}.json",
+								  auth=auth, timeout=10)
+				if sr.status_code != 200:
+					continue
+				sroot = next(iter(sr.json().values()), None) or {}
+				stores = next(iter(sroot.values()), []) if isinstance(sroot, dict) else []
+				if isinstance(stores, dict):
+					stores = [stores]
+				for st in stores:
+					sname = st.get('name')
+					if not sname:
+						continue
+					lr = requests.get(
+						f"{base}/workspaces/{ws.name}/{skind}/{sname}/{lkind}.json",
+						auth=auth, timeout=10)
+					if lr.status_code != 200:
+						continue
+					lroot = next(iter(lr.json().values()), None) or {}
+					items = next(iter(lroot.values()), []) if isinstance(lroot, dict) else []
+					if isinstance(items, dict):
+						items = [items]
+					for it in items:
+						out.append({'name': it.get('name'), 'store': sname,
+									'store_kind': skind, 'type': gtype})
+		except requests.RequestException as e:
+			return Response({'detail': f'GeoServer холбогдсонгүй: {e}'}, status=502)
+		out.sort(key=lambda x: (x['type'], x['store'], x['name'] or ''))
+		return Response({'workspace': ws.name, 'results': out}, status=200)
+
 	@action(detail=True, methods=['post'], url_path='gs-create-store')
 	def gs_create_store(self, request, *args, **kwargs):
 		"""Workspace дотор geoname DB рүү холбогдсон PostGIS store үүсгэнэ."""
@@ -1235,6 +1480,679 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				return Response({'detail': f'GeoServer‑ээс устсан ч view устсангүй: {e}'}, status=200)
 		return Response(status=204)
 
+	# ==================================================================
+	# Layer‑ийн style (symbol) засвар — GeoStyler editor‑т SLD унших/бичих.
+	# Global default style (жишээ nь 'point', 'generic')‑ийг шууд засвал бусад
+	# layer‑т нөлөөлдөг тул тухайн workspace‑д хувийн style ({ws}:{layer})
+	# үүсгээд түүн рүү бичиж, layer‑ийн default style‑ийг болгоно.
+	# ==================================================================
+	def _gs_read_style_sld_any(self, ws, name):
+		"""ws‑scoped, эс бол global style‑ийн SLD‑г уншина (ws‑ийг эхэлж)."""
+		rest, auth = self._gs_rest(), self._gs_auth()
+		r = requests.get(f"{rest}/workspaces/{ws}/styles/{name}.sld", auth=auth, timeout=30)
+		if r.status_code == 200:
+			return r.text
+		r = requests.get(f"{rest}/styles/{name}.sld", auth=auth, timeout=30)
+		return r.text if r.status_code == 200 else None
+
+	def _gs_layer_default_style(self, ws, layer):
+		rest, auth = self._gs_rest(), self._gs_auth()
+		r = requests.get(f"{rest}/workspaces/{ws}/layers/{layer}.json", auth=auth, timeout=15)
+		if r.status_code != 200:
+			return {}
+		return ((r.json().get('layer') or {}).get('defaultStyle')) or {}
+
+	def _gs_layer_geom_type(self, ws, layer):
+		"""Layer‑ийн геометрийн төрөл: 'polygon'|'line'|'point'|'raster'."""
+		rest, auth = self._gs_rest(), self._gs_auth()
+		lr = requests.get(f"{rest}/workspaces/{ws}/layers/{layer}.json", auth=auth, timeout=15)
+		if lr.status_code != 200:
+			return 'polygon'
+		lj = lr.json().get('layer') or {}
+		if (lj.get('type') or '').upper() == 'RASTER':
+			return 'raster'
+		res_href = (lj.get('resource') or {}).get('href')
+		try:
+			ft = requests.get(res_href, auth=auth, timeout=15).json().get('featureType') or {}
+			for a in ((ft.get('attributes') or {}).get('attribute') or []):
+				b = (a.get('binding') or '').lower()
+				if 'geom' in b or 'jts' in b:
+					if 'polygon' in b:
+						return 'polygon'
+					if 'line' in b:
+						return 'line'
+					if 'point' in b:
+						return 'point'
+		except (requests.RequestException, ValueError):
+			pass
+		return 'polygon'
+
+	def _default_sld_for_layer(self, ws, layer, style_name):
+		"""GeoStyler‑т тохирох ЦЭВЭР default SLD — layer‑ийн геометрийн төрлөөр.
+		GeoServer‑ийн 'generic' зэрэг ogc:Function (isCoverage/dimension) агуулсан
+		style‑ийг GeoStyler editor рендерлэж чаддаггүй тул үүгээр орлуулна."""
+		gt = self._gs_layer_geom_type(ws, layer)
+		if gt == 'raster':
+			sym = '<RasterSymbolizer><Opacity>1.0</Opacity></RasterSymbolizer>'
+		elif gt == 'line':
+			sym = ('<LineSymbolizer><Stroke>'
+				   '<CssParameter name="stroke">#3388ff</CssParameter>'
+				   '<CssParameter name="stroke-width">1</CssParameter>'
+				   '</Stroke></LineSymbolizer>')
+		elif gt == 'point':
+			sym = ('<PointSymbolizer><Graphic><Mark>'
+				   '<WellKnownName>circle</WellKnownName>'
+				   '<Fill><CssParameter name="fill">#3388ff</CssParameter></Fill>'
+				   '</Mark><Size>8</Size></Graphic></PointSymbolizer>')
+		else:
+			sym = ('<PolygonSymbolizer>'
+				   '<Fill><CssParameter name="fill">#AAAAAA</CssParameter>'
+				   '<CssParameter name="fill-opacity">0.6</CssParameter></Fill>'
+				   '<Stroke><CssParameter name="stroke">#333333</CssParameter>'
+				   '<CssParameter name="stroke-width">1</CssParameter></Stroke>'
+				   '</PolygonSymbolizer>')
+		return (
+			'<?xml version="1.0" encoding="UTF-8"?>'
+			'<StyledLayerDescriptor version="1.0.0" '
+			'xmlns="http://www.opengis.net/sld" '
+			'xmlns:ogc="http://www.opengis.net/ogc" '
+			'xmlns:xlink="http://www.w3.org/1999/xlink">'
+			f'<NamedLayer><Name>{layer}</Name><UserStyle><Name>{style_name}</Name>'
+			f'<FeatureTypeStyle><Rule>{sym}</Rule></FeatureTypeStyle>'
+			'</UserStyle></NamedLayer></StyledLayerDescriptor>'
+		)
+
+	@action(detail=True, methods=['get', 'put'], url_path='gs-layer-sld')
+	def gs_layer_sld(self, request, *args, **kwargs):
+		"""Тухайн layer‑ийн style SLD унших/бичих (GeoStyler editor‑т зориулав).
+		GET → одоогийн (ws‑scoped, эс бол default) SLD. PUT → ws‑scoped хувийн
+		style‑д хадгалаад layer‑ийн default болгоно."""
+		ws = self.get_object()
+		layer = (request.query_params.get('layer') or request.data.get('layer') or '').strip()
+		if not layer:
+			return Response({'detail': 'layer шаардлагатай'}, status=400)
+		style_name = layer  # ws‑scoped хувийн style нэр = layer нэр
+
+		if request.method == 'GET':
+			# 1) Энэ layer‑т ws‑scoped хувийн style байвал түүнийг. Хэрэв combined
+			#    (GeoStyler rule + ХИЛ ДАГУУ НЭР) бол boundary FeatureTypeStyle‑ийг
+			#    хасаад GeoStyler‑ийн rule‑ийг л буцаана (boundary‑г форм тусдаа удирдана).
+			sld = self._gs_read_style_sld_any(ws.name, style_name)
+			if sld and 'followLine' in sld:
+				sld = _strip_boundary_fts(sld)
+			if sld and ('<ogc:Function' in sld or '<Function' in sld):
+				sld = None
+			if sld is None:
+				# 2) Одоогийн default style‑ийг эх болгож авах — ГЭХДЭЭ ogc:Function
+				#    агуулаагүй (GeoStyler рендерлэж чадах) бол. Эс бөгөөс геометрт
+				#    тохирсон цэвэр default SLD үүсгэнэ ('generic' style‑ийн crash‑аас).
+				ds = self._gs_layer_default_style(ws.name, layer)
+				dname = ds.get('name')
+				if dname:
+					cand = self._gs_read_style_sld_any(ds.get('workspace') or ws.name, dname)
+					if cand and '<ogc:Function' not in cand and '<Function' not in cand:
+						sld = cand
+				if sld is None:
+					sld = self._default_sld_for_layer(ws.name, layer, style_name)
+			# GeoStyler‑ийн parser‑т тохируулах: WellKnownName‑гүй Mark + dasharray
+			sld = _sanitize_sld_marks(sld)
+			sld = _fix_sld_dasharray(sld)
+			sld = _absolutize_sld_symbols(sld, request)
+			return Response({'sld': sld, 'style_name': style_name, 'ws': ws.name,
+							 'layer': layer}, status=200)
+
+		# PUT
+		edited = request.data.get('sld')
+		if not edited:
+			return Response({'detail': 'sld хоосон'}, status=400)
+		edited = _localize_sld_symbols(edited, ws.name)
+		# GeoStyler нь SLD 1.1 / SE (se:SvgParameter) илгээдэг. GeoServer‑т 1.0 гэж
+		# задлуулбал SvgParameter (fill/stroke өнгө, өргөн) танигдалгүй хаягдаж, style
+		# ХООСОН болдог. Тиймээс geoname‑тэй ижил найдвартай SLD 1.0 болгож хөрвүүлээд
+		# sld+xml‑ээр бичнэ.
+		edited = _sld11_to_sld10(edited)
+		rest, auth = self._gs_rest(), self._gs_auth()
+		# 1) ws‑scoped style байхгүй бол үүсгэнэ
+		chk = requests.get(f"{rest}/workspaces/{ws.name}/styles/{style_name}.json",
+						   auth=auth, timeout=15)
+		if chk.status_code != 200:
+			requests.post(
+				f"{rest}/workspaces/{ws.name}/styles",
+				data=f'<style><name>{style_name}</name>'
+					 f'<filename>{style_name}.sld</filename></style>',
+				headers={'Content-Type': 'application/xml'}, auth=auth, timeout=20)
+		# 2) SLD бичих (SLD 1.0, sld+xml — geoname‑тэй ижил)
+		try:
+			_gs_style_write_sld(ws.name, style_name, edited)
+		except requests.RequestException as e:
+			return Response({'detail': f'SLD хадгалж чадсангүй: {e}'}, status=502)
+		# 3) Layer‑ийн default style‑ийг ws‑scoped руу тавих
+		requests.put(
+			f"{rest}/workspaces/{ws.name}/layers/{layer}",
+			data=f'<layer><defaultStyle><name>{style_name}</name>'
+				 f'<workspace>{ws.name}</workspace></defaultStyle></layer>',
+			headers={'Content-Type': 'application/xml'}, auth=auth, timeout=20)
+		# 4) GWC‑д хуучин tile байвал цэвэрлэх (шинэ style шууд харагдана)
+		try:
+			_gwc_seed(f"{ws.name}:{layer}", do_seed=False)
+		except Exception:
+			pass
+		return Response({'saved': True, 'style_name': style_name, 'ws': ws.name,
+						 'layer': layer}, status=200)
+
+	# GeoStyler Icon source‑д зөвшөөрөх зургийн төрлүүд. GeoServer нь SVG (Batik)
+	# болон PNG/GIF (ImageIO)‑г ExternalGraphic‑аар рендерлэнэ.
+	_ICON_EXTS = {'.svg', '.png', '.gif', '.jpg', '.jpeg'}
+
+	@action(detail=True, methods=['post'], url_path='gs-upload-symbol')
+	def gs_upload_symbol(self, request, *args, **kwargs):
+		"""GeoStyler Icon source‑д зориулсан зураг upload (workspace‑scoped).
+		SVG (вектор) болон PNG/GIF/JPG (растер) зөвшөөрнө."""
+		import os
+		import uuid
+		from django.core.files.storage import default_storage
+		from django.core.files.base import ContentFile
+		ws = self.get_object()
+		f = request.FILES.get('file')
+		if not f:
+			return Response({'detail': 'Файл алга'}, status=400)
+		ext = os.path.splitext(f.name)[1].lower()
+		if ext not in self._ICON_EXTS:
+			return Response({'detail': 'Зөвхөн SVG, PNG, GIF, JPG зураг оруулна'},
+							status=400)
+		if f.size > 2 * 1024 * 1024:
+			return Response({'detail': 'Файл 2MB‑аас их байна'}, status=400)
+		data = f.read()
+		basename = f"{uuid.uuid4().hex}{ext}"
+		saved = default_storage.save(f"geoname_symbols/{basename}", ContentFile(data))
+		try:
+			_gs_upload_symbol_bytes(ws.name, basename, data)
+		except requests.RequestException:
+			pass
+		return Response({'url': request.build_absolute_uri(default_storage.url(saved)),
+						 'path': saved}, status=201)
+
+	def _gs_layer_geom_field(self, ws, layer):
+		"""Layer‑ийн геометрийн баганын нэр (default 'geom')."""
+		rest, auth = self._gs_rest(), self._gs_auth()
+		lr = requests.get(f"{rest}/workspaces/{ws}/layers/{layer}.json", auth=auth, timeout=15)
+		if lr.status_code != 200:
+			return 'geom'
+		res_href = ((lr.json().get('layer') or {}).get('resource') or {}).get('href')
+		try:
+			ft = requests.get(res_href, auth=auth, timeout=15).json().get('featureType') or {}
+			for a in ((ft.get('attributes') or {}).get('attribute') or []):
+				b = (a.get('binding') or '').lower()
+				if 'geom' in b or 'jts' in b:
+					return a.get('name') or 'geom'
+		except (requests.RequestException, ValueError):
+			pass
+		return 'geom'
+
+	@action(detail=True, methods=['get', 'post'], url_path='gs-boundary-label')
+	def gs_boundary_label(self, request, *args, **kwargs):
+		"""OSM маягийн ХИЛ ДАГУУ нэр — polygon layer‑ийн захын (boundary) шугам дагуулж,
+		дотогш (PerpendicularOffset) шилжүүлж, followLine‑аар нэрийг байрлуулна.
+		GeoStyler‑ээр хийх боломжгүй (vendor option) тул preset SLD‑ээр хэрэгжинэ.
+		GET → тухайн layer‑т одоо идэвхтэй эсэх + параметрүүд (edit‑д урьдчилан дүүргэх)."""
+		ws = self.get_object()
+		layer = (request.query_params.get('layer') or request.data.get('layer') or '').strip()
+		if not layer:
+			return Response({'detail': 'layer шаардлагатай'}, status=400)
+		style_name = layer
+
+		if request.method == 'GET':
+			import re as _re
+			full = self._gs_read_style_sld_any(ws.name, style_name) or ''
+			active = 'followLine' in full  # preset‑ийн найдвартай тэмдэг
+			# Combined style (GeoStyler rule + ХИЛ ДАГУУ НЭР) үед scale/offset‑ийг
+			# ЗӨВХӨН boundary (followLine) FeatureTypeStyle‑ээс уншина — эс бөгөөс
+			# GeoStyler rule‑ийн масштаб буруу уншигдана.
+			blocks = _re.findall(
+				r'<(?:\w+:)?FeatureTypeStyle>.*?</(?:\w+:)?FeatureTypeStyle>', full, _re.S)
+			sld = next((b for b in blocks if 'followLine' in b), full)
+			d = {'active': active, 'geom_type': self._gs_layer_geom_type(ws.name, layer),
+				 'label_field': 'name', 'offset': 9, 'font_size': 12,
+				 'font_family': 'Arial', 'fill': '#333333', 'stroke': '#888888',
+				 'repeat': 400, 'scale_min': None, 'scale_max': None}
+			if active:
+				def g(pat, cast=str, default=None):
+					m = _re.search(pat, sld)
+					try:
+						return cast(m.group(1)) if m else default
+					except (TypeError, ValueError):
+						return default
+				# GeoServer нь SLD‑г sld: prefix‑тэй дахин серизацилдаг тул tag‑уудыг
+				# prefix‑agnostic (?:\w+:)? хэлбэрээр тааруулна.
+				d['label_field'] = g(r'<(?:\w+:)?Label>\s*<(?:\w+:)?PropertyName>([^<]+)', str, 'name')
+				d['offset'] = g(r'<(?:\w+:)?PerpendicularOffset>([^<]+)', float, 9)
+				d['font_family'] = g(r'font-family[^>]*>([^<]+)', str, 'Arial')
+				d['font_size'] = g(r'font-size[^>]*>([^<]+)', lambda x: int(float(x)), 12)
+				d['fill'] = g(r'name="fill">([^<]+)', str, '#333333')
+				d['stroke'] = g(r'name="stroke">([^<]+)', str, '#888888')
+				d['repeat'] = g(r'name="repeat">([^<]+)', lambda x: int(float(x)), 400)
+				d['scale_min'] = g(r'<(?:\w+:)?MinScaleDenominator>([^<]+)', lambda x: int(float(x)))
+				d['scale_max'] = g(r'<(?:\w+:)?MaxScaleDenominator>([^<]+)', lambda x: int(float(x)))
+			return Response(d, status=200)
+
+		# POST — хэрэгжүүлэх
+		label = (request.data.get('label_field') or 'name').strip()
+		offset = request.data.get('offset', 9)          # +дотогш / −гадагш (ринг чиглэлээс)
+		font_size = request.data.get('font_size', 12)
+		font_family = (request.data.get('font_family') or 'Arial').strip()
+		stroke = (request.data.get('stroke') or '#888888').strip()
+		stroke_w = request.data.get('stroke_width', 1)
+		fill = (request.data.get('fill') or '#333333').strip()
+		repeat = request.data.get('repeat', 400)
+		smin = request.data.get('scale_min')            # MinScaleDenominator (том зум)
+		smax = request.data.get('scale_max')            # MaxScaleDenominator (жижиг зум)
+		if not self._IDENT_RE.match(label):
+			return Response({'detail': 'label талбар буруу'}, status=400)
+		geom = self._gs_layer_geom_field(ws.name, layer)
+		gtype = self._gs_layer_geom_type(ws.name, layer)
+		# polygon бол захын шугам (boundary функц), line бол шугамаа шууд label‑дэнэ
+		geom_xml = (f'<sld:Geometry><ogc:Function name="boundary">'
+					f'<ogc:PropertyName>{geom}</ogc:PropertyName></ogc:Function></sld:Geometry>'
+					if gtype == 'polygon' else '')
+		scale_xml = ''
+		if smin not in (None, ''):
+			scale_xml += f'<sld:MinScaleDenominator>{float(smin)}</sld:MinScaleDenominator>'
+		if smax not in (None, ''):
+			scale_xml += f'<sld:MaxScaleDenominator>{float(smax)}</sld:MaxScaleDenominator>'
+		# ХИЛ ДАГУУ НЭР‑ийн Rule (sld: prefix — combined SLD‑д нэгтгэхэд тохирно)
+		rule = (
+			'<sld:Rule>'
+			f'{scale_xml}'
+			f'<sld:LineSymbolizer><sld:Stroke>'
+			f'<sld:CssParameter name="stroke">{stroke}</sld:CssParameter>'
+			f'<sld:CssParameter name="stroke-width">{stroke_w}</sld:CssParameter>'
+			f'</sld:Stroke></sld:LineSymbolizer>'
+			f'<sld:TextSymbolizer>'
+			f'{geom_xml}'
+			f'<sld:Label><ogc:PropertyName>{label}</ogc:PropertyName></sld:Label>'
+			f'<sld:Font><sld:CssParameter name="font-family">{font_family}</sld:CssParameter>'
+			f'<sld:CssParameter name="font-size">{font_size}</sld:CssParameter>'
+			f'<sld:CssParameter name="font-weight">bold</sld:CssParameter></sld:Font>'
+			f'<sld:LabelPlacement><sld:LinePlacement>'
+			f'<sld:PerpendicularOffset>{offset}</sld:PerpendicularOffset>'
+			f'</sld:LinePlacement></sld:LabelPlacement>'
+			f'<sld:Fill><sld:CssParameter name="fill">{fill}</sld:CssParameter></sld:Fill>'
+			f'<sld:VendorOption name="followLine">true</sld:VendorOption>'
+			f'<sld:VendorOption name="repeat">{repeat}</sld:VendorOption>'
+			f'<sld:VendorOption name="maxAngleDelta">90</sld:VendorOption>'
+			f'<sld:VendorOption name="maxDisplacement">50</sld:VendorOption>'
+			f'<sld:VendorOption name="group">yes</sld:VendorOption>'
+			f'</sld:TextSymbolizer>'
+			'</sld:Rule>'
+		)
+		# base_sld ирвэл (GeoStyler‑ийн rule) түүн рүү ХИЛ ДАГУУ НЭР‑ийн FeatureTypeStyle
+		# нэмж НЭГТГЭНЭ — rule засвар алдагдахгүй. Эс бол шинээр (зөвхөн label) үүсгэнэ.
+		base = request.data.get('base_sld')
+		sld = None
+		if base:
+			import xml.etree.ElementTree as ET
+			ET.register_namespace('sld', _SLD_NS)
+			ET.register_namespace('ogc', _OGC_NS)
+			ET.register_namespace('xlink', _XLINK_NS)
+			try:
+				b = _sanitize_sld_marks(_sld11_to_sld10(_localize_sld_symbols(base, ws.name)))
+				root = ET.fromstring(b)
+				us = root.find(f'.//{{{_SLD_NS}}}UserStyle')
+				if us is not None:
+					# өмнөх хил‑дагуу FTS байвал устгаад дахин нэмнэ (давхардал арилгах)
+					for fts in list(us.findall(f'{{{_SLD_NS}}}FeatureTypeStyle')):
+						if 'followLine' in ET.tostring(fts, encoding='unicode'):
+							us.remove(fts)
+					bfts = ET.fromstring(
+						f'<sld:FeatureTypeStyle xmlns:sld="{_SLD_NS}" '
+						f'xmlns:ogc="{_OGC_NS}">{rule}</sld:FeatureTypeStyle>')
+					us.append(bfts)
+					sld = ET.tostring(root, encoding='unicode')
+			except Exception:
+				sld = None
+		if not sld:
+			sld = (
+				'<?xml version="1.0" encoding="UTF-8"?>'
+				f'<sld:StyledLayerDescriptor version="1.0.0" xmlns:sld="{_SLD_NS}" '
+				f'xmlns:ogc="{_OGC_NS}" xmlns:xlink="{_XLINK_NS}">'
+				f'<sld:NamedLayer><sld:Name>{layer}</sld:Name>'
+				f'<sld:UserStyle><sld:Name>{style_name}</sld:Name>'
+				f'<sld:FeatureTypeStyle>{rule}</sld:FeatureTypeStyle>'
+				'</sld:UserStyle></sld:NamedLayer></sld:StyledLayerDescriptor>'
+			)
+		rest, auth = self._gs_rest(), self._gs_auth()
+		chk = requests.get(f"{rest}/workspaces/{ws.name}/styles/{style_name}.json",
+						   auth=auth, timeout=15)
+		if chk.status_code != 200:
+			requests.post(f"{rest}/workspaces/{ws.name}/styles",
+				data=f'<style><name>{style_name}</name><filename>{style_name}.sld</filename></style>',
+				headers={'Content-Type': 'application/xml'}, auth=auth, timeout=20)
+		try:
+			_gs_style_write_sld(ws.name, style_name, sld)
+		except requests.RequestException as e:
+			return Response({'detail': f'SLD хадгалж чадсангүй: {e}'}, status=502)
+		requests.put(f"{rest}/workspaces/{ws.name}/layers/{layer}",
+			data=f'<layer><defaultStyle><name>{style_name}</name>'
+				 f'<workspace>{ws.name}</workspace></defaultStyle></layer>',
+			headers={'Content-Type': 'application/xml'}, auth=auth, timeout=20)
+		try:
+			_gwc_seed(f"{ws.name}:{layer}", do_seed=False)
+		except Exception:
+			pass
+		return Response({'saved': True, 'style_name': style_name, 'ws': ws.name,
+						 'layer': layer, 'geom': geom}, status=200)
+
+	# ==================================================================
+	# Layer‑ийн багана (attribute) жагсаах + сонгосон талбар(ууд)‑аар бүлэглэсэн
+	# (dissolve) PG view үүсгэж workspace‑д layer болгон нийтлэх.
+	# ==================================================================
+	@action(detail=True, methods=['get'], url_path='gs-layer-fields')
+	def gs_layer_fields(self, request, *args, **kwargs):
+		"""Тухайн featuretype layer‑ийн багана (attribute)‑ууд — геометрээс бусад
+		талбарыг бүлэглэх сонголтод харуулна."""
+		ws = self.get_object()
+		layer = (request.query_params.get('layer') or '').strip()
+		if not layer:
+			return Response({'detail': 'layer шаардлагатай'}, status=400)
+		rest, auth = self._gs_rest(), self._gs_auth()
+		lr = requests.get(f"{rest}/workspaces/{ws.name}/layers/{layer}.json",
+						  auth=auth, timeout=15)
+		if lr.status_code != 200:
+			return Response({'detail': 'Layer олдсонгүй'}, status=404)
+		res_href = ((lr.json().get('layer') or {}).get('resource') or {}).get('href')
+		fields, geom_field = [], None
+		try:
+			meta = requests.get(res_href, auth=auth, timeout=15).json()
+			ft = meta.get('featureType') or {}
+			for a in ((ft.get('attributes') or {}).get('attribute') or []):
+				b = (a.get('binding') or '')
+				if 'geom' in b.lower() or 'jts' in b.lower():
+					geom_field = a.get('name')
+					continue
+				fields.append({'name': a.get('name'), 'binding': b.split('.')[-1]})
+		except (requests.RequestException, ValueError):
+			return Response({'detail': 'Багана уншиж чадсангүй'}, status=502)
+		return Response({'layer': layer, 'geom_field': geom_field, 'results': fields},
+						status=200)
+
+	def _store_db(self, ws_name, store):
+		"""Datastore‑ийн бодит PostGIS баазад холбогдоно. `database`/`schema`/`host`/
+		`port`‑ыг GeoServer REST‑ээс уншиж, нэвтрэхдээ Django‑ийн default эрхийг
+		(ижил кластер) ашиглана — GeoServer доторх нууц үг шифрлэгдсэн байдаг. Store
+		бүр өөр баазтай байж болох тул view‑г ЗӨВ баазад (жишээ nь basemap) үүсгэнэ."""
+		import psycopg2
+		from django.conf import settings as _st
+		rest, auth = self._gs_rest(), self._gs_auth()
+		r = requests.get(f"{rest}/workspaces/{ws_name}/datastores/{store}.json",
+						 auth=auth, timeout=15)
+		params = {}
+		if r.status_code == 200:
+			entries = (((r.json().get('dataStore') or {})
+						.get('connectionParameters') or {}).get('entry') or [])
+			params = {e.get('@key'): e.get('$') for e in entries}
+		d = _st.DATABASES['default']
+		conn = psycopg2.connect(
+			host=params.get('host') or d.get('HOST') or 'localhost',
+			port=params.get('port') or d.get('PORT') or 5432,
+			dbname=params.get('database') or d['NAME'],
+			user=d['USER'], password=d['PASSWORD'])
+		return conn, (params.get('schema') or 'public')
+
+	@staticmethod
+	def _slug_ident(value, fallback):
+		"""Дурын утгыг PG identifier болгон цэвэрлэнэ (view нэрэнд). Латин бус
+		тэмдэгт (кирилл) хасагдвал fallback (индекс) хэрэглэнэ."""
+		import re as _r
+		# Угтвар (prefix_) үргэлж түрүүнд байх тул тоогоор эхэлсэн ч асуудалгүй.
+		s = _r.sub(r'[^0-9A-Za-z_]+', '_', str(value)).strip('_').lower()
+		return s or str(fallback)
+
+	def _publish_view_with_bounds(self, ws_name, store, name, title, geom, conn, schema):
+		"""Store‑ийн баазад байгаа view‑ийн extent/SRID‑ийг уншаад GeoServer‑т
+		тодорхой bbox‑той featuretype болгон нийтэлнэ (SQL view дээр GeoServer bounds
+		автоматаар тооцоолж чаддаггүй)."""
+		srid, bbox = 0, None
+		with conn.cursor() as cur:
+			cur.execute(f'SELECT COALESCE(ST_SRID("{geom}"),0), '
+						f'ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) '
+						f'FROM (SELECT "{geom}", ST_Extent("{geom}") OVER () e '
+						f'FROM "{schema}"."{name}" WHERE "{geom}" IS NOT NULL LIMIT 1) t')
+			row = cur.fetchone()
+			if row:
+				srid = row[0] or 0
+				if row[1] is not None:
+					bbox = {'minx': row[1], 'miny': row[2], 'maxx': row[3], 'maxy': row[4]}
+		rest, auth = self._gs_rest(), self._gs_auth()
+		srs = f'EPSG:{srid}' if srid else 'EPSG:4326'
+		ft = {'name': name, 'nativeName': name, 'title': title or name, 'srs': srs}
+		if bbox:
+			ft['nativeBoundingBox'] = {**bbox, 'crs': srs}
+			ft['latLonBoundingBox'] = {**bbox, 'crs': 'EPSG:4326'}
+			ft['projectionPolicy'] = 'FORCE_DECLARED' if srid else 'NONE'
+		return requests.post(
+			f"{rest}/workspaces/{ws_name}/datastores/{store}/featuretypes",
+			json={'featureType': ft}, auth=auth, timeout=30)
+
+	@action(detail=True, methods=['post'], url_path='gs-create-grouped-view')
+	def gs_create_grouped_view(self, request, *args, **kwargs):
+		"""Сонгосон НЭГ талбарын утга бүрд ТУСДАА шүүсэн (filter) PG view үүсгээд
+		layer болгон нийтэлнэ. Жишээ: adminunit дээр level_id сонгоход утга тус бүрээр
+		(аймаг 22 мөр, сум 339 мөр, улс 1 мөр...) тусдаа давхарга үүснэ. View‑ууд нь
+		ЭХ store‑ийн БААЗАД (жишээ nь basemap) үүснэ — Django‑ийн geoname баазад биш."""
+		ws = self.get_object()
+		src = (request.data.get('source') or '').strip()
+		store = (request.data.get('store') or '').strip()
+		field = (request.data.get('field') or '').strip()          # ангилах НЭГ талбар
+		geom = (request.data.get('geom_field') or 'geom').strip()
+		prefix = (request.data.get('prefix') or src).strip()
+		if not self._IDENT_RE.match(src):
+			return Response({'detail': 'Эх layer нэр буруу'}, status=400)
+		if not self._IDENT_RE.match(field):
+			return Response({'detail': 'Ангилах талбар буруу'}, status=400)
+		if not store:
+			return Response({'detail': 'store шаардлагатай'}, status=400)
+		if not self._IDENT_RE.match(prefix):
+			return Response({'detail': 'Угтвар нэр буруу (зөвхөн үсэг, тоо, _)'}, status=400)
+		MAX_VIEWS = 100
+		try:
+			conn, schema = self._store_db(ws.name, store)
+		except Exception as e:
+			return Response({'detail': f'Store баазад холбогдож чадсангүй: {e}'}, status=502)
+		from psycopg2 import sql as _sql
+		created, errors = [], []
+		try:
+			conn.autocommit = True
+			with conn.cursor() as cur:
+				cur.execute(_sql.SQL('SELECT DISTINCT {f} FROM {s}.{t} '
+									 'WHERE {f} IS NOT NULL ORDER BY 1').format(
+					f=_sql.Identifier(field), s=_sql.Identifier(schema),
+					t=_sql.Identifier(src)))
+				values = [r[0] for r in cur.fetchall()]
+			if not values:
+				return Response({'detail': 'Тухайн талбарт утга алга'}, status=400)
+			if len(values) > MAX_VIEWS:
+				return Response({'detail': f'{len(values)} ялгаатай утга — хэт олон '
+								 f'(дээд тал нь {MAX_VIEWS}). Бага ялгаатай талбар сонгоно уу.'},
+								status=400)
+			seen = set()
+			for i, val in enumerate(values):
+				vn = f'{prefix}_{self._slug_ident(val, i)}'
+				while vn in seen:
+					vn = f'{vn}_{i}'
+				seen.add(vn)
+				# 1) Шүүсэн view үүсгэх (утгыг sql.Literal‑ээр аюулгүй оруулна)
+				with conn.cursor() as cur:
+					cur.execute(_sql.SQL('DROP VIEW IF EXISTS {s}.{v} CASCADE').format(
+						s=_sql.Identifier(schema), v=_sql.Identifier(vn)))
+					cur.execute(_sql.SQL('CREATE VIEW {s}.{v} AS '
+										 'SELECT * FROM {s}.{t} WHERE {f} = {val}').format(
+						s=_sql.Identifier(schema), v=_sql.Identifier(vn),
+						t=_sql.Identifier(src), f=_sql.Identifier(field),
+						val=_sql.Literal(val)))
+				# 2) GeoServer‑т нийтлэх
+				rp = self._publish_view_with_bounds(
+					ws.name, store, vn, f'{src}: {field}={val}', geom, conn, schema)
+				if rp.status_code in (200, 201):
+					created.append({'name': vn, 'value': val})
+				else:
+					errors.append({'name': vn, 'value': val,
+								   'status': rp.status_code, 'body': rp.text[:150]})
+		except Exception as e:
+			return Response({'detail': f'View үүсгэхэд алдаа: {e}'}, status=400)
+		finally:
+			conn.close()
+		return Response({'field': field, 'created': created, 'errors': errors,
+						 'count': len(created)}, status=200)
+
+	@action(detail=True, methods=['post'], url_path='gs-delete-view')
+	def gs_delete_view(self, request, *args, **kwargs):
+		"""Нийтэлсэн view‑layer‑ийг устгана: GeoServer featuretype + ws‑scoped style +
+		store‑ийн баазад байгаа PG view. БАЗ хүснэгт (base table) бол зөвхөн unpublish
+		хийж, өгөгдлийг УСТГАХГҮЙ (adminunit гэх мэт эх хүснэгтийг хамгаална)."""
+		ws = self.get_object()
+		store = (request.data.get('store') or '').strip()
+		name = (request.data.get('name') or '').strip()
+		if not store or not self._IDENT_RE.match(name):
+			return Response({'detail': 'store ба зөв name шаардлагатай'}, status=400)
+		rest, auth = self._gs_rest(), self._gs_auth()
+		# 1) featuretype‑ийг GeoServer‑ээс хасах
+		try:
+			requests.delete(
+				f"{rest}/workspaces/{ws.name}/datastores/{store}/featuretypes/{name}",
+				params={'recurse': 'true'}, auth=auth, timeout=20)
+		except requests.RequestException as e:
+			return Response({'detail': f'GeoServer холбогдсонгүй: {e}'}, status=502)
+		# 2) ws‑scoped style (name‑тэй ижил) байвал устгах
+		try:
+			requests.delete(f"{rest}/workspaces/{ws.name}/styles/{name}",
+							params={'purge': 'true', 'recurse': 'true'}, auth=auth, timeout=15)
+		except requests.RequestException:
+			pass
+		# 3) Store баазад VIEW бол устгах (base table бол хамгаална)
+		dropped = False
+		try:
+			conn, schema = self._store_db(ws.name, store)
+			try:
+				conn.autocommit = True
+				with conn.cursor() as cur:
+					cur.execute("SELECT table_type FROM information_schema.tables "
+								"WHERE table_schema=%s AND table_name=%s", [schema, name])
+					row = cur.fetchone()
+					if row and row[0] == 'VIEW':
+						cur.execute(f'DROP VIEW IF EXISTS "{schema}"."{name}" CASCADE')
+						dropped = True
+			finally:
+				conn.close()
+		except Exception as e:
+			return Response({'detail': f'Layer устсан ч view устсангүй: {e}',
+							 'view_dropped': False}, status=200)
+		return Response({'deleted': True, 'view_dropped': dropped}, status=200)
+
+	# ==================================================================
+	# GeoServer layer group (workspace‑scoped) — layer‑ийн эрэмбэ (давхаргын
+	# дараалал)‑г удирдана. publishables.published массивын дараалал = зурах
+	# дараалал (эхнийх нь доор, сүүлийнх нь дээр).
+	# ==================================================================
+	@action(detail=True, methods=['get'], url_path='gs-layergroups')
+	def gs_layergroups(self, request, *args, **kwargs):
+		ws = self.get_object()
+		rest, auth = self._gs_rest(), self._gs_auth()
+		out = []
+		try:
+			r = requests.get(f"{rest}/workspaces/{ws.name}/layergroups.json",
+							 auth=auth, timeout=10)
+			if r.status_code == 200:
+				root = r.json().get('layerGroups') or ''
+				items = (root.get('layerGroup') if isinstance(root, dict) else []) or []
+				if isinstance(items, dict):
+					items = [items]
+				out = [{'name': it.get('name')} for it in items]
+		except requests.RequestException as e:
+			return Response({'detail': f'GeoServer холбогдсонгүй: {e}'}, status=502)
+		return Response({'workspace': ws.name, 'results': out}, status=200)
+
+	@action(detail=True, methods=['get'], url_path='gs-layergroup')
+	def gs_layergroup(self, request, *args, **kwargs):
+		ws = self.get_object()
+		name = (request.query_params.get('name') or '').strip()
+		rest, auth = self._gs_rest(), self._gs_auth()
+		r = requests.get(f"{rest}/workspaces/{ws.name}/layergroups/{name}.json",
+						 auth=auth, timeout=10)
+		if r.status_code != 200:
+			return Response({'detail': 'Layergroup олдсонгүй'}, status=404)
+		lg = r.json().get('layerGroup') or {}
+		pubs = ((lg.get('publishables') or {}).get('published')) or []
+		if isinstance(pubs, dict):
+			pubs = [pubs]
+		styles = ((lg.get('styles') or {}).get('style')) or []
+		if isinstance(styles, dict):
+			styles = [styles]
+		layers = []
+		for i, p in enumerate(pubs):
+			st = styles[i] if i < len(styles) else ''
+			sname = (st.get('name') if isinstance(st, dict) else st) or None
+			layers.append({'name': p.get('name'), 'style': sname})
+		return Response({'name': lg.get('name'), 'mode': lg.get('mode') or 'SINGLE',
+						 'title': lg.get('title'), 'layers': layers}, status=200)
+
+	@action(detail=True, methods=['post'], url_path='gs-save-layergroup')
+	def gs_save_layergroup(self, request, *args, **kwargs):
+		"""Layer group үүсгэх/шинэчлэх. Ирсэн `layers` жагсаалтын дараалал = зурах
+		дараалал. Style‑ийг layer‑ийн default‑аар (хоосон) үлдээнэ."""
+		ws = self.get_object()
+		name = (request.data.get('name') or '').strip()
+		mode = (request.data.get('mode') or 'SINGLE').strip().upper()
+		title = (request.data.get('title') or name).strip()
+		layers = request.data.get('layers') or []
+		if not self._IDENT_RE.match(name):
+			return Response({'detail': 'Layergroup нэр буруу (зөвхөн үсэг, тоо, _)'}, status=400)
+		if not layers:
+			return Response({'detail': 'Дор хаяж нэг layer сонгоно'}, status=400)
+		published, styles = [], []
+		for ly in layers:
+			lname = (ly.get('name') if isinstance(ly, dict) else ly) or ''
+			lname = lname.strip()
+			if not lname:
+				continue
+			if ':' not in lname:
+				lname = f"{ws.name}:{lname}"
+			published.append({'@type': 'layer', 'name': lname})
+			styles.append('')  # layer‑ийн default style ашиглана
+		body = {'layerGroup': {
+			'name': name, 'mode': mode, 'title': title,
+			'workspace': {'name': ws.name},
+			'publishables': {'published': published},
+			'styles': {'style': styles},
+		}}
+		rest, auth = self._gs_rest(), self._gs_auth()
+		chk = requests.get(f"{rest}/workspaces/{ws.name}/layergroups/{name}.json",
+						   auth=auth, timeout=10)
+		try:
+			if chk.status_code == 200:
+				r = requests.put(f"{rest}/workspaces/{ws.name}/layergroups/{name}",
+								 json=body, auth=auth, timeout=20)
+			else:
+				r = requests.post(f"{rest}/workspaces/{ws.name}/layergroups",
+								  json=body, auth=auth, timeout=20)
+		except requests.RequestException as e:
+			return Response({'detail': f'GeoServer холбогдсонгүй: {e}'}, status=502)
+		if r.status_code not in (200, 201):
+			return Response({'detail': f'Хадгалахад алдаа ({r.status_code})',
+							 'body': r.text[:300]}, status=400)
+		return Response({'saved': True, 'name': name}, status=200)
+
+	@action(detail=True, methods=['post'], url_path='gs-delete-layergroup')
+	def gs_delete_layergroup(self, request, *args, **kwargs):
+		ws = self.get_object()
+		name = (request.data.get('name') or '').strip()
+		rest, auth = self._gs_rest(), self._gs_auth()
+		try:
+			requests.delete(f"{rest}/workspaces/{ws.name}/layergroups/{name}",
+							auth=auth, timeout=20)
+		except requests.RequestException as e:
+			return Response({'detail': f'GeoServer холбогдсонгүй: {e}'}, status=502)
+		return Response(status=204)
+
 	@transaction.atomic
 	def create(self, request, *args, **kwargs):
 		ser = self.get_serializer(data=request.data)
@@ -1315,34 +2233,95 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if not is_geoname_leaf(leaf):
 			return Response({'detail': 'Зөвхөн 3‑р түвшний навчид style байна'}, status=400)
 		ws = GEONAME_WS
-		style_name = geoname_type_view_name(leaf)
+		# Ганц geoname_view архитектурт бүх нэр НЭГДСЭН geoname_types style‑аар
+		# рендерлэгддэг (per-type view/style хассан). Тиймээс style засвар нь энэ
+		# нэгдсэн style дээр хийгдэнэ (rule бүр type_id filter‑тэй).
+		style_name = _GEONAME_TYPE_STYLE
+		import xml.etree.ElementTree as ET
+		import copy
+		ET.register_namespace('sld', _SLD_NS)
+		ET.register_namespace('ogc', _OGC_NS)
+		ET.register_namespace('xlink', _XLINK_NS)
+		tid = str(leaf.id)
+
 		if request.method == 'GET':
 			try:
-				sld = _gs_style_read_sld(ws, style_name)
+				raw = _gs_style_read_sld(ws, style_name)
 			except requests.RequestException as e:
 				return Response({'detail': f'GeoServer SLD уншиж чадсангүй: {e}'}, status=502)
-			# Локал symbols/<нэр> href‑ийг absolute media URL болгож editor/preview‑д
-			sld = _absolutize_sld_symbols(sld, request)
-			return Response({'sld': sld, 'style_name': style_name, 'ws': ws}, status=200)
-		# PUT
-		sld = request.data.get('sld')
-		if not sld:
+			# Нэгдсэн style дотроос ЗӨВХӨН энэ type_id‑ийн rule‑уудыг ялгаж, type_id
+			# filter‑ийг нь хасаад (editor‑т цэвэрхэн) буцаана. Rule байхгүй бол хоосон.
+			try:
+				root = ET.fromstring(raw)
+				new = ET.Element(f'{{{_SLD_NS}}}StyledLayerDescriptor', {'version': '1.0.0'})
+				nl = ET.SubElement(new, f'{{{_SLD_NS}}}NamedLayer')
+				ET.SubElement(nl, f'{{{_SLD_NS}}}Name').text = GEONAME_SEARCH_VIEW
+				us = ET.SubElement(nl, f'{{{_SLD_NS}}}UserStyle')
+				ET.SubElement(us, f'{{{_SLD_NS}}}Name').text = leaf.name or style_name
+				fts = ET.SubElement(us, f'{{{_SLD_NS}}}FeatureTypeStyle')
+				for r in root.iter(f'{{{_SLD_NS}}}Rule'):
+					if tid in _rule_type_ids(r):
+						rc = copy.deepcopy(r)
+						flt = rc.find(f'{{{_SLD_NS}}}Filter')
+						if flt is not None:
+							rc.remove(flt)  # type_id filter‑ийг нуух (backend удирдана)
+						fts.append(rc)
+				out = ET.tostring(new, encoding='unicode')
+			except Exception:
+				out = raw  # задлаж чадаагүй бол бүтэн style
+			out = _absolutize_sld_symbols(out, request)
+			return Response({'sld': out, 'style_name': style_name, 'ws': ws,
+							 'type_id': leaf.id}, status=200)
+
+		# PUT — засагдсан rule‑уудыг нэгдсэн style‑д буцааж нэгтгэнэ
+		edited = request.data.get('sld')
+		if not edited:
 			return Response({'detail': 'sld хоосон'}, status=400)
-		# Media symbol URL‑ийг GeoServer локал файл (relative href) болгож localize —
-		# GeoServer remote URL татаж чаддаггүй тул заавал.
-		sld = _localize_sld_symbols(sld)
+		edited = _localize_sld_symbols(edited)
 		try:
-			_gs_style_write_sld(ws, style_name, sld)
+			combined = ET.fromstring(_gs_style_read_sld(ws, style_name))
+			ed = ET.fromstring(edited)
+		except Exception as e:
+			return Response({'detail': f'SLD задлаж чадсангүй: {e}'}, status=400)
+		# 1) Энэ type‑ийн ХУУЧИН rule‑уудыг нэгдсэн style‑ээс хас
+		for fts in combined.iter(f'{{{_SLD_NS}}}FeatureTypeStyle'):
+			for rule in list(fts.findall(f'{{{_SLD_NS}}}Rule')):
+				ids = _rule_type_ids(rule)
+				if tid not in ids:
+					continue
+				if len(ids) == 1:
+					fts.remove(rule)  # зөвхөн энэ type — устга
+				else:
+					_remove_type_eq(rule, tid)  # олон type — зөвхөн tid‑ийг хас
+		# 2) Засагдсан rule‑уудыг type_id==tid filter‑тэй нэмнэ
+		target = combined.find(f'.//{{{_SLD_NS}}}FeatureTypeStyle')
+		if target is None:
+			us = combined.find(f'.//{{{_SLD_NS}}}UserStyle')
+			target = ET.SubElement(us, f'{{{_SLD_NS}}}FeatureTypeStyle')
+		# Frontend GeoStyler нь SLD 1.1 (se: namespace) илгээдэг — Rule‑ийг namespace‑аас
+		# үл хамааран (local name) олж, SLD 1.0 болгож хөрвүүлээд нэгтгэнэ.
+		edited_rules = [el for el in ed.iter() if el.tag.split('}', 1)[-1] == 'Rule']
+		for rule in edited_rules:
+			rc = copy.deepcopy(rule)
+			_normalize_rule_to_sld10(rc)
+			_set_type_filter(rc, tid)
+			target.append(rc)
+		out = ET.tostring(combined, encoding='unicode')
+		try:
+			ET.fromstring(out)  # хамгаалалт: үр дүн зөв XML эсэх
+		except Exception:
+			return Response({'detail': 'Үр дүнгийн SLD буруу боллоо'}, status=400)
+		try:
+			_gs_style_write_sld(ws, style_name, out)
 		except requests.RequestException as e:
 			return Response({'detail': f'GeoServer‑т SLD хадгалж чадсангүй: {e}',
 							 'body': getattr(e, 'response', None) and e.response.text}, status=502)
-		# Style засагдсан тул GWC cache‑ийг truncate + seed (zoom 6‑10) — газрын
-		# зураг шинэ style‑тай шинэ tile авна. Дэвсгэрт ажиллана, save‑ийг блоклохгүй.
 		try:
-			_gwc_seed(f"{ws}:{style_name}")
+			_gwc_seed(f"{ws}:{GEONAME_SEARCH_VIEW}")
 		except Exception:
 			pass
-		return Response({'style_name': style_name, 'ws': ws, 'saved': True}, status=200)
+		return Response({'style_name': style_name, 'ws': ws, 'saved': True,
+						 'type_id': leaf.id}, status=200)
 
 	@action(detail=True, methods=['post'], url_path='upload-symbol')
 	def upload_symbol(self, request, *args, **kwargs):
@@ -1434,7 +2413,6 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 		# (level‑2) бол түүний хүүхэд = level‑3. key‑ээр (язгуур) ачаалсан бол үгүй.
 		parent_obj = Constant.objects.filter(id=parent).first() if parent else None
 		level_has_leaves = bool(parent_obj and parent_obj.parent_id)
-		published = self._published_featuretypes() if level_has_leaves else set()
 
 		data = []
 		for c in qs:
@@ -1443,12 +2421,12 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 				'label': c.label, 'color': c.color, 'desc': c.desc,
 				'parent': c.parent_id, 'child_count': c.child_count,
 			}
-			# Level‑3 навч (хүүхэдгүй) → GeoServer view байгаа эсэхийг шалгана
+			# Level‑3 навч (хүүхэдгүй) → газрын зурагт харуулах эсэх (тогтвортой флаг).
+			# gs_exists нэрийг хэвээр (frontend toggle уншдаг) — утга нь is_map_active.
 			if level_has_leaves and c.child_count == 0:
-				vname = geoname_type_view_name(c)
 				row['is_leaf'] = True
-				row['view_name'] = vname
-				row['gs_exists'] = vname in published
+				row['view_name'] = geoname_type_view_name(c)
+				row['gs_exists'] = c.is_map_active
 			else:
 				row['is_leaf'] = False
 				row['gs_exists'] = None
@@ -1505,20 +2483,16 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 		return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
 
 	def _apply_active(self, node, active, old_name=None):
-		"""is_active сонголтоор GeoServer view‑г зохицуулна. active=True БА навч бол
-		view үүсгэ/шинэчил; эс бөгөөс (False эсвэл навч биш) view‑г устга. Нэр
-		өөрчлөгдсөн бол хуучин view‑г бас устга."""
+		"""Ангиллыг газрын зурагт харуулах эсэхийг (is_map_active) хадгална.
+		Урьд per-type GeoServer view үүсгэдэг байсан — одоо ганц geoname_view
+		архитектурт зөвхөн флагийг хадгалж, модны харагдацыг удирдана."""
 		try:
-			new_name = geoname_type_view_name(node)
-			if old_name and old_name != new_name:
-				_drop_featuretype_and_view(old_name)
-			if active and is_geoname_leaf(node):
-				sync_geoname_type_view(node)
-			else:
-				_drop_featuretype_and_view(new_name)
+			if node.is_map_active != bool(active):
+				node.is_map_active = bool(active)
+				node.save(update_fields=['is_map_active'])
 		except Exception:
 			import logging
-			logging.getLogger(__name__).warning("geoname view apply_active failed", exc_info=True)
+			logging.getLogger(__name__).warning("geoname apply_active failed", exc_info=True)
 
 	def perform_create(self, serializer):
 		parent = serializer.validated_data.get('parent')
@@ -2159,3 +3133,97 @@ class LayerGroupItemViewSet(viewsets.ModelViewSet):
 	filterset_class = GlobalFilter
 	parser_classes = [JSONParser, MultiPartParser, FormParser]
 	ordering_fields = [f.name for f in LayerGroup._meta.fields]
+
+
+class BaseMapLayerViewSet(viewsets.ModelViewSet):
+	"""Газрын зургийн СУУРЬ/НЭМЭЛТ давхаргын удирдлага (/settings/gis?tab=basemap).
+	CRUD + GeoServer‑ээс сонгуулах жагсаалт + role‑оор шүүсэн map жагсаалт."""
+	queryset = BaseMapLayer.objects.prefetch_related('roles').all()
+	serializer_class = BaseMapLayerSerializer
+	permission_classes = [IsAuthenticated]
+	filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+	filterset_fields = ['layer_type', 'source_type', 'is_enabled']
+	search_fields = ['key', 'label', 'gs_layer', 'workspace']
+	ordering_fields = ['layer_type', 'sort_order', 'label', 'id']
+	ordering = ['layer_type', 'sort_order', 'id']
+
+	@action(detail=False, methods=['get'], url_path='available')
+	def available(self, request):
+		"""raster, base (болон ?ws=<нэр>) workspace‑ийн GeoServer давхаргууд —
+		шинэ давхарга нэмэхэд сонгуулах. featuretype (вектор) + coverage (растер)."""
+		rest, auth = _gs_rest_auth()
+		wss = request.query_params.get('ws')
+		workspaces = [wss] if wss else ['raster', 'basemap']
+		out = []
+		for ws in workspaces:
+			for kind, root, node, gtype in (
+				('featuretypes', 'featureTypes', 'featureType', 'vector'),
+				('coverages', 'coverages', 'coverage', 'raster'),
+			):
+				try:
+					r = requests.get(f"{rest}/workspaces/{ws}/{kind}.json",
+									 auth=auth, timeout=10)
+					if r.status_code != 200:
+						continue
+					items = (r.json().get(root) or {}).get(node) or []
+					for it in items:
+						nm = it.get('name')
+						if not nm:
+							continue
+						out.append({
+							'workspace': ws,
+							'name': nm,
+							'gs_layer': f"{ws}:{nm}",
+							'geom_type': gtype,
+						})
+				except requests.RequestException:
+					continue
+			# Layer group‑ууд — нэг WMS давхарга болж нийтлэгддэг тул сонгуулна
+			try:
+				gr = requests.get(f"{rest}/workspaces/{ws}/layergroups.json",
+								  auth=auth, timeout=10)
+				if gr.status_code == 200:
+					groot = gr.json().get('layerGroups') or ''
+					gitems = (groot.get('layerGroup') if isinstance(groot, dict) else []) or []
+					if isinstance(gitems, dict):
+						gitems = [gitems]
+					for it in gitems:
+						nm = it.get('name')
+						if not nm:
+							continue
+						out.append({
+							'workspace': ws,
+							'name': nm,
+							'gs_layer': f"{ws}:{nm}",
+							'geom_type': 'group',
+						})
+			except requests.RequestException:
+				pass
+		# gs_layer давхардлыг арилгах (жишээ nь featuretype ба layergroup ижил нэртэй)
+		seen, deduped = set(), []
+		for x in out:
+			if x['gs_layer'] in seen:
+				continue
+			seen.add(x['gs_layer'])
+			deduped.append(x)
+		deduped.sort(key=lambda x: (x['workspace'], x['name']))
+		return Response({'results': deduped}, status=200)
+
+	@action(detail=False, methods=['get'], url_path='for-map')
+	def for_map(self, request):
+		"""Хэрэглэгчийн role‑д тохирсон ИДЭВХТЭЙ давхаргууд (frontend газрын зураг).
+		roles ХООСОН давхарга бүх хэрэглэгчид; утгатай бол зөвхөн тэр role‑той
+		хэрэглэгчид харагдана."""
+		user = request.user
+		user_roles = set()
+		if user and user.is_authenticated:
+			user_roles = set(user.roles.values_list('id', flat=True))
+		qs = (BaseMapLayer.objects.filter(is_enabled=True)
+			  .prefetch_related('roles').order_by('layer_type', 'sort_order', 'id'))
+		result = []
+		for lyr in qs:
+			role_ids = set(lyr.roles.values_list('id', flat=True))
+			if role_ids and not (role_ids & user_roles):
+				continue
+			result.append(BaseMapLayerSerializer(lyr).data)
+		return Response({'results': result}, status=200)

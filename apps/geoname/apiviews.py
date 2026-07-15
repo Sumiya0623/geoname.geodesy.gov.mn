@@ -4,11 +4,14 @@ from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Subquery, OuterRef
 from django.contrib.gis.geos import Point, GEOSGeometry
+from django.contrib.contenttypes.models import ContentType
 
-from core.models import Constant, GeoName, AdminUnit, Nomek, ReCount
+from core.models import (Constant, GeoName, AdminUnit, Nomek, ReCount,
+                         LegalOrder, Photo, Attach, RequestName)
 from core.mixin import PublicListMixin
 from core.filters import GlobalFilter
 from portal.auth import function_permission
@@ -94,16 +97,38 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(is_approved=True)
 		elif approved in ('false', 'False', '0'):
 			qs = qs.filter(is_approved=False)
+		# Хилийн цэс эсэх (true/false)
+		border = p.get('is_border', None)
+		if border in ('true', 'True', '1'):
+			qs = qs.filter(is_border=True)
+		elif border in ('false', 'False', '0'):
+			qs = qs.filter(is_border=False)
 		# Импортын эх сурвалж: хянах шаардлагатай эсэхээр шүүх
 		review = p.get('needs_review', None)
 		if review in ('true', 'True', '1'):
 			qs = qs.filter(sources__needs_review=True).distinct()
 		elif review in ('false', 'False', '0'):
 			qs = qs.filter(sources__needs_review=False).distinct()
-		# Дэлгэрэнгүй хайлт: засаг захиргааны нэгж (удам багтаана)
+		# Дэлгэрэнгүй хайлт: засаг захиргааны нэгж (удам багтаана).
+		# Нэгжид ХАМААРАХ (M2M гишүүнчлэл) ЭСВЭЛ нэгжийн геометр дотор БАЙРШИХ
+		# (орон зайн) нэрс. Зарим нэгжид M2M холбоос дутуу/хоосон байдаг тул
+		# орон зайгаар ч хайж, газрын зурагт харагдах нэрсийг алдахгүй.
 		unit_tree = p.get('unit_tree', None)
 		if unit_tree:
-			qs = qs.filter(unit__id__in=descendant_unit_ids(unit_tree)).distinct()
+			# Хоёр энгийн query‑гээр id цуглуулж Python‑д нэгтгэнэ. M2M join + OR +
+			# spatial intersects‑ийг distinct‑тэй нэг query болгоход (annotate
+			# Subquery‑тэй хамт) query дэлбэрч DB холболт унадаг тул тусад нь татна.
+			ids = set(
+				GeoName.objects
+				.filter(unit__id__in=descendant_unit_ids(unit_tree))
+				.values_list('id', flat=True))
+			au = (AdminUnit.objects.filter(id=unit_tree)
+			      .exclude(geom__isnull=True).first())
+			if au:
+				ids |= set(
+					GeoName.objects.filter(geoloc__intersects=au.geom)
+					.values_list('id', flat=True))
+			qs = qs.filter(id__in=ids)
 		# Дахин тооллогын таб: тухайн төсөл/үе шатанд АЛЬ ХЭДИЙН бүртгэгдсэн нэрсийг
 		# хайлтын жагсаалтаас хасна (устгавал буцаж орно).
 		excl_project = p.get('exclude_recount_project', None)
@@ -126,6 +151,33 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 				qs = qs.filter(geoloc__intersects=au.geom)
 			else:
 				qs = qs.filter(unit__id__in=descendant_unit_ids(unit)).distinct()
+		# Харагдаж буй газрын зургийн хүрээ (bbox, EPSG:4326) дахь ЗЗ нэгжийн нутагт
+		# ХАМААРАХ нэрс — geoloc байхгүй/буруу (батлагдсан) нэрсийг нэгжээрээ олно.
+		# minx,miny,maxx,maxy форматтай.
+		unit_bbox = p.get('unit_bbox', None)
+		if unit_bbox:
+			try:
+				from django.contrib.gis.geos import Point, Polygon
+				mnx, mny, mxx, mxy = [float(x) for x in unit_bbox.split(',')]
+				# Хүрээний ТӨВД байгаа НЭГ сумыг олж, зөвхөн түүний (+багийн) нэрс.
+				# Жижиг хүрээ хэд хэдэн сум огтолж болзошгүй тул төвийн сумаар л шүүнэ.
+				center = Point((mnx + mxx) / 2.0, (mny + mxy) / 2.0, srid=4326)
+				sum_unit = (AdminUnit.objects
+				            .filter(geom__contains=center, level__name='Сум/Дүүрэг')
+				            .exclude(geom__isnull=True).first())
+				if sum_unit:
+					qs = qs.filter(
+						unit__id__in=descendant_unit_ids(sum_unit.id)).distinct()
+				else:
+					# Төв нь суманд оногдоогүй бол — хүрээтэй огтлолцох сум/багаар
+					box = Polygon.from_bbox((mnx, mny, mxx, mxy))
+					box.srid = 4326
+					qs = qs.filter(
+						unit__geom__intersects=box,
+						unit__level__name__in=['Сум/Дүүрэг', 'Баг/Хороо'],
+					).distinct()
+			except Exception:
+				pass
 		# Дэлгэрэнгүй хайлт: нэрлэвэр (М-46-22 гэх мэт код)
 		# Зураасны тоогоор масштабыг тогтооно — зөвхөн 1:100000 (2 зураас),
 		# 1:25000 (4 зураас). Тухайн код+масштабтай Nomek‑ийн geom‑той
@@ -277,6 +329,88 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(type_id__in=descendant_type_ids(type_id))
 		return Response(
 			{'results': GeoNameDropSerializer(qs[:50], many=True).data}, status=200)
+
+	# ============ Дэлгэрэнгүй хуудасны "нэмэх" үйлдлүүд ============
+	# Эрх зүйн баримт бичиг, хүсэлт, баримт материал, зураг — тухайн GeoName‑д холбоно.
+
+	def _ct(self):
+		return ContentType.objects.get_for_model(GeoName)
+
+	@action(detail=True, methods=['post'], url_path='add-photo',
+			parser_classes=[MultiPartParser, FormParser])
+	def add_photo(self, request, pk=None):
+		"""Зураг нэмэх — multipart 'file'. Photo (generic FK)‑ээр холбоно."""
+		obj = self.get_object()
+		f = request.FILES.get('file')
+		if not f:
+			return Response({'detail': 'Зураг оруулна уу'}, status=400)
+		Photo.objects.create(file=f, content_type=self._ct(), object_id=obj.id)
+		return Response({'detail': 'ok'}, status=201)
+
+	@action(detail=True, methods=['post'], url_path='add-attach',
+			parser_classes=[MultiPartParser, FormParser])
+	def add_attach(self, request, pk=None):
+		"""Баримт материал нэмэх — multipart 'file'. Attach (generic FK)‑ээр холбоно."""
+		obj = self.get_object()
+		f = request.FILES.get('file')
+		if not f:
+			return Response({'detail': 'Файл оруулна уу'}, status=400)
+		Attach.objects.create(attach=f, content_type=self._ct(), object_id=obj.id)
+		return Response({'detail': 'ok'}, status=201)
+
+	@action(detail=True, methods=['post'], url_path='add-order',
+			parser_classes=[MultiPartParser, FormParser])
+	def add_order(self, request, pk=None):
+		"""Эрх зүйн баримт бичиг (LegalOrder) үүсгэж GeoName‑д холбоно."""
+		obj = self.get_object()
+		d = request.data
+		name = (d.get('name') or '').strip()
+		if not name:
+			return Response({'detail': 'Баримт бичгийн нэр оруулна уу'}, status=400)
+		user = request.user if request.user.is_authenticated else None
+		order = LegalOrder.objects.create(
+			name=name,
+			order_number=(d.get('order_number') or None),
+			order_date=(d.get('order_date') or None),
+			org_id=(d.get('org') or None),
+			type_id=(d.get('type') or None),
+			description=(d.get('description') or None),
+			signer=(d.get('signer') or None),
+			document=request.FILES.get('document'),
+			user=user,
+		)
+		order.names.add(obj)
+		return Response({'detail': 'ok', 'id': order.id}, status=201)
+
+	@action(detail=True, methods=['post'], url_path='add-request',
+			parser_classes=[MultiPartParser, FormParser, JSONParser])
+	def add_request(self, request, pk=None):
+		"""Хүсэлт (RequestName) үүсгэж GeoName‑д холбоно. status (REQUEST_STATUS) заавал."""
+		obj = self.get_object()
+		d = request.data
+		status_id = d.get('status') or None
+		if not status_id:
+			return Response({'detail': 'Төлөв сонгоно уу'}, status=400)
+		user = request.user if request.user.is_authenticated else None
+		req = RequestName.objects.create(
+			name=obj,
+			status_id=status_id,
+			age_id=(d.get('age') or None),
+			type_id=(d.get('type') or None),
+			description=(d.get('description') or None),
+			lat=(d.get('lat') or None),
+			lon=(d.get('lon') or None),
+			user=user,
+		)
+		# purpose — JSON жагсаалт эсвэл давтсан form талбараар ирж болно
+		purposes = request.data.getlist('purpose') if hasattr(request.data, 'getlist') else None
+		if not purposes:
+			purposes = d.get('purpose')
+		if purposes:
+			if not isinstance(purposes, (list, tuple)):
+				purposes = [purposes]
+			req.purpose.set([p for p in purposes if p])
+		return Response({'detail': 'ok', 'id': req.id}, status=201)
 
 
 # ==================== Хэвлэлийн эх (PrintMap / raster) ====================
@@ -707,12 +841,12 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
             type_style = ''
         layers = [
             # 5км ГАДАГШ бүс — DEM хассан, ЦАГААН (visible=False → цаасны цагаан)
-            {'type': 'wms', 'layerFullName': 'geoname:dem', 'styles': 'dem_gray',
+            {'type': 'wms', 'layerFullName': 'raster:srtm', 'styles': 'dem_gray',
              'name': 'Гадаргын саарал (5км)', 'opacity': 0.6,
              'visible': False, 'clipPolys': ring_clip_polys},
             # Сумын ДОТОР — DEM peach hypsometric, min↔max-аар сунгасан динамик
             # ColorMap (dem_sld). Алдаа гарвал тогтмол dem_terrain руу шилжинэ.
-            {'type': 'wms', 'layerFullName': 'geoname:dem',
+            {'type': 'wms', 'layerFullName': 'raster:srtm',
              'styles': None if dem_sld else 'dem_terrain', 'sld_body': dem_sld,
              'name': 'Газрын гадарга', 'opacity': 0.8, 'visible': True,
              'clipPolys': ubuf_clip_polys},  # хил + 5км гадагш

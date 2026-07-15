@@ -8,7 +8,8 @@ from .apiviews import (
     # StyleViewSet,
     StyleRuleViewSet,
     LayerGroupViewSet,
-    LayerGroupItemViewSet
+    LayerGroupItemViewSet,
+    BaseMapLayerViewSet,
 )
 
 router = DefaultRouter()
@@ -19,6 +20,7 @@ router.register('st', StoreViewSet)
 router.register(r"rule", StyleRuleViewSet, basename="style-rule")
 router.register(r"group", LayerGroupViewSet, basename="layer-group")
 router.register(r"item", LayerGroupItemViewSet, basename="layer-group-item")
+router.register(r"basemap", BaseMapLayerViewSet, basename="basemap")
 
 # # router.register('journal', JournalViewSet)
 # router.register('photo', PhotoViewSet)

@@ -1681,18 +1681,23 @@ class MapPDFRenderer:
                 scale=self.scale,
             )
 
-            # Convert PIL Image to ReportLab ImageReader
+            # JPEG-ээр embed — reportlab JPEG-ийг DCTDecode-оор ШУУД оруулдаг тул
+            # удаан, санах ой их шаардсан asciiBase85(raw PNG)-ийг бүрэн алгасна.
+            # (Том A0 зураг дээр worker timeout / OOM-аас сэргийлнэ.)
+            if map_img.mode == 'RGBA':
+                bg = Image.new('RGB', map_img.size, (255, 255, 255))
+                bg.paste(map_img, mask=map_img.split()[3])
+                map_img = bg
+            elif map_img.mode != 'RGB':
+                map_img = map_img.convert('RGB')
             img_buf = BytesIO()
-            map_img.save(img_buf, format='PNG')
+            map_img.save(img_buf, format='JPEG', quality=92, optimize=False)
             img_buf.seek(0)
-            img_reader = ImageReader(img_buf)
-
-            # Draw map image
+            del map_img  # 387MB pixel buffer-ийг чөлөөлнө
             c.drawImage(
-                img_reader,
+                ImageReader(img_buf),
                 self.map_x, self.map_y,
                 width=self.map_w, height=self.map_h,
-                mask='auto',
             )
         except Exception as exc:
             logger.exception("Failed to fetch/draw map image: %s", exc)

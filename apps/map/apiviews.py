@@ -27,41 +27,51 @@ def _subtree_ids(root_id):
     return ids
 
 
+def _filtered_geoname_base(request):
+    """Дэлгэрэнгүй хайлтын шүүлтүүрээр (нэр/дугаар/нэгж/нэрлэвэр/байршил/
+    батлагдсан...) шүүсэн, ЗӨВХӨН БАЙРШИЛТАЙ (geom‑той) GeoName queryset.
+    GeoName list‑ийн шүүлтүүрийг (GlobalFilter + get_queryset) дахин ашиглаж,
+    ангиллын модны тоог хайлттай уялдуулна. Мод нь газрын зурагт харагдах
+    (байршилтай) нэрийг л тоолно — сумаар шүүхэд frontend нь unit_geom
+    (орон зайн) шүүлт илгээдэг тул газрын зураг дээрхтэй таарна.
+    """
+    from django.test import RequestFactory
+    from rest_framework.request import Request
+    from apps.geoname.apiviews import GeoNameViewSet
+    # 'parent' нь ангиллын модны задаргаа (Constant) — GeoName‑д хамаагүй.
+    # GlobalFilter‑т 'parent' талбар зарлагдсан тул шүүхийг оролдоод FieldError
+    # өгдөг. Мөн page/page_size хэрэггүй. Цэвэрлэж дахин байгуулна.
+    params = request.query_params.copy()
+    for k in ('parent', 'page', 'page_size'):
+        params.pop(k, None)
+    gv = GeoNameViewSet()
+    gv.request = Request(RequestFactory().get('/', data=params))
+    gv.kwargs = {}
+    gv.format_kwarg = None
+    gv.action = 'list'
+    return gv.filter_queryset(gv.get_queryset()).filter(geoloc__isnull=False)
+
+
 def _views_visible_ids():
-    """GeoServer‑т view нийтлэгдсэн навч + тэдгээрийн бүх өвөг ангиллын id‑ууд.
-    Зөвхөн эдгээрийг газрын зургийн модонд харуулна. GeoServer холбогдоогүй/
-    хоосон бол None буцаана (тэр үед шүүлтгүй — бүх ангилал харагдана)."""
-    try:
-        import requests
-        from apps.geoserver.apiviews import (
-            _gs_rest_auth, GEONAME_WS, GEONAME_STORE, _leaf_view_groups)
-        rest, auth = _gs_rest_auth()
-        r = requests.get(
-            f"{rest}/workspaces/{GEONAME_WS}/datastores/{GEONAME_STORE}/featuretypes.json",
-            auth=auth, timeout=8)
-        published = set()
-        if r.status_code == 200:
-            published = {f['name'] for f in
-                         (r.json().get('featureTypes') or {}).get('featureType') or []}
-        if not published:
-            return None
-        groups = _leaf_view_groups()  # {view_name: [type_id,...]}
-        by_id = {c.id: c for c in Constant.objects.filter(key='GEONAME_TYPES')}
-        visible = set()
-        for vname, type_ids in groups.items():
-            if vname not in published:
-                continue
-            for tid in type_ids:
-                x, seen = by_id.get(tid), set()
-                while x and x.id not in seen:
-                    seen.add(x.id)
-                    visible.add(x.id)
-                    x = by_id.get(x.parent_id)
-        return visible
-    except Exception:
-        import logging
-        logging.getLogger(__name__).warning("_views_visible_ids failed", exc_info=True)
-        return None
+    """Газрын зурагт харуулах (is_map_active) навч + тэдгээрийн бүх өвөг ангиллын
+    id‑ууд. Зөвхөн эдгээрийг модонд харуулна. Nameclass дээрх toggle
+    (is_map_active) энэ шүүлтийг удирдана. Бүх навч идэвхтэй (default) бол
+    бүх ангилал харагдана. Идэвхтэй навч огт байхгүй бол None (бүгд харагдана —
+    санамсаргүй хоосролоос сэргийлнэ)."""
+    allt = list(Constant.objects.filter(key='GEONAME_TYPES')
+                .values('id', 'parent_id', 'is_map_active'))
+    by_id = {c['id']: c for c in allt}
+    has_child = {c['parent_id'] for c in allt if c['parent_id']}
+    visible = set()
+    for c in allt:
+        is_leaf = c['id'] not in has_child
+        if is_leaf and c['is_map_active']:
+            x, seen = c, set()
+            while x and x['id'] not in seen:
+                seen.add(x['id'])
+                visible.add(x['id'])
+                x = by_id.get(x['parent_id'])
+    return visible or None
 
 
 class NameCategoryViewSet(viewsets.ViewSet):
@@ -94,10 +104,11 @@ class NameCategoryViewSet(viewsets.ViewSet):
             qs = [c for c in qs if c.id in visible]
         # Зөвхөн БАЙРШИЛТАЙ (geoloc) геонэрийг тоолно — газрын зурагт харагдахтай
         # таарна. Байршилгүй (импортолсон) нэрс тоонд орохгүй.
+        # Хайлтын шүүлтүүр байвал тоо хэмжээг түүгээр шинэчилнэ.
+        base = _filtered_geoname_base(request)
         for c in qs:
-            c.count = GeoName.objects.filter(
-                type_id__in=_subtree_ids(c.id), geoloc__isnull=False).count()
-        total = GeoName.objects.filter(geoloc__isnull=False).count()  # байршилтай нийт
+            c.count = base.filter(type_id__in=_subtree_ids(c.id)).count()
+        total = base.count()  # байршилтай (шүүсэн) нийт
         return Response(
             {'results': NameCategorySerializer(qs, many=True).data,
              'total': total},

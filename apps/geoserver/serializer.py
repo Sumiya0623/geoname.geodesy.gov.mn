@@ -12,7 +12,26 @@ from core.models import (
 	StyleRule,
 	LayerGroup,
 	LayerGroupItem,
+	BaseMapLayer,
 )
+
+
+class BaseMapLayerSerializer(serializers.ModelSerializer):
+	"""Суурь/нэмэлт давхаргын тохиргоо. roles = харах эрх бүхий role‑ууд (Constant).
+	Уншихад роль дэлгэрэнгүй, бичихэд role_ids (id жагсаалт)."""
+	roles = ConstantDropDownSerializer(many=True, read_only=True)
+	role_ids = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.all(), source='roles', many=True,
+		write_only=True, required=False)
+	params = serializers.JSONField(required=False)
+
+	class Meta:
+		model = BaseMapLayer
+		fields = [
+			'id', 'key', 'label', 'layer_type', 'source_type', 'workspace',
+			'gs_layer', 'url', 'params', 'color', 'is_enabled', 'sort_order',
+			'roles', 'role_ids', 'created_date', 'modified_date',
+		]
 
 class WorkspaceSerializer(serializers.ModelSerializer):
 	class Meta:

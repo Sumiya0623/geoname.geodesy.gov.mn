@@ -135,6 +135,10 @@ class Constant(models.Model):
 	desc = models.CharField(max_length=5000,blank=True,null=True,verbose_name='Тайлбар')
 	parent= models.ForeignKey('self', on_delete=models.CASCADE, verbose_name='Харъяалагдах тогтмол', related_name='children', blank=True, null=True)
 	actions = models.ManyToManyField(SubMenuPermission,	blank=True,	related_name='roles')
+	# Нэрийн ангилалд (GEONAME_TYPES): газрын зурагт харуулах эсэх. Урьд per-type
+	# view үүсгэх/устгах toggle байсан — одоо ганц geoname_view архитектурт зөвхөн
+	# модонд харагдах эсэхийг удирдана.
+	is_map_active = models.BooleanField(default=True, verbose_name='Газрын зурагт харуулах')
 	class Meta:
 		verbose_name = 'Constant'
 		verbose_name_plural = "Системийн Тогтмол"
@@ -151,6 +155,7 @@ class AdminUnit(models.Model):
 		verbose_name_plural = "Хил"
 	def __str__(self):
 		return str(self.unit.title())
+
 
 class RemoteUser(AbstractUser):
 	sso_id = models.UUIDField(
@@ -759,3 +764,47 @@ class CouncilMember(models.Model):
 
 	def __str__(self):
 		return f'{self.full_name} | {self.council_id} ({"идэвхтэй" if self.end_date is None else "хуучин"})'
+
+
+class BaseMapLayer(models.Model):
+	"""Газрын зургийн СУУРЬ (base) болон НЭМЭЛТ (overlay) давхаргын тохиргоо.
+
+	Админ /settings/gis?tab=basemap дээр удирдана: нэр солих, нээх/хаах,
+	эрэмбэлэх, base/overlay эсэхийг тохируулах. Хэрэглэгчийн role‑оор шүүж
+	frontend руу дамжуулна (roles ХООСОН бол бүх хэрэглэгчид харагдана)."""
+	LAYER_TYPES = [('base', 'Суурь давхарга'), ('overlay', 'Нэмэлт давхарга')]
+	SOURCE_TYPES = [
+		('xyz', 'XYZ (гадаад тайл)'),
+		('osm', 'OpenStreetMap'),
+		('wms', 'WMS (GeoServer/GWC)'),
+		('wmts', 'WMTS (GeoServer/GWC кэш)'),
+	]
+	key = models.CharField(max_length=64, unique=True, verbose_name='Түлхүүр')
+	label = models.CharField(max_length=200, verbose_name='Харагдах нэр')
+	layer_type = models.CharField(
+		max_length=16, choices=LAYER_TYPES, default='base', verbose_name='Төрөл')
+	source_type = models.CharField(
+		max_length=16, choices=SOURCE_TYPES, default='wms', verbose_name='Эх сурвалж')
+	# GeoServer давхаргын хувьд:
+	workspace = models.CharField(max_length=100, blank=True, default='', verbose_name='Workspace')
+	gs_layer = models.CharField(max_length=200, blank=True, default='', verbose_name='GeoServer давхарга')
+	# Гадаад XYZ эсвэл GeoServer‑ийн суурь URL:
+	url = models.TextField(blank=True, default='', verbose_name='URL')
+	# Нэмэлт параметр (STYLES, CQL_FILTER, gridset, maxZoom г.м.):
+	params = models.JSONField(blank=True, null=True, default=dict, verbose_name='Нэмэлт параметр')
+	color = models.CharField(max_length=32, blank=True, default='', verbose_name='Өнгө/дүрс')
+	is_enabled = models.BooleanField(default=True, verbose_name='Идэвхтэй (нээх/хаах)')
+	sort_order = models.PositiveIntegerField(default=0, verbose_name='Эрэмбэ')
+	# roles ХООСОН → бүх хэрэглэгчид. Утгатай → зөвхөн тэр role‑той хэрэглэгчид.
+	roles = models.ManyToManyField(
+		Constant, blank=True, related_name='basemap_layers', verbose_name='Харах эрх (role)')
+	created_date = models.DateTimeField(auto_now_add=True)
+	modified_date = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		verbose_name = 'Суурь/нэмэлт давхарга'
+		verbose_name_plural = 'Газрын зургийн давхаргууд'
+		ordering = ['layer_type', 'sort_order', 'id']
+
+	def __str__(self):
+		return f'{self.label} ({self.key}) [{self.layer_type}]'

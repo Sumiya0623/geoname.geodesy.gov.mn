@@ -95,6 +95,23 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(unit_id=sum_id)
 		elif aimag_id:
 			qs = qs.filter(Q(unit_id=aimag_id) | Q(unit__parent_id=aimag_id))
+		# Газрын зургийн badge дээр дарахад: тухайн нэгж БА түүний удмын (аймаг→сум
+		# →баг) бүх захиалга. Аль ч түвшний нэгжийн id‑г нэг ижилээр авна.
+		map_unit = p.get('map_unit', None)
+		if map_unit:
+			try:
+				root = int(map_unit)
+				ids, frontier = {root}, [root]
+				for _ in range(3):
+					ch = list(AdminUnit.objects.filter(parent_id__in=frontier)
+					          .exclude(id__in=ids).values_list('id', flat=True))
+					if not ch:
+						break
+					ids.update(ch)
+					frontier = ch
+				qs = qs.filter(unit_id__in=ids)
+			except (TypeError, ValueError):
+				pass
 		return qs
 
 	def perform_create(self, serializer):
@@ -125,6 +142,82 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 			return Response({'detail': 'project шаардлагатай'}, status=400)
 		order.projects.remove(project_id)
 		return Response({'detail': 'Төслөөс салгалаа', 'id': order.id}, status=200)
+
+	# ЗЗ нэгжийн түвшин: URL түлхүүр → UNIT_LEVEL нэр
+	MAP_LEVELS = {'aimag': 'Аймаг/Нийслэл', 'sum': 'Сум/Дүүрэг', 'bag': 'Баг/Хороо'}
+
+	@action(detail=False, methods=['get'], url_path='map-counts')
+	def map_counts(self, request):
+		"""Газрын зургийн overlay: тухайн түвшний ЗЗ нэгж бүрийн тогтоол/шийдвэрийн
+		тоог GeoJSON болгож буцаана. Геометр = нэгжийн центроид (цэг), count = тоо.
+		Захиалга нь нэгжид (аймаг/сум/баг) холбогддог тул тухайн түвшний нэгжид
+		ТҮҮНД БОЛОН доод нэгжид (удам) харьяалагдах бүх захиалгыг нэгтгэнэ.
+		  ?level=aimag|sum|bag  (default aimag)
+		  ?bbox=minx,miny,maxx,maxy  (EPSG:4326) — зөвхөн харагдах мужийн нэгж
+		    (баг/сум олон тул zoom‑д зориулан хэрэглэнэ)
+		Зөвхөн тоо > 0 нэгжийг буцаана."""
+		import json
+		from django.contrib.gis.geos import Polygon
+		level = request.query_params.get('level', 'aimag')
+
+		# Улсын хэмжээ / ЗЗ нэгжгүй (unit=NULL) баримтын тоо (zoom 2‑5 дээр тусад нь)
+		if level == 'national':
+			n = LegalOrder.objects.filter(unit__isnull=True).count()
+			return Response({'type': 'FeatureCollection', 'features': [],
+			                 'national_count': n})
+
+		level_name = self.MAP_LEVELS.get(level, self.MAP_LEVELS['aimag'])
+		bbox = request.query_params.get('bbox')
+		# Хилийг хялбарчлах хэмжээ (град) — түвшингээр
+		SIMP = {'aimag': 0.02, 'sum': 0.006, 'bag': 0.002}.get(level, 0.01)
+
+		# Нэгж (unit_id) бүрийн шууд тоо
+		per_unit = dict(
+			LegalOrder.objects.exclude(unit__isnull=True)
+			.values_list('unit_id').annotate(c=Count('id')))
+		# Захиалгатай нэгж бүрийн ӨВӨГ (parent‑chain)‑ийг level_name хүртэл олж нэгтгэх
+		uinfo = {u.id: u for u in AdminUnit.objects.filter(
+			id__in=list(per_unit.keys())).select_related(
+			'level', 'parent__level', 'parent__parent__level')}
+		total = {}
+		for uid, cnt in per_unit.items():
+			cur = uinfo.get(uid)
+			for _ in range(4):  # aimag→sum→bag → дээд тал нь 3 давхар
+				if cur and cur.level and cur.level.name == level_name:
+					total[cur.id] = total.get(cur.id, 0) + cnt
+					break
+				cur = cur.parent if cur else None
+
+		units = AdminUnit.objects.filter(
+			level__name=level_name).exclude(geom__isnull=True)
+		if bbox:
+			try:
+				minx, miny, maxx, maxy = (float(x) for x in bbox.split(','))
+				box = Polygon.from_bbox((minx, miny, maxx, maxy))
+				box.srid = 4326
+				units = units.filter(geom__intersects=box)
+			except (ValueError, TypeError):
+				pass
+
+		features = []
+		for u in units.iterator():
+			cnt = total.get(u.id, 0)
+			if not cnt:
+				continue
+			# Хил (полигон) — хялбарчилсан. Label/hover‑д зориулж центроидыг props‑д.
+			try:
+				g = u.geom.simplify(SIMP, preserve_topology=True) or u.geom
+			except Exception:
+				g = u.geom
+			c = u.geom.centroid
+			features.append({
+				'type': 'Feature',
+				'geometry': json.loads(g.geojson),
+				'properties': {'id': u.id, 'name': u.unit, 'count': cnt,
+				               'level': level, 'parent_id': u.parent_id,
+				               'cx': c.x, 'cy': c.y},
+			})
+		return Response({'type': 'FeatureCollection', 'features': features})
 
 
 class LegalUnitViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
