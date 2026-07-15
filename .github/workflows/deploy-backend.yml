@@ -14,4 +14,4 @@ jobs:
     runs-on: [self-hosted]
     steps:
       - name: Deploy
-        run: /var/www/geoname.geodesy.gov.mn/deploy-backend.sh
+        run: /var/www/prod.geoname.nextgis.mn/deploy-backend.sh
