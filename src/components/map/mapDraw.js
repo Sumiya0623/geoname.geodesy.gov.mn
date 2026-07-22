@@ -36,4 +36,9 @@ export function registerRecountReload(fn) {
 }
 export function requestRecountReload() {
   if (typeof _recountReloadFn === "function") _recountReloadFn();
+  // RecountPanel‑ийн type‑модыг ч шинэчлэхийн тулд дохио тараана (шинэ type‑ийн
+  // recount нэмэгдвэл мод + CQL шинэчлэгдэж газрын зурагт орж ирнэ).
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("recount:changed"));
+  }
 }

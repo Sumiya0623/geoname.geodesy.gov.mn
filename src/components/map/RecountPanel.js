@@ -178,6 +178,14 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false); // мод НЭГ УДАА ачаалагдсан эсэх
   const [checkedSet, setCheckedSet] = useState(() => new Set());
+  const [reloadNonce, setReloadNonce] = useState(0); // recount хадгалсны дараа refetch
+
+  // recount хадгалах/устгах бүрд type‑модыг дахин татна (шинэ type орж ирнэ)
+  useEffect(() => {
+    const h = () => setReloadNonce((n) => n + 1);
+    window.addEventListener("recount:changed", h);
+    return () => window.removeEventListener("recount:changed", h);
+  }, []);
 
   // Хайлтын талбарууд (тооллогод зориулсан — recount_view‑ийн баганаар CQL)
   const [sf, setSf] = useState(EMPTY_SEARCH);
@@ -231,7 +239,7 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
       active = false;
       clearTimeout(t);
     };
-  }, [projectId, sf, statusChecked, statuses]);
+  }, [projectId, sf, statusChecked, statuses, reloadNonce]);
 
   // сонгосон навчийн type_id‑ууд
   const leafIds = useMemo(() => {

@@ -99,7 +99,8 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   // Засах горимыг нээхэд ХУУЧИН төлвүүдийг set хийнэ. draft default = одоогийн нэр.
   const openRcEdit = () => {
     setRcStatusIds(new Set(parseStatusIds(name.status_ids)));
-    setRcDraft(name.name || name.draft || "");
+    // Засварласан нэр = ЗӨВХӨН draft (засвар). Батлагдсан нэр биш. Байхгүй бол хоосон.
+    setRcDraft(name.draft || "");
     setRcEdit(true);
   };
   const toggleRcStatus = (id, on) =>
