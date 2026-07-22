@@ -21,7 +21,7 @@ import { enqueueSnackbar } from "notistack";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
-import { requestMapDraw, getMapExtent } from "./mapDraw";
+import { requestMapDraw, getMapExtent, requestRecountReload } from "./mapDraw";
 
 // Ангиллын desc (Цэг/Шугам/Талбай) → OpenLayers Draw төрөл
 function olDrawType(desc) {
@@ -231,8 +231,9 @@ export default function MapAddName({ onClose, projectId }) {
         });
         enqueueSnackbar(`"${nm}" — ${statusName} төлөвөөр бүртгэгдлээ`);
       }
+      // Хадгалсны дараа форм ХООСОРНО ч НЭЭЛТТЭЙ хэвээр (дараалан нэр нэмэхэд).
       reset();
-      onClose?.();
+      requestRecountReload(); // газрын зурагт шинэ recount тусна
     } catch (e) {
       enqueueSnackbar(e?.response?.data?.detail || "Бүртгэхэд алдаа гарлаа", {
         variant: "warning",
