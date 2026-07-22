@@ -768,7 +768,9 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			conds.append('is_border = true')
 		status_ids = [s for s in (p.get('status') or '').split(',') if s.strip().isdigit()]
 		if status_ids:
-			conds.append('status_id IN (%s)' % ','.join(status_ids))
+			# Олон-төлөв: status_ids (' 1220 1221 ')‑д аль нэг нь байвал тохирно
+			conds.append('(' + ' OR '.join(['status_ids LIKE %s'] * len(status_ids)) + ')')
+			params.extend(['% ' + s + ' %' for s in status_ids])
 		where = ' AND '.join(conds)
 		with connection.cursor() as c:
 			c.execute(

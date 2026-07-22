@@ -406,7 +406,12 @@ _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.status_id, r.draft,
     g.number AS number,
     COALESCE(g.is_border, false) AS is_border,
     COALESCE(' '||(SELECT string_agg(gu.adminunit_id::text,' ') FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' ','') AS unit_ids,
-    COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes
+    COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes,
+    COALESCE(
+        ' '||(SELECT string_agg(rs.constant_id::text,' ') FROM core_recount_statuses rs WHERE rs.recount_id=r.id)||' ',
+        ' '||r.status_id||' ',
+        ''
+    ) AS status_ids
 FROM core_recount r
 LEFT JOIN core_geoname g  ON g.id = r.name_id
 LEFT JOIN core_constant t  ON t.id = g.type_id
