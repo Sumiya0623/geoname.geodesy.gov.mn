@@ -176,6 +176,7 @@ const EMPTY_SEARCH = {
 export default function RecountPanel({ projectId, onCql, searchOpen }) {
   const [roots, setRoots] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false); // мод НЭГ УДАА ачаалагдсан эсэх
   const [checkedSet, setCheckedSet] = useState(() => new Set());
 
   // Хайлтын талбарууд (тооллогод зориулсан — recount_view‑ийн баганаар CQL)
@@ -215,6 +216,7 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
         if (!active) return;
         const data = res?.data || {};
         setRoots(data.results || []);
+        setLoaded(true);
         // шүүлтэд тохирсон БҮХ зангилаа сонгогдоно (мод + газрын зураг уялдана)
         const all = new Set();
         (data.results || []).forEach((n) =>
@@ -244,8 +246,9 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
 
   // Ангилал(type)/draft + хайлтын талбаруудаас нэгдсэн CQL бүрдүүлж дамжуулна
   useEffect(() => {
-    // Мод ачаалагдаагүй бол шүүлтгүй (бүх recount) — эхэнд хоосон харагдахаас сэргийлнэ
-    if (!roots.length) {
+    // Мод НЭГ Ч УДАА ачаалагдаагүй бол шүүлтгүй (эхэнд бүх recount). Ачаалагдсаны
+    // дараа мод ХООСОН ч (ж: зөвхөн "шинэ" draft) шүүлтийг хэвийн бүрдүүлнэ.
+    if (!loaded) {
       onCql?.(null);
       return;
     }
@@ -269,7 +272,7 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
       conds.push(`(${parts.join(" OR ")})`);
     }
     onCql?.(conds.join(" AND "));
-  }, [leafIds, sf, statusChecked, statuses, onCql]);
+  }, [loaded, leafIds, sf, statusChecked, statuses, onCql]);
 
   const toggleStatus = (id, on) => {
     setStatusChecked((prev) => {

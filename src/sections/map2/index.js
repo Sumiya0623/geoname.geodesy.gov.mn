@@ -29,7 +29,6 @@ import {
   Close as CloseIcon,
   Layers as LayersIcon,
   Straighten as RulerIcon,
-  PlaceOutlined as PlaceIcon,
   Search as SearchIcon,
 } from "@mui/icons-material";
 
@@ -81,6 +80,8 @@ import {
 import { createLegalOverlay } from "./legal-overlay";
 import { useGetGeoserver, useGetBaseLayers } from "src/api/map";
 import GeoserverDialog from "src/components/map/geoserverDialog";
+import RecountLegend from "src/components/map/RecountLegend";
+import { statusColorByName } from "src/components/map/recountStatus";
 import MapHeader from "src/components/map/MapHeader";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { usePathname } from "next/navigation";
@@ -117,18 +118,45 @@ const CHATBOT_OUTER_FILL_COLOR = "rgba(255,215,0,0.3)";
 
 const buildWmsParams = (overrides = {}) => ({ ...WMS_PARAMS, ...overrides });
 
-// Recount vector (WFS) style — цэг(од)/шугам/талбай + нэрийн label. declutter:false
-// тул БҮХ label харагдана (сервер талын dedup байхгүй → шүүлт нь дэд олонлог болно).
+// status_id → өнгө (map2 нь RECOUNT_STATUS татаж дүүргэнэ)
+let recountStatusColorById = {};
+
+// Нэрний доор дараалсан ӨНГӨТ ЗУРААС — status бүрд нэг сегмент (давтагдашгүй өнгө)
+function recountStatusBars(feature, isLine) {
+  const ids = String(feature.get("status_ids") || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return ids.map(
+    (id, i) =>
+      new Style({
+        text: new Text({
+          text: "━━",
+          font: "bold 13px sans-serif",
+          textAlign: "left",
+          offsetX: (isLine ? 0 : 9) + i * 15,
+          offsetY: isLine ? 12 : 14,
+          fill: new Fill({ color: recountStatusColorById[id] || "#64748b" }),
+          stroke: new Stroke({ color: "#fff", width: 2 }),
+        }),
+      }),
+  );
+}
+
+// Recount vector (WFS) style — цэг(од)/шугам/талбай + нэрийн label + өнгөт статус
+// зураас. declutter:false тул БҮХ label харагдана.
 function makeRecountStyle(feature) {
   const geom = feature.getGeometry();
   const t = geom ? geom.getType() : "Point";
   const name = feature.get("name") || "";
   const labelFill = new Fill({ color: "#111" });
   const labelStroke = new Stroke({ color: "#fff", width: 3 });
+  const isLine = t.indexOf("Line") >= 0;
 
-  if (t.indexOf("Line") >= 0) {
+  let base;
+  if (isLine) {
     // Шугам — нэрийг ШУГАМЫН ДАГУУ (curve) байрлуулна
-    return new Style({
+    base = new Style({
       stroke: new Stroke({ color: "#d32f2f", width: 3 }),
       text: new Text({
         text: name,
@@ -140,34 +168,36 @@ function makeRecountStyle(feature) {
         stroke: labelStroke,
       }),
     });
-  }
-
-  const pointLabel = new Text({
-    text: name,
-    font: "12px sans-serif",
-    textAlign: "left",
-    offsetX: 9,
-    overflow: true,
-    fill: labelFill,
-    stroke: labelStroke,
-  });
-  if (t.indexOf("Point") >= 0) {
-    return new Style({
-      image: new RegularShape({
-        points: 5,
-        radius: 8,
-        radius2: 3.5,
-        fill: new Fill({ color: "#d32f2f" }),
-        stroke: new Stroke({ color: "#fff", width: 1 }),
-      }),
-      text: pointLabel,
+  } else {
+    const pointLabel = new Text({
+      text: name,
+      font: "12px sans-serif",
+      textAlign: "left",
+      offsetX: 9,
+      overflow: true,
+      fill: labelFill,
+      stroke: labelStroke,
     });
+    if (t.indexOf("Point") >= 0) {
+      base = new Style({
+        image: new RegularShape({
+          points: 5,
+          radius: 8,
+          radius2: 3.5,
+          fill: new Fill({ color: "#d32f2f" }),
+          stroke: new Stroke({ color: "#fff", width: 1 }),
+        }),
+        text: pointLabel,
+      });
+    } else {
+      base = new Style({
+        fill: new Fill({ color: "rgba(211,47,47,0.25)" }),
+        stroke: new Stroke({ color: "#d32f2f", width: 2 }),
+        text: pointLabel,
+      });
+    }
   }
-  return new Style({
-    fill: new Fill({ color: "rgba(211,47,47,0.25)" }),
-    stroke: new Stroke({ color: "#d32f2f", width: 2 }),
-    text: pointLabel,
-  });
+  return [base, ...recountStatusBars(feature, isLine)];
 }
 const buildAdminWmsParams = (overrides = {}) => ({
   ...ADMIN_WMS_PARAMS,
@@ -415,6 +445,8 @@ function Map2() {
   const [recountCql, setRecountCql] = useState(null);
   const recountLayerRef = useRef(null);
   const recountLoadRef = useRef(null); // (cql, doFit) => recount vector‑ийг WFS‑ээр ачаална
+  const [recountStatuses, setRecountStatuses] = useState([]); // [{id,name,color}]
+  const [recountStatusCounts, setRecountStatusCounts] = useState({}); // {id:count}
   // Backend‑ээс ирсэн overlay‑ууд (hardcoded биш) — config‑оор нь generic
   // рендерлэнэ. key → OL layer, key → on/off.
   const [mapReady, setMapReady] = useState(false);
@@ -1945,8 +1977,9 @@ function Map2() {
       const url =
         `${GS}/geoname/ows?service=WFS&version=2.0.0&request=GetFeature` +
         `&typeNames=geoname:recount_view&outputFormat=application/json` +
-        `&srsName=EPSG:4326&CQL_FILTER=${encodeURIComponent(cql)}`;
-      fetch(url)
+        `&srsName=EPSG:4326&CQL_FILTER=${encodeURIComponent(cql)}` +
+        `&_ts=${Date.now()}`; // cache‑buster — шинэ recount гарцаагүй орж ирнэ
+      fetch(url, { cache: "no-store" })
         .then((r) => r.json())
         .then((data) => {
           if (cancelled) return;
@@ -1956,6 +1989,23 @@ function Map2() {
             featureProjection: "EPSG:3857",
           });
           src.addFeatures(feats);
+          // Line/Polygon label‑ыг шинэ feature дээр дахин тооцуулна (fit‑гүй
+          // reload үед OL нэрийг рендерлэдэггүй асуудлыг арилгана).
+          if (layer) layer.changed();
+          map.render();
+          // Legend‑д зориулж статус бүрийн тоог тооцно (recount олон статустай
+          // бол бүрд нь тоологдоно).
+          const counts = {};
+          feats.forEach((f) => {
+            String(f.get("status_ids") || "")
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean)
+              .forEach((id) => {
+                counts[id] = (counts[id] || 0) + 1;
+              });
+          });
+          setRecountStatusCounts(counts);
           if (doFit && feats.length) {
             const ext = src.getExtent();
             if (ext && Number.isFinite(ext[0]) && ext[0] !== ext[2]) {
@@ -2012,6 +2062,30 @@ function Map2() {
   useEffect(() => {
     if (recountLayerRef.current) recountLayerRef.current.setVisible(recountOn);
   }, [recountOn]);
+
+  // RECOUNT_STATUS → status_id‑ийн өнгө (нэрний доорх зураас). Ачаалагдмагц дахин рендер.
+  useEffect(() => {
+    if (!recountProjectId) return;
+    axiosInstance
+      .get(endpoints.constant.dropdown("key=RECOUNT_STATUS"))
+      .then((res) => {
+        const items = res?.data?.results || res?.data || [];
+        const map = {};
+        items.forEach((s) => {
+          map[s.id] = statusColorByName(s.name);
+        });
+        recountStatusColorById = map;
+        recountLayerRef.current?.changed();
+        setRecountStatuses(
+          items.map((s) => ({
+            id: s.id,
+            name: s.name,
+            color: statusColorByName(s.name),
+          })),
+        );
+      })
+      .catch(() => {});
+  }, [recountProjectId]);
 
   // Recount панелийн шүүлт — vector‑ийг шинэ CQL‑ээр дахин ачаална (fit хийхгүй).
   const recountAppliedCqlRef = useRef(null);
@@ -2774,11 +2848,6 @@ function Map2() {
     [buildPointCqlFilter],
   );
 
-  function findPointRadius() {
-    setForceGeoserverOpen(true);
-    setForceGeoserverTab("layers");
-  }
-
   useEffect(() => {
     const handleOpenGeoserverDialog = () => {
       setForceGeoserverOpen(true);
@@ -2870,6 +2939,14 @@ function Map2() {
             },
           }}
         />
+
+        {/* Тооллогын газрын зургийн legend — статус бүрийн өнгө + тоо */}
+        {recountProjectId && (
+          <RecountLegend
+            statuses={recountStatuses}
+            counts={recountStatusCounts}
+          />
+        )}
 
         {/* Их хэмжээний хайлтын илэрц — газрын зургийн дээд талд тусдаа хүснэгт,
             формын ард (z-index формоос бага) */}
@@ -3288,24 +3365,6 @@ function Map2() {
               </Fab>
             </Tooltip>
           )}
-
-          <Tooltip title="Цэг хайх" placement="right">
-            <Fab
-              size="small"
-              onClick={findPointRadius}
-              id="map-search-toolbar"
-              sx={{
-                backgroundColor: "white",
-                color: "#27b02eff",
-                "&:hover": {
-                  backgroundColor: "#f3e5f5",
-                  transform: "scale(1.05)",
-                },
-              }}
-            >
-              <PlaceIcon />
-            </Fab>
-          </Tooltip>
         </Box>
 
         {measureResult && (

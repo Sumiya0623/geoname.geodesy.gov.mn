@@ -28,6 +28,7 @@ import { useGetRequestStatuses } from "src/api/request";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
 import { requestMapDraw, requestRecountReload } from "./mapDraw";
+import { statusColorByName } from "./recountStatus";
 
 // Нэрийн геометрийн төрлийг OpenLayers Draw төрөл рүү буулгана
 function olDrawType(gt) {
@@ -316,14 +317,17 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
               />
               {parseStatusIds(name.status_ids).map((id) => {
                 const st = rStatuses.find((s) => String(s.id) === String(id));
-                return st ? (
+                if (!st) return null;
+                const c = statusColorByName(st.name);
+                return (
                   <Chip
                     key={id}
                     size="small"
-                    variant="outlined"
+                    variant="filled"
                     label={st.name}
+                    sx={{ bgcolor: c, color: "#fff", fontWeight: 600 }}
                   />
-                ) : null;
+                );
               })}
             </Stack>
 
@@ -373,24 +377,33 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
                   {rStatuses
                     /* Засах үед "шинэ" хэрэггүй (зөвхөн шинээр бүртгэхэд) */
                     .filter((s) => s.name !== "шинэ")
-                    .map((s) => (
-                      <FormControlLabel
-                        key={s.id}
-                        sx={{ mr: 1 }}
-                        control={
-                          <Checkbox
-                            size="small"
-                            checked={rcStatusIds.has(s.id)}
-                            onChange={(e) =>
-                              toggleRcStatus(s.id, e.target.checked)
-                            }
-                          />
-                        }
-                        label={
-                          <Typography variant="body2">{s.name}</Typography>
-                        }
-                      />
-                    ))}
+                    .map((s) => {
+                      const c = statusColorByName(s.name);
+                      return (
+                        <FormControlLabel
+                          key={s.id}
+                          sx={{ mr: 1 }}
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={rcStatusIds.has(s.id)}
+                              onChange={(e) =>
+                                toggleRcStatus(s.id, e.target.checked)
+                              }
+                              sx={{ color: c, "&.Mui-checked": { color: c } }}
+                            />
+                          }
+                          label={
+                            <Typography
+                              variant="body2"
+                              sx={{ color: c, fontWeight: 600 }}
+                            >
+                              {s.name}
+                            </Typography>
+                          }
+                        />
+                      );
+                    })}
                 </Box>
                 {errStatusId && rcStatusIds.has(errStatusId) && (
                   <TextField
