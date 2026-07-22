@@ -61,7 +61,10 @@ import Draw, { createBox } from "ol/interaction/Draw";
 import Snap from "ol/interaction/Snap";
 import GeoJSON from "ol/format/GeoJSON";
 import { boundingExtent } from "ol/extent";
-import { registerMapDraw, registerMapExtent } from "../../components/map/mapDraw";
+import {
+  registerMapDraw,
+  registerMapExtent,
+} from "../../components/map/mapDraw";
 import NameSidebar from "../../components/map/NameSidebar";
 import LayerControl from "../../components/map/LayerControl";
 
@@ -154,9 +157,35 @@ function buildOlBaseLayer(cfg) {
       ...(minZoom != null ? { minZoom } : {}),
     });
 
+  // UNTILED WMS — харагдах хэсгийг НЭГ зураг болгон рендерлэнэ. Тайлын зах дээр
+  // label тасрахгүй/алгасахгүй (params.untiled=true бол нэр бүрэн харагдана).
+  const untiledWms = (minZoom) =>
+    new ImageLayer({
+      source: new ImageWMS({
+        url: `${gsBase}/${ws}/wms`,
+        params: {
+          LAYERS: cfg.gs_layer,
+          STYLES: p.styles || "",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          VERSION: "1.1.1",
+          ...(p.cql ? { CQL_FILTER: p.cql } : {}),
+        },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+        ratio: 1,
+      }),
+      visible: true,
+      ...(minZoom != null ? { minZoom } : {}),
+    });
+
   if (st === "wmts") {
     // WMTS (GWC кэш, WebMercatorQuad) — layer нэр workspace‑гүй
-    const wmts = makeGwcWmtsLayer({ workspace: ws, layer: layerName, visible: true });
+    const wmts = makeGwcWmtsLayer({
+      workspace: ws,
+      layer: layerName,
+      visible: true,
+    });
     // params.wmts_max өгвөл: z≤wmts_max GWC кэш, z>wmts_max АМЬД WMS (чанар
     // унахгүй — WMS эх өгөгдлөөс бүрэн нягтралаар рендерлэнэ). Group‑оор нэгтгэнэ.
     const wmtsMax = Number(p.wmts_max ?? p.wmtsMax);
@@ -166,9 +195,19 @@ function buildOlBaseLayer(cfg) {
     }
     return wmts;
   }
-  // wms — cached=true бол GWC кэш (WMS‑C), эс бөгөөс workspace‑ийн амьд WMS
+  // wms — cached=true бол GWC кэш (WMS‑C), эс бөгөөс workspace‑ийн амьд WMS.
+  // params.untiled=true бол z ≥ untiled_min (default 8)‑д UNTILED (нэг зураг) —
+  // label бүрэн харагдана; түүнээс доош tiled (хурдан). Group‑оор нэгтгэнэ.
   const cached = !!p.cached;
-  if (!cached) return liveWms();
+  if (!cached) {
+    if (p.untiled) {
+      const umin = Number(p.untiled_min ?? p.untiledMin ?? 7);
+      const tiled = liveWms(); // z < umin: tiled (хурдан)
+      tiled.setMaxZoom(umin);
+      return new LayerGroup({ layers: [tiled, untiledWms(umin)] }); // z ≥ umin: untiled
+    }
+    return liveWms();
+  }
   const cachedWms = new TileLayer({
     source: new TileWMS({
       url: `${gsBase}/gwc/service/wms`,
@@ -1033,28 +1072,35 @@ function Map2() {
 
       if (!geoserverLayerMap.current.has(layerKey)) {
         // Нэрийн ангилал — ГАНЦ geoname_view.
-        // zoom <11: GWC кэш (WMS‑C, default style geoname_types — ерөнхийлсөн,
-        //           давхцах label нуугдана, цэвэрхэн).
-        // zoom ≥11: АМЬД WMS + geoname_types_full style — ЕРӨНХИЙЛӨЛГҮЙ (бүх
-        //           нэр, давхцал арилгахгүй: conflictResolution=false).
+        // zoom <11: default style geoname_types — ерөнхийлсөн, давхцах label
+        //           нуугдана, цэвэрхэн.
+        // zoom ≥11: geoname_types_full style — ЕРӨНХИЙЛӨЛГҮЙ (бүх нэр, давхцал
+        //           арилгахгүй: conflictResolution=false).
         // CQL‑ээр төрөл (+ сонгосон нэгж) шүүнэ.
+        // ЧУХАЛ: geoname_view‑ийн GWC давхаргад parameterFilters ХООСОН тул
+        // gwc/service/wms нь CQL_FILTER‑ийг ҮЛ ТООМСОРЛОН кэшлэсэн (шүүлтгүй)
+        // тайлыг буцаадаг → ямар ч ангилал сонгосон БҮХ нэр харагдана. Иймд
+        // амьд /geoname/wms‑ээр дуудна: GeoServer‑ийн direct WMS integration
+        // CQL байвал кэшийг алгасаж, зөв шүүсэн тайл рендерлэнэ.
         if (filterData.nameCached) {
           const gsBase = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+          // UNTILED ImageWMS — харагдах хэсгийг НЭГ зураг болгон рендерлэнэ.
+          // TileWMS (256×256 тайл) үед тайлын зааг дээрх label хоёр тайл дээр
+          // ДАВХАР зурагдана; ImageWMS нэг зурагтай тул давхцахгүй.
           const wmsParams = buildWmsParams({
             LAYERS: "geoname:geoname_view",
-            TILED: true,
             ...(filterData.cql_filter
               ? { CQL_FILTER: filterData.cql_filter }
               : {}),
           });
-          // zoom <11 — GWC кэш (256×256 tile — HiDPI 282px‑ээс сэргийлж hidpi:false)
-          const cachedLayer = new TileLayer({
-            source: new TileWMS({
-              url: `${gsBase}/gwc/service/wms`,
+          // zoom <11 — ерөнхийлсөн default style
+          const cachedLayer = new ImageLayer({
+            source: new ImageWMS({
+              url: `${gsBase}/geoname/wms`,
               params: wmsParams,
               serverType: "geoserver",
               crossOrigin: "anonymous",
-              hidpi: false,
+              ratio: 1,
             }),
             opacity: 0.9,
             visible: true,
@@ -1064,13 +1110,14 @@ function Map2() {
           cachedLayer.set("filterId", filterId);
           geoserverLayerMap.current.set(`${layerKey}__wmts`, cachedLayer);
           map.addLayer(cachedLayer);
-          // zoom ≥11 — амьд WMS, ЕРӨНХИЙЛӨЛГҮЙ style (бүх нэр)
-          const liveLayer = new TileLayer({
-            source: new TileWMS({
+          // zoom ≥11 — ЕРӨНХИЙЛӨЛГҮЙ style (бүх нэр)
+          const liveLayer = new ImageLayer({
+            source: new ImageWMS({
               url: `${gsBase}/geoname/wms`,
               params: { ...wmsParams, STYLES: "geoname_types_full" },
               serverType: "geoserver",
               crossOrigin: "anonymous",
+              ratio: 1,
             }),
             opacity: 0.9,
             visible: true,
@@ -1882,8 +1929,7 @@ function Map2() {
   // === Backend‑ээс ирсэн БҮХ overlay‑ууд (LEGAL‑ээс бусад) — config‑оор нь
   // generic рендерлэнэ (buildOlBaseLayer). Hardcoded давхарга байхгүй. ===
   const extraOverlayConfigs = useMemo(
-    () =>
-      (overlayConfigs || []).filter((c) => c?.params?.special !== "legal"),
+    () => (overlayConfigs || []).filter((c) => c?.params?.special !== "legal"),
     [overlayConfigs],
   );
 

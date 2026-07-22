@@ -349,8 +349,13 @@ export function initMap(opts) {
       ) {
         for (const [layerKey, layer] of geoserverLayerMap.current.entries()) {
           try {
-            const fid = String(layerKey).startsWith("geoserver_")
-              ? String(layerKey).slice("geoserver_".length)
+            // Доод zoom‑ийн (кэш) давхарга нь `${layerKey}__wmts` түлхүүртэй тул
+            // "__wmts" дагаварыг хасаж жинхэнэ filterId‑г гаргана — эс бөгөөс
+            // enabled олдохгүй → доод zoom дээр нэр дарахад popup гарахгүй.
+            let baseKey = String(layerKey);
+            if (baseKey.endsWith("__wmts")) baseKey = baseKey.slice(0, -6);
+            const fid = baseKey.startsWith("geoserver_")
+              ? baseKey.slice("geoserver_".length)
               : null;
             if (fid && !enabledGeoserverFiltersRef.current.has(String(fid)))
               continue;
@@ -359,6 +364,22 @@ export function initMap(opts) {
               (typeof layer.getVisible === "function" && !layer.getVisible())
             )
               continue;
+
+            // Нэг ангилалд доод zoom (кэш, maxZoom 11) + дээд zoom (амьд WMS,
+            // minZoom 11) гэсэн ХОЁР давхарга байдаг. getVisible() нь zoom мужийг
+            // тооцдоггүй тул одоогийн zoom тухайн давхаргын (minZoom, maxZoom]
+            // мужид байгаа эсэхийг шалгаж, зөвхөн харагдаж буй давхаргыг дуудна —
+            // эс бөгөөс байрлал бүрт 2 давхардсан үр дүн гарна.
+            const zNow = view.getZoom();
+            const lMin =
+              typeof layer.getMinZoom === "function"
+                ? layer.getMinZoom()
+                : -Infinity;
+            const lMax =
+              typeof layer.getMaxZoom === "function"
+                ? layer.getMaxZoom()
+                : Infinity;
+            if (!(zNow > lMin && zNow <= lMax)) continue;
 
             const isFromStaticLayer = layer.get("isStaticLayer") || false;
             const layerFilterData = layer.get("filterData") || {};

@@ -51,7 +51,7 @@ export default function WorkspaceBoundaryLabelForm({
   const [fontFamily, setFontFamily] = useState(initial?.font_family || "Arial");
   const [fill, setFill] = useState(initial?.fill || "#333333");
   const [stroke, setStroke] = useState(initial?.stroke || "#888888");
-  const [repeat, setRepeat] = useState(initial?.repeat ?? 400);
+  const [repeat, setRepeat] = useState(initial?.repeat ?? 0);
   const [scaleMin, setScaleMin] = useState(initial?.scale_min ?? "");
   const [scaleMax, setScaleMax] = useState(initial?.scale_max ?? "");
   const [submitting, setSubmitting] = useState(false);
@@ -66,7 +66,7 @@ export default function WorkspaceBoundaryLabelForm({
     setFontFamily(initial.font_family || "Arial");
     setFill(initial.fill || "#333333");
     setStroke(initial.stroke || "#888888");
-    setRepeat(initial.repeat ?? 400);
+    setRepeat(initial.repeat ?? 0);
     setScaleMin(initial.scale_min ?? "");
     setScaleMax(initial.scale_max ?? "");
   }, [initial]);
@@ -123,7 +123,7 @@ export default function WorkspaceBoundaryLabelForm({
           font_family: fontFamily,
           fill,
           stroke,
-          repeat: Number(repeat) || 400,
+          repeat: Number.isFinite(Number(repeat)) ? Number(repeat) : 0,
           ...(scaleMin ? { scale_min: Number(scaleMin) } : {}),
           ...(scaleMax ? { scale_max: Number(scaleMax) } : {}),
           ...(baseSld ? { base_sld: baseSld } : {}),
