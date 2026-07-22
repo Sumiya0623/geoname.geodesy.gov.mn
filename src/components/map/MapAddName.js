@@ -85,7 +85,9 @@ export default function MapAddName({ onClose, projectId }) {
     setGeojson(null);
     if (node?.id && childOpts.length === 0) {
       try {
-        const res = await axiosInstance.get(endpoints.constant.details(node.id));
+        const res = await axiosInstance.get(
+          endpoints.constant.details(node.id),
+        );
         setDrawType(olDrawType(res?.data?.desc));
       } catch (e) {
         setDrawType("Point");
@@ -272,11 +274,7 @@ export default function MapAddName({ onClose, projectId }) {
             }}
           />
         }
-        label={
-          <Typography variant="body2">
-            Батлагдсан нэрэнд геометр оноох
-          </Typography>
-        }
+        label={<Typography variant="body2">Батлагдсан нэр</Typography>}
       />
       <Divider sx={{ mb: 1.5 }} />
 

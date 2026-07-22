@@ -263,8 +263,11 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
     if (sf.nomek.trim())
       conds.push(`nomek_codes ILIKE '%${esc(sf.nomek.trim())}%'`);
     if (sf.border) conds.push("is_border = true");
-    if (statusChecked.size && statusChecked.size < (statuses?.length || 0))
-      conds.push(`status_id IN (${[...statusChecked].join(",")})`);
+    if (statusChecked.size) {
+      // Олон-төлөв: status_ids (' 1220 1221 ')‑д аль нэг нь байвал тохирно
+      const parts = [...statusChecked].map((id) => `status_ids LIKE '% ${id} %'`);
+      conds.push(`(${parts.join(" OR ")})`);
+    }
     onCql?.(conds.join(" AND "));
   }, [leafIds, sf, statusChecked, statuses, onCql]);
 

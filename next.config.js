@@ -7,7 +7,11 @@ const withBundleAnalyzer = require("@next/bundle-analyzer")({
 module.exports = withBundleAnalyzer({
   productionBrowserSourceMaps: false,
   trailingSlash: true,
-  allowedDevOrigins: ["geoname.nextgis.mn", "local.nextgis.mn"],
+  allowedDevOrigins: [
+    "geoname.nextgis.mn",
+    "dev.geoname.nextgis.mn",
+    "local.nextgis.mn",
+  ],
 
   images: {
     remotePatterns: [{ protocol: "https", hostname: "**" }],

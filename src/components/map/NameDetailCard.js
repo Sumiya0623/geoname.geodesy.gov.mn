@@ -8,11 +8,13 @@ import {
   Stack,
   Button,
   Dialog,
+  Checkbox,
   TextField,
   Typography,
   DialogTitle,
   DialogActions,
   DialogContent,
+  FormControlLabel,
 } from "@mui/material";
 import {
   CheckOutlined,
@@ -72,15 +74,45 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   const [draftDlg, setDraftDlg] = useState(null); // {statusName, text}
   const [rcEdit, setRcEdit] = useState(false); // recount төлөв засах горим
   const [rcConfirm, setRcConfirm] = useState(false); // recount устгах баталгаа
+  const [rcStatusIds, setRcStatusIds] = useState(() => new Set()); // сонгосон төлвүүд
+  const [rcDraft, setRcDraft] = useState(""); // "алдаатай" үеийн засвар нэр
 
-  // Recount төлөв өөрчлөх (PATCH)
-  const editRecountStatus = async (statusName) => {
+  // ' 1219 1220 ' → [1219,1220]
+  const parseStatusIds = (s) =>
+    String(s || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(Number);
+
+  const errStatusId = statusIdByName("алдаатай");
+
+  // Засах горимыг нээхэд ХУУЧИН төлвүүдийг set хийнэ. draft default = одоогийн нэр.
+  const openRcEdit = () => {
+    setRcStatusIds(new Set(parseStatusIds(name.status_ids)));
+    setRcDraft(name.name || name.draft || "");
+    setRcEdit(true);
+  };
+  const toggleRcStatus = (id, on) =>
+    setRcStatusIds((prev) => {
+      const n = new Set(prev);
+      if (on) n.add(id);
+      else n.delete(id);
+      return n;
+    });
+
+  // Recount ОЛОН төлөв хадгалах (PATCH status_ids — M2M)
+  const saveRecountStatuses = async () => {
     setSaving(true);
     try {
       await axiosInstance.patch(endpoints.recount.edit(name.id), {
-        status_id: statusIdByName(statusName),
+        status_ids: [...rcStatusIds],
+        // "алдаатай" сонгосон бол засварласан нэрийг draft‑д хадгална
+        ...(errStatusId && rcStatusIds.has(errStatusId)
+          ? { draft: rcDraft.trim() }
+          : {}),
       });
-      enqueueSnackbar(`Төлөв "${statusName}" болголоо`);
+      enqueueSnackbar("Төлөв хадгалагдлаа");
       setRcEdit(false);
       requestRecountReload();
       onAfterAction?.();
@@ -282,18 +314,17 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
                 variant="filled"
                 label="Тодруулалт (recount)"
               />
-              {(() => {
-                const st = rStatuses.find(
-                  (s) => String(s.id) === String(name.status_id),
-                );
+              {parseStatusIds(name.status_ids).map((id) => {
+                const st = rStatuses.find((s) => String(s.id) === String(id));
                 return st ? (
                   <Chip
+                    key={id}
                     size="small"
                     variant="outlined"
-                    label={`Төлөв: ${st.name}`}
+                    label={st.name}
                   />
                 ) : null;
-              })()}
+              })}
             </Stack>
 
             {rcConfirm ? (
@@ -320,7 +351,7 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
                   size="small"
                   variant="outlined"
                   disabled={saving}
-                  onClick={() => setRcEdit((v) => !v)}
+                  onClick={() => (rcEdit ? setRcEdit(false) : openRcEdit())}
                 >
                   Төлөв засах
                 </Button>
@@ -337,23 +368,47 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
             )}
 
             {rcEdit && !rcConfirm && (
-              <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                {rStatuses.map((s) => (
-                  <Button
-                    key={s.id}
+              <Stack spacing={0.5}>
+                <Box sx={{ display: "flex", flexWrap: "wrap" }}>
+                  {rStatuses
+                    /* Засах үед "шинэ" хэрэггүй (зөвхөн шинээр бүртгэхэд) */
+                    .filter((s) => s.name !== "шинэ")
+                    .map((s) => (
+                      <FormControlLabel
+                        key={s.id}
+                        sx={{ mr: 1 }}
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={rcStatusIds.has(s.id)}
+                            onChange={(e) =>
+                              toggleRcStatus(s.id, e.target.checked)
+                            }
+                          />
+                        }
+                        label={
+                          <Typography variant="body2">{s.name}</Typography>
+                        }
+                      />
+                    ))}
+                </Box>
+                {errStatusId && rcStatusIds.has(errStatusId) && (
+                  <TextField
                     size="small"
-                    variant={
-                      String(s.id) === String(name.status_id)
-                        ? "contained"
-                        : "outlined"
-                    }
-                    disabled={saving}
-                    onClick={() => editRecountStatus(s.name)}
-                    sx={{ textTransform: "none", fontSize: 11, px: 0.7 }}
-                  >
-                    {s.name}
-                  </Button>
-                ))}
+                    fullWidth
+                    label="Засварласан нэр (алдаатай)"
+                    value={rcDraft}
+                    onChange={(e) => setRcDraft(e.target.value)}
+                  />
+                )}
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={saving}
+                  onClick={saveRecountStatuses}
+                >
+                  Хадгалах
+                </Button>
               </Stack>
             )}
           </Stack>
