@@ -406,9 +406,8 @@ class ReCount(models.Model):
 	draft=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Төсөл')
 	nomeks=models.ManyToManyField(Nomek,related_name='recount100',verbose_name='Нэрлэвэр',blank=True)
 	loc=models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
-	status=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төрөл',related_name='recountstatuses',blank=True, null=True)
-	# Олон төлөв (ж: байршил зөрүүтэй + нэр алдаатай) — M2M. status нь үндсэн/эхний.
-	statuses=models.ManyToManyField(Constant,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төлөв (олон)',related_name='recount_multi_statuses',blank=True)
+	# Төлөв — ОЛОН (M2M): байршил зөрүүтэй + нэр алдаатай зэрэг зэрэг байж болно.
+	statuses=models.ManyToManyField(Constant,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төлөв',related_name='recount_multi_statuses',blank=True)
 
 class ReCountMap(models.Model):
 	names=models.ManyToManyField(ReCount,verbose_name='Нэрс', related_name='recountmaps')

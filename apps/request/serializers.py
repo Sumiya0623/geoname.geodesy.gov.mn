@@ -235,12 +235,7 @@ class ReCountSerializer(serializers.ModelSerializer):
 		queryset=Constant.objects.filter(key='RECOUNT_STEPS'),
 		source='step', write_only=True, required=False, allow_null=True,
 	)
-	status = ConstantDropSerializer(read_only=True)
-	status_id = serializers.PrimaryKeyRelatedField(
-		queryset=Constant.objects.filter(key='RECOUNT_STATUS'),
-		source='status', write_only=True, required=False, allow_null=True,
-	)
-	# Олон төлөв (M2M) — байршил зөрүүтэй + нэр алдаатай зэрэг
+	# Төлөв — ОЛОН (M2M). байршил зөрүүтэй + нэр алдаатай зэрэг зэрэг байж болно.
 	statuses = ConstantDropSerializer(many=True, read_only=True)
 	status_ids = serializers.PrimaryKeyRelatedField(
 		queryset=Constant.objects.filter(key='RECOUNT_STATUS'),
@@ -261,7 +256,7 @@ class ReCountSerializer(serializers.ModelSerializer):
 	class Meta:
 		model = ReCount
 		fields = [
-			'id', 'project', 'project_id', 'step', 'step_id', 'status', 'status_id',
+			'id', 'project', 'project_id', 'step', 'step_id',
 			'statuses', 'status_ids',
 			'name', 'name_id', 'draft', 'loc',
 		]

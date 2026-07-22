@@ -427,7 +427,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 	ordering = ['-id']
 
 	def get_queryset(self):
-		qs = ReCount.objects.select_related('project', 'step', 'status', 'name')
+		qs = ReCount.objects.select_related('project', 'step', 'name').prefetch_related('statuses')
 		project_id = self.request.query_params.get('project')
 		if project_id:
 			qs = qs.filter(project_id=project_id)
@@ -485,13 +485,19 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				project_id=project_id or None,
 				name_id=it.get('name_id') or None,
 				step_id=it.get('step_id') or None,
-				status_id=it.get('status_id') or None,
 				draft=it.get('draft') or '',
 				loc=geo_map.get(it.get('name_id')),
 			)
 			for it in items
 		]
 		created = ReCount.objects.bulk_create(objs)
+		# Төлөв (M2M) — status_ids (эсвэл нэг status_id) бүрд онооно
+		for obj, it in zip(created, items):
+			sids = it.get('status_ids') or (
+				[it.get('status_id')] if it.get('status_id') else [])
+			sids = [s for s in sids if s]
+			if sids:
+				obj.statuses.set(sids)
 		return Response({'created': len(created)}, status=201)
 
 	SCALE_25K = 163
@@ -508,7 +514,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if not project_id:
 			return Response({'detail': 'project шаардлагатай'}, status=400)
 		qs = ReCount.objects.filter(project_id=project_id).select_related(
-			'name', 'name__type', 'status')
+			'name', 'name__type').prefetch_related('statuses')
 		step_id = request.query_params.get('step')
 		if step_id:
 			qs = qs.filter(step_id=step_id)
@@ -571,7 +577,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				'i': i,
 				'id': r.id,
 				'name': (r.name.name if r.name_id else '') or '',
-				'draft': r.draft or '',
+				'draft': r.draft or (r.name.name if r.name_id else '') or '',
 				'lat': lat, 'lon': lon,
 				'geom': pt.geom_type if pt is not None else '',
 				# Дэвсгэр нэр: холбоотой нэрийнх → type, шинэ нэр → draft‑ийн сүүлийн үг
@@ -589,11 +595,17 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		bucket = {'ижил': '1', 'шинэ': '6', 'батлагдаагүй': '2', 'алдаатай': '3', 'байршил': '4'}
 		for r in qs:
 			ok = (not has_filter) or passes(r)
-			b = bucket.get((r.status.name if r.status_id else '').strip())
-			# Идэвхтэй маягтад шүүлт хэрэгжинэ; бусдад бүтэн орно.
-			if b and not (b == active and not ok):
-				counters[b] += 1
-				forms[b].append(row(r, counters[b]))
+			# ОЛОН төлөв (statuses M2M) — recount нь төлөв бүрд тохирох маягтад
+			# орно (ж: алдаатай+байршил → Маягт 3 БА 4).
+			st_names = [s.name for s in r.statuses.all()]
+			seen = set()
+			for nm in st_names:
+				b = bucket.get((nm or '').strip())
+				# Идэвхтэй маягтад шүүлт хэрэгжинэ; бусдад бүтэн орно.
+				if b and b not in seen and not (b == active and not ok):
+					seen.add(b)
+					counters[b] += 1
+					forms[b].append(row(r, counters[b]))
 			# Маягт 5 — хилийн заагт зөрүүтэй нэрлэгдсэн (GeoName.is_border),
 			# статусаас үл хамаарна.
 			if r.name_id and getattr(r.name, 'is_border', False):
@@ -613,7 +625,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if not project_id:
 			return Response({'detail': 'project шаардлагатай'}, status=400)
 		qs = ReCount.objects.filter(project_id=project_id).select_related(
-			'name', 'name__type', 'status')
+			'name', 'name__type').prefetch_related('statuses')
 		step_id = request.query_params.get('step')
 		if step_id:
 			qs = qs.filter(step_id=step_id)
@@ -640,7 +652,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				c = pt if pt.geom_type == 'Point' else pt.centroid
 				lon, lat = round(c.x, 6), round(c.y, 6)
 			return {'i': i, 'name': (r.name.name if r.name_id else '') or '',
-					'draft': r.draft or '', 'lat': lat, 'lon': lon,
+					'draft': r.draft or (r.name.name if r.name_id else '') or '', 'lat': lat, 'lon': lon,
 					'gtype': (
 						(r.name.type.name if (r.name_id and r.name.type_id) else None)
 						or ((r.draft or '').strip().split() or [''])[-1]),
@@ -650,9 +662,10 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		bucket = {'ижил': '1', 'шинэ': '6', 'батлагдаагүй': '2', 'алдаатай': '3', 'байршил': '4'}
 		matched = []
 		for r in qs:
-			b = bucket.get((r.status.name if r.status_id else '').strip())
+			# ОЛОН төлөв (M2M) — аль нэг төлөв нь тухайн маягтад тохирвол орно
+			bs = {bucket.get((s.name or '').strip()) for s in r.statuses.all()}
 			is5 = form_no == '5' and r.name_id and getattr(r.name, 'is_border', False)
-			if b == form_no or is5:
+			if form_no in bs or is5:
 				matched.append(r)
 
 		# Аймаг → сум → нэрээр сортолно (сум/аймгийг цэгийн орон зайгаар олно, кэштэй)

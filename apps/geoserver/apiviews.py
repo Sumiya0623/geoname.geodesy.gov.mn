@@ -398,7 +398,7 @@ RECOUNT_VIEW = 'recount_view'
 # Дахин тооллого (ReCount.loc) — геонэрийн type‑той join хийсэн view. geoname_view‑тэй
 # ижил баганатай (type, type_l1/l2) тул ижил style (type symbol)‑оор зурагдана.
 # project_id баганаар CQL‑ээр тухайн төслөөр шүүнэ.
-_RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.status_id, r.draft,
+_RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.draft,
     COALESCE(r.loc, g.geoloc) AS geoloc,
     g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
     json_build_array(t.parent_id, g.type_id) AS type,
@@ -409,7 +409,6 @@ _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.status_id, r.draft,
     COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes,
     COALESCE(
         ' '||(SELECT string_agg(rs.constant_id::text,' ') FROM core_recount_statuses rs WHERE rs.recount_id=r.id)||' ',
-        ' '||r.status_id||' ',
         ''
     ) AS status_ids
 FROM core_recount r
