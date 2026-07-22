@@ -25,7 +25,7 @@ import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetRequestStatuses } from "src/api/request";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
-import { requestMapDraw } from "./mapDraw";
+import { requestMapDraw, requestRecountReload } from "./mapDraw";
 
 // Нэрийн геометрийн төрлийг OpenLayers Draw төрөл рүү буулгана
 function olDrawType(gt) {
@@ -70,6 +70,47 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   const statusIdByName = (nm) => rStatuses.find((s) => s.name === nm)?.id || null;
   const [saving, setSaving] = useState(false);
   const [draftDlg, setDraftDlg] = useState(null); // {statusName, text}
+  const [rcEdit, setRcEdit] = useState(false); // recount төлөв засах горим
+  const [rcConfirm, setRcConfirm] = useState(false); // recount устгах баталгаа
+
+  // Recount төлөв өөрчлөх (PATCH)
+  const editRecountStatus = async (statusName) => {
+    setSaving(true);
+    try {
+      await axiosInstance.patch(endpoints.recount.edit(name.id), {
+        status_id: statusIdByName(statusName),
+      });
+      enqueueSnackbar(`Төлөв "${statusName}" болголоо`);
+      setRcEdit(false);
+      requestRecountReload();
+      onAfterAction?.();
+    } catch (e) {
+      enqueueSnackbar(e?.response?.data?.detail || "Засахад алдаа гарлаа", {
+        variant: "warning",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Recount устгах (DELETE)
+  const deleteRecount = async () => {
+    setSaving(true);
+    try {
+      await axiosInstance.delete(endpoints.recount.delete(name.id));
+      enqueueSnackbar("Тодруулалт устгагдлаа");
+      setRcConfirm(false);
+      requestRecountReload();
+      onSelect?.(null);
+      onAfterAction?.();
+    } catch (e) {
+      enqueueSnackbar(e?.response?.data?.detail || "Устгахад алдаа гарлаа", {
+        variant: "warning",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const saveRecount = async (statusName, draftText, loc) => {
     setSaving(true);
@@ -231,7 +272,92 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
           )}
         </Box>
 
-        {recountProjectId ? (
+        {name?._isRecount ? (
+          /* Дарсан объект нь recount — төлөв + Засах/Устгах */
+          <Stack spacing={1} sx={{ mt: 1 }}>
+            <Stack direction="row" spacing={0.5} flexWrap="wrap">
+              <Chip
+                size="small"
+                color="info"
+                variant="filled"
+                label="Тодруулалт (recount)"
+              />
+              {(() => {
+                const st = rStatuses.find(
+                  (s) => String(s.id) === String(name.status_id),
+                );
+                return st ? (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`Төлөв: ${st.name}`}
+                  />
+                ) : null;
+              })()}
+            </Stack>
+
+            {rcConfirm ? (
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <Typography variant="body2" color="error">
+                  Устгах уу?
+                </Typography>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="error"
+                  disabled={saving}
+                  onClick={deleteRecount}
+                >
+                  Тийм
+                </Button>
+                <Button size="small" onClick={() => setRcConfirm(false)}>
+                  Үгүй
+                </Button>
+              </Stack>
+            ) : (
+              <Stack direction="row" spacing={0.5}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={saving}
+                  onClick={() => setRcEdit((v) => !v)}
+                >
+                  Төлөв засах
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  disabled={saving}
+                  onClick={() => setRcConfirm(true)}
+                >
+                  Устгах
+                </Button>
+              </Stack>
+            )}
+
+            {rcEdit && !rcConfirm && (
+              <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                {rStatuses.map((s) => (
+                  <Button
+                    key={s.id}
+                    size="small"
+                    variant={
+                      String(s.id) === String(name.status_id)
+                        ? "contained"
+                        : "outlined"
+                    }
+                    disabled={saving}
+                    onClick={() => editRecountStatus(s.name)}
+                    sx={{ textTransform: "none", fontSize: 11, px: 0.7 }}
+                  >
+                    {s.name}
+                  </Button>
+                ))}
+              </Stack>
+            )}
+          </Stack>
+        ) : recountProjectId ? (
           /* Төслийн газрын зураг — рекаунтын төлөв (ижил/зөрүүтэй/алдаатай/байршил) */
           <Stack direction="row" spacing={0.5} sx={{ mt: 1 }}>
             {[

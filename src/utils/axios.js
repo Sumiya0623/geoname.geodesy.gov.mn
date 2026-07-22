@@ -217,6 +217,7 @@ export const endpoints = {
     edit: (id) => `/api/r/recount/${id}/`,
     delete: (id) => `/api/r/recount/${id}/`,
     wms: (request_body) => `/api/r/recount/wms/?${request_body}`,
+    typeTree: (request_body) => `/api/r/recount/type-tree/?${request_body}`,
   },
 
   workspace: {
@@ -337,6 +338,7 @@ export const endpoints = {
     list: (request_body) => `/api/core/user/?${request_body}`,
     info: `/api/core/user/me/`,
     logout: `/api/core/user/logout/`,
+    pluginToken: `/api/core/user/plugin-token/`,
     edit: (id) => `/api/core/user/${id}/`,
     create: `/api/core/user/`,
     delete: (id) => `/api/core/user/${id}/`,

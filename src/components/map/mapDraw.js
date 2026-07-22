@@ -27,3 +27,13 @@ export function registerMapExtent(fn) {
 export function getMapExtent() {
   return typeof _extentFn === "function" ? _extentFn() : null;
 }
+
+// Recount давхаргыг (WFS vector) дахин ачаалах гүүр — popup дээр recount засах/
+// устгасны дараа газрын зургийг шинэчлэхэд.
+let _recountReloadFn = null;
+export function registerRecountReload(fn) {
+  _recountReloadFn = fn;
+}
+export function requestRecountReload() {
+  if (typeof _recountReloadFn === "function") _recountReloadFn();
+}

@@ -45,7 +45,6 @@ import RequestChangeForm from "../request-change-form";
 
 const TABLE_HEAD = [
   { id: "", label: "Nº", width: 48 },
-  { id: "", width: 48 },
   { id: "", label: "Нэр" },
   { id: "", label: "Төрөл", width: 160 },
   { id: "", label: "Маягт", width: 120, align: "center" },
@@ -171,10 +170,10 @@ export default function RequestListView() {
   return (
     <Container maxWidth="xxl">
       <CustomBreadcrumbs
-        heading="Иргэний хүсэлт"
+        heading="Газар зүйн нэрийн хүсэлт"
         links={[
           { name: "Дашбоард", href: paths.dashboard.root },
-          { name: "Иргэний хүсэлт" },
+          { name: "Нэрийн хүсэлт" },
         ]}
         sx={{ mb: 3 }}
       />

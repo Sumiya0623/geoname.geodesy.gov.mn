@@ -114,22 +114,9 @@ export default function WorkspaceTreeRow({
           </Typography>
         ) : null}
 
-        {menuPermissions?.create && (
-          <IconButton
-            size="small"
-            color={addOpen ? "primary" : "default"}
-            onClick={handleAddToggle}
-            title={addOpen ? "Хаах" : "нэмэх"}
-          >
-            <Icon
-              icon={
-                addOpen ? "mdi:minus-circle-outline" : "mdi:plus-circle-outline"
-              }
-            />
-          </IconButton>
-        )}
-
-        {(menuPermissions?.update || menuPermissions?.delete) && (
+        {(menuPermissions?.create ||
+          menuPermissions?.update ||
+          menuPermissions?.delete) && (
           <IconButton size="small" onClick={popover.onOpen}>
             <Icon icon="mdi:dots-vertical" />
           </IconButton>
@@ -139,8 +126,25 @@ export default function WorkspaceTreeRow({
           open={popover.open}
           onClose={popover.onClose}
           arrow="right-top"
-          sx={{ width: 160 }}
+          sx={{ width: 200 }}
         >
+          {menuPermissions?.create && (
+            <MenuItem
+              onClick={() => {
+                handleAddToggle();
+                popover.onClose();
+              }}
+            >
+              <Icon
+                icon={
+                  addOpen
+                    ? "mdi:minus-circle-outline"
+                    : "mdi:plus-circle-outline"
+                }
+              />
+              {addOpen ? "Хаах" : "Дэд зангилаа нэмэх"}
+            </MenuItem>
+          )}
           {menuPermissions?.update && (
             <MenuItem
               onClick={() => {

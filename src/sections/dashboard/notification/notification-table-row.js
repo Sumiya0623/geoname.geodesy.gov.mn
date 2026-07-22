@@ -1,24 +1,27 @@
 import PropTypes from 'prop-types';
 import { useState, useCallback } from 'react';
 import {
+  Box,
+  Stack,
+  Dialog,
+  Button,
+  Divider,
+  Tooltip,
+  MenuItem,
   TableRow,
   TableCell,
   Typography,
-  Stack,
   IconButton,
-  Tooltip,
-  Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button,
-  Box,
 } from '@mui/material';
 
 import { fDateTime } from 'src/utils/format-time';
 import Label from 'src/components/label';
 import Iconify from 'src/components/iconify';
 import { ConfirmDialog } from 'src/components/custom-dialog';
+import CustomPopover, { usePopover } from 'src/components/custom-popover';
 
 // ----------------------------------------------------------------------
 
@@ -39,6 +42,7 @@ export default function NotificationTableRow({ row, rowQueue, onDeleteRow }) {
 
   const [openView, setOpenView] = useState(false);
   const [openConfirm, setOpenConfirm] = useState(false);
+  const popover = usePopover();
 
   const handleView = useCallback(() => setOpenView(true), []);
   const handleCloseView = useCallback(() => setOpenView(false), []);
@@ -87,21 +91,48 @@ export default function NotificationTableRow({ row, rowQueue, onDeleteRow }) {
 
         <TableCell sx={{ whiteSpace: 'nowrap' }}>{fDateTime(created_at, 'yyyy-MM-dd HH:mm')}</TableCell>
 
-        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-          <Tooltip title="Дэлгэрэнгүй харах">
-            <IconButton onClick={handleView}>
-              <Iconify icon="solar:eye-bold" />
-            </IconButton>
-          </Tooltip>
-          {onDeleteRow && (
-            <Tooltip title="Устгах">
-              <IconButton color="error" onClick={() => setOpenConfirm(true)}>
-                <Iconify icon="solar:trash-bin-trash-bold" />
-              </IconButton>
-            </Tooltip>
-          )}
+        <TableCell align="right" sx={{ px: 1 }}>
+          <IconButton
+            color={popover.open ? 'inherit' : 'default'}
+            onClick={popover.onOpen}
+          >
+            <Iconify icon="eva:more-vertical-fill" />
+          </IconButton>
         </TableCell>
       </TableRow>
+
+      <CustomPopover
+        open={popover.open}
+        onClose={popover.onClose}
+        arrow="right-top"
+        sx={{ width: 200 }}
+      >
+        <MenuItem
+          onClick={() => {
+            handleView();
+            popover.onClose();
+          }}
+        >
+          <Iconify icon="solar:eye-bold" />
+          Дэлгэрэнгүй
+        </MenuItem>
+
+        {onDeleteRow && (
+          <>
+            <Divider sx={{ borderStyle: 'dashed' }} />
+            <MenuItem
+              onClick={() => {
+                setOpenConfirm(true);
+                popover.onClose();
+              }}
+              sx={{ color: 'error.main' }}
+            >
+              <Iconify icon="solar:trash-bin-trash-bold" />
+              Устгах
+            </MenuItem>
+          </>
+        )}
+      </CustomPopover>
 
       <Dialog open={openView} onClose={handleCloseView} fullWidth maxWidth="sm">
         <DialogTitle>{subject || 'Имэйл'}</DialogTitle>

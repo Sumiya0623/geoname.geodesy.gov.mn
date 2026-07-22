@@ -37,6 +37,8 @@ import "ol/ol.css";
 import "ol-layerswitcher/dist/ol-layerswitcher.css";
 import TileLayer from "ol/layer/Tile";
 import ImageLayer from "ol/layer/Image";
+import VectorLayer from "ol/layer/Vector";
+import RegularShape from "ol/style/RegularShape";
 import ImageWMS from "ol/source/ImageWMS";
 import LayerGroup from "ol/layer/Group";
 import OSM from "ol/source/OSM";
@@ -64,6 +66,7 @@ import { boundingExtent } from "ol/extent";
 import {
   registerMapDraw,
   registerMapExtent,
+  registerRecountReload,
 } from "../../components/map/mapDraw";
 import NameSidebar from "../../components/map/NameSidebar";
 import LayerControl from "../../components/map/LayerControl";
@@ -113,6 +116,59 @@ const RADIUS_CENTER_STROKE_COLOR = "white";
 const CHATBOT_OUTER_FILL_COLOR = "rgba(255,215,0,0.3)";
 
 const buildWmsParams = (overrides = {}) => ({ ...WMS_PARAMS, ...overrides });
+
+// Recount vector (WFS) style — цэг(од)/шугам/талбай + нэрийн label. declutter:false
+// тул БҮХ label харагдана (сервер талын dedup байхгүй → шүүлт нь дэд олонлог болно).
+function makeRecountStyle(feature) {
+  const geom = feature.getGeometry();
+  const t = geom ? geom.getType() : "Point";
+  const name = feature.get("name") || "";
+  const labelFill = new Fill({ color: "#111" });
+  const labelStroke = new Stroke({ color: "#fff", width: 3 });
+
+  if (t.indexOf("Line") >= 0) {
+    // Шугам — нэрийг ШУГАМЫН ДАГУУ (curve) байрлуулна
+    return new Style({
+      stroke: new Stroke({ color: "#d32f2f", width: 3 }),
+      text: new Text({
+        text: name,
+        font: "12px sans-serif",
+        placement: "line",
+        overflow: true,
+        maxAngle: Math.PI / 4,
+        fill: labelFill,
+        stroke: labelStroke,
+      }),
+    });
+  }
+
+  const pointLabel = new Text({
+    text: name,
+    font: "12px sans-serif",
+    textAlign: "left",
+    offsetX: 9,
+    overflow: true,
+    fill: labelFill,
+    stroke: labelStroke,
+  });
+  if (t.indexOf("Point") >= 0) {
+    return new Style({
+      image: new RegularShape({
+        points: 5,
+        radius: 8,
+        radius2: 3.5,
+        fill: new Fill({ color: "#d32f2f" }),
+        stroke: new Stroke({ color: "#fff", width: 1 }),
+      }),
+      text: pointLabel,
+    });
+  }
+  return new Style({
+    fill: new Fill({ color: "rgba(211,47,47,0.25)" }),
+    stroke: new Stroke({ color: "#d32f2f", width: 2 }),
+    text: pointLabel,
+  });
+}
 const buildAdminWmsParams = (overrides = {}) => ({
   ...ADMIN_WMS_PARAMS,
   ...overrides,
@@ -355,7 +411,10 @@ function Map2() {
   );
   const recountProjectId = _cmMatch ? _cmMatch[1] : null;
   const [recountOn, setRecountOn] = useState(true);
+  // Recount панелийн (type checkbox + draft) бүрдүүлсэн CQL. null → бүх recount.
+  const [recountCql, setRecountCql] = useState(null);
   const recountLayerRef = useRef(null);
+  const recountLoadRef = useRef(null); // (cql, doFit) => recount vector‑ийг WFS‑ээр ачаална
   // Backend‑ээс ирсэн overlay‑ууд (hardcoded биш) — config‑оор нь generic
   // рендерлэнэ. key → OL layer, key → on/off.
   const [mapReady, setMapReady] = useState(false);
@@ -1380,6 +1439,7 @@ function Map2() {
       handleClearHighlight,
       enabledGeoserverFiltersRef,
       cqlWmsLayerRef,
+      recountLayerRef,
       setFeatureSelector,
       sidebarOpen,
       activeGnssLayersRef,
@@ -1868,11 +1928,48 @@ function Map2() {
     return () => registerMapExtent(null);
   }, []);
 
-  // Тодруулалт — тухайн төслийн recount (ReCount.loc) WMS давхарга
+  // Тодруулалт — тухайн төслийн recount‑ыг WFS‑ээр (GeoJSON) татаж, client талд
+  // OL vector‑оор рендерлэнэ. Сервер талын style/dedup/scale хамааралгүй — БҮХ
+  // feature, БҮХ label харагдана (шүүлт = дэд олонлог). Ачаалахад extent‑д fit.
   useEffect(() => {
     if (!recountProjectId) return undefined;
     let layer = null;
     let cancelled = false;
+    const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+    const geojson = new GeoJSON();
+
+    const load = (cql, doFit) => {
+      const map = mapObjRef.current;
+      const src = layer && layer.getSource();
+      if (!map || !src) return;
+      const url =
+        `${GS}/geoname/ows?service=WFS&version=2.0.0&request=GetFeature` +
+        `&typeNames=geoname:recount_view&outputFormat=application/json` +
+        `&srsName=EPSG:4326&CQL_FILTER=${encodeURIComponent(cql)}`;
+      fetch(url)
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return;
+          src.clear();
+          const feats = geojson.readFeatures(data, {
+            dataProjection: "EPSG:4326",
+            featureProjection: "EPSG:3857",
+          });
+          src.addFeatures(feats);
+          if (doFit && feats.length) {
+            const ext = src.getExtent();
+            if (ext && Number.isFinite(ext[0]) && ext[0] !== ext[2]) {
+              map.getView().fit(ext, {
+                padding: [60, 60, 60, 60],
+                maxZoom: 13,
+                duration: 400,
+              });
+            }
+          }
+        })
+        .catch(() => {});
+    };
+
     const attach = () => {
       const map = mapObjRef.current;
       if (cancelled) return;
@@ -1880,7 +1977,7 @@ function Map2() {
         setTimeout(attach, 300);
         return;
       }
-      // GeoServer‑т recount view (recount_view)‑ийг нийтлүүлэх (байхгүй бол)
+      // GeoServer‑т recount_view нийтлэгдсэн эсэхийг баталгаажуулна
       axiosInstance
         .get(
           endpoints.recount.wms(
@@ -1888,28 +1985,17 @@ function Map2() {
           ),
         )
         .catch(() => {});
-      // WMS — GeoServer‑ийн type symbol style‑аар, төслийн id‑р CQL шүүлттэй.
-      // ImageWMS (тайл БИШ, харагдах хэсгийг НЭГ зураг) — recount цөөн тул тайлын
-      // де‑confliction/захын таслалтгүйгээр БҮХ label харагдана (geoname_types_full).
-      const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
-      layer = new ImageLayer({
-        source: new ImageWMS({
-          url: `${GS}/geoname/wms`,
-          params: {
-            LAYERS: "geoname:recount_view",
-            STYLES: "geoname_types_full",
-            FORMAT: "image/png",
-            TRANSPARENT: true,
-            CQL_FILTER: `project_id=${recountProjectId}`,
-          },
-          serverType: "geoserver",
-          crossOrigin: "anonymous",
-        }),
+      layer = new VectorLayer({
+        source: new VectorSource(),
+        style: makeRecountStyle,
+        declutter: false, // БҮХ label харагдана
         zIndex: 60,
       });
       recountLayerRef.current = layer;
+      recountLoadRef.current = load;
       layer.setVisible(recountOn);
       map.addLayer(layer);
+      load(`project_id=${recountProjectId}`, true); // анх ачаалахад extent fit
     };
     attach();
     return () => {
@@ -1917,6 +2003,7 @@ function Map2() {
       const map = mapObjRef.current;
       if (layer && map) map.removeLayer(layer);
       recountLayerRef.current = null;
+      recountLoadRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recountProjectId]);
@@ -1925,6 +2012,26 @@ function Map2() {
   useEffect(() => {
     if (recountLayerRef.current) recountLayerRef.current.setVisible(recountOn);
   }, [recountOn]);
+
+  // Recount панелийн шүүлт — vector‑ийг шинэ CQL‑ээр дахин ачаална (fit хийхгүй).
+  const recountAppliedCqlRef = useRef(null);
+  useEffect(() => {
+    if (!recountProjectId) return;
+    const base = `project_id=${recountProjectId}`;
+    const cql = recountCql ? `(${base}) AND (${recountCql})` : base;
+    recountAppliedCqlRef.current = cql;
+    if (recountLoadRef.current) recountLoadRef.current(cql, false);
+  }, [recountCql, recountProjectId]);
+
+  // popup дээр recount засах/устгасны дараа газрын зургийг шинэчлэх гүүр
+  useEffect(() => {
+    registerRecountReload(() => {
+      if (recountLoadRef.current && recountAppliedCqlRef.current) {
+        recountLoadRef.current(recountAppliedCqlRef.current, false);
+      }
+    });
+    return () => registerRecountReload(null);
+  }, []);
 
   // === Backend‑ээс ирсэн БҮХ overlay‑ууд (LEGAL‑ээс бусад) — config‑оор нь
   // generic рендерлэнэ (buildOlBaseLayer). Hardcoded давхарга байхгүй. ===
@@ -3091,6 +3198,7 @@ function Map2() {
           searchPointState={searchPointState}
           setSearchPointState={setSearchPointState}
           scaleDenom={scaleDenom}
+          onRecountCql={setRecountCql}
         />
         <Box
           sx={{

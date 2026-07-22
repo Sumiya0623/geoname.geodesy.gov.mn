@@ -199,43 +199,10 @@ function LevelRow({
           {item?.subcount != 0 && item?.subcount}
         </Typography>
 
-        {menuPermissions?.create && canHaveChildren && (
-          <IconButton
-            size="small"
-            color={childFormOpen ? "primary" : "default"}
-            onClick={handleChildFormToggle}
-            sx={{ mr: 0.5 }}
-            title={childFormOpen ? "хаах" : "Нэмэх"}
-            id={`unit-add-${effectivePath.join("-")}`}
-          >
-            <Icon
-              icon={
-                childFormOpen
-                  ? "mdi:minus-circle-outline"
-                  : "mdi:plus-circle-outline"
-              }
-            />
-          </IconButton>
-        )}
-
-        {menuPermissions?.copy && (
-          <IconButton
-            size="small"
-            color={dupFormOpen ? "primary" : "default"}
-            onClick={handleDuplicateToggle}
-            sx={{ mr: 1 }}
-            title={dupFormOpen ? "Хаах" : "Ижил түвшинд хувилах"}
-            id={`unit-dup-${effectivePath.join("-")}`}
-          >
-            <Icon
-              icon={
-                dupFormOpen ? "mdi:minus-circle-outline" : "mdi:content-copy"
-              }
-            />
-          </IconButton>
-        )}
-
-        {(menuPermissions?.update || menuPermissions?.delete) &&
+        {((menuPermissions?.create && canHaveChildren) ||
+          menuPermissions?.copy ||
+          menuPermissions?.update ||
+          menuPermissions?.delete) && (
           <IconButton
             size="small"
             onClick={popover.onOpen}
@@ -243,14 +210,46 @@ function LevelRow({
           >
             <Icon icon="mdi:dots-vertical" />
           </IconButton>
-        }
+        )}
 
         <CustomPopover
           open={popover.open}
           onClose={popover.onClose}
           arrow="right-top"
-          sx={{ width: 160 }}
+          sx={{ width: 200 }}
         >
+          {menuPermissions?.create && canHaveChildren && (
+            <MenuItem
+              onClick={() => {
+                handleChildFormToggle();
+                popover.onClose();
+              }}
+            >
+              <Icon
+                icon={
+                  childFormOpen
+                    ? "mdi:minus-circle-outline"
+                    : "mdi:plus-circle-outline"
+                }
+              />
+              {childFormOpen ? "Хаах" : "Дэд нэгж нэмэх"}
+            </MenuItem>
+          )}
+          {menuPermissions?.copy && (
+            <MenuItem
+              onClick={() => {
+                handleDuplicateToggle();
+                popover.onClose();
+              }}
+            >
+              <Icon
+                icon={
+                  dupFormOpen ? "mdi:minus-circle-outline" : "mdi:content-copy"
+                }
+              />
+              {dupFormOpen ? "Хаах" : "Ижил түвшинд хувилах"}
+            </MenuItem>
+          )}
           {menuPermissions?.update && (
             <MenuItem onClick={handleEditClick}>
               <Icon icon="solar:pen-bold" />

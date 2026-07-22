@@ -6,8 +6,9 @@ import {
   Chip,
   Stack,
   Button,
+  Divider,
   Collapse,
-  Tooltip,
+  MenuItem,
   IconButton,
   Typography,
   CircularProgress,
@@ -19,13 +20,59 @@ import { useBoolean } from "src/hooks/use-boolean";
 import { useSnackbar } from "src/components/snackbar";
 import { useGetStoreLayers } from "src/api/workspace";
 import { ConfirmDialog } from "src/components/custom-dialog";
+import CustomPopover, { usePopover } from "src/components/custom-popover";
 
 import WorkspaceLayerForm from "./workspace-layer-form";
 
 // ----------------------------------------------------------------------
 // Store мөр — задарч доторх layer (PG view)‑уудаа жагсаана. Layer нэмэх,
-// засах, устгах. Store‑оо устгах.
+// засах, устгах. Store‑оо устгах. Бүх үйлдэл босоо 3 цэгт цэсэнд.
 // ----------------------------------------------------------------------
+
+// Нэг layer мөрийн үйлдлийн (SQL засах / устгах) 3 цэгт цэс
+function LayerActions({ canEditSql, onEditSql, onDelete }) {
+  const popover = usePopover();
+  return (
+    <>
+      <IconButton size="small" onClick={popover.onOpen}>
+        <Icon icon="mdi:dots-vertical" />
+      </IconButton>
+      <CustomPopover
+        open={popover.open}
+        onClose={popover.onClose}
+        arrow="right-top"
+        sx={{ width: 180 }}
+      >
+        {canEditSql && (
+          <MenuItem
+            onClick={() => {
+              onEditSql();
+              popover.onClose();
+            }}
+          >
+            <Icon icon="solar:pen-bold" />
+            SQL засах
+          </MenuItem>
+        )}
+        <MenuItem
+          onClick={() => {
+            onDelete();
+            popover.onClose();
+          }}
+          sx={{ color: "error.main" }}
+        >
+          <Icon icon="solar:trash-bin-trash-bold" />
+          Layer устгах
+        </MenuItem>
+      </CustomPopover>
+    </>
+  );
+}
+LayerActions.propTypes = {
+  canEditSql: PropTypes.bool,
+  onEditSql: PropTypes.func,
+  onDelete: PropTypes.func,
+};
 
 export default function WorkspaceStoreRow({
   workspaceId,
@@ -36,6 +83,7 @@ export default function WorkspaceStoreRow({
   const { enqueueSnackbar } = useSnackbar();
   const open = useBoolean();
   const confirmStore = useBoolean();
+  const storePopover = usePopover();
   const [addOpen, setAddOpen] = useState(false);
   const [editLayer, setEditLayer] = useState(null);
   const [delLayer, setDelLayer] = useState(null);
@@ -95,26 +143,40 @@ export default function WorkspaceStoreRow({
         </Typography>
 
         {canUpdate && (
-          <Tooltip title="Layer нэмэх">
-            <IconButton
-              size="small"
-              color={addOpen ? "primary" : "default"}
-              onClick={() => {
-                setAddOpen((v) => !v);
-                setEditLayer(null);
-                if (!open.value) open.onTrue();
-              }}
+          <>
+            <IconButton size="small" onClick={storePopover.onOpen}>
+              <Icon icon="mdi:dots-vertical" />
+            </IconButton>
+            <CustomPopover
+              open={storePopover.open}
+              onClose={storePopover.onClose}
+              arrow="right-top"
+              sx={{ width: 180 }}
             >
-              <Icon icon="mdi:plus-circle-outline" />
-            </IconButton>
-          </Tooltip>
-        )}
-        {canUpdate && (
-          <Tooltip title="Store устгах">
-            <IconButton size="small" color="error" onClick={confirmStore.onTrue}>
-              <Icon icon="solar:trash-bin-trash-bold" />
-            </IconButton>
-          </Tooltip>
+              <MenuItem
+                onClick={() => {
+                  setAddOpen((v) => !v);
+                  setEditLayer(null);
+                  if (!open.value) open.onTrue();
+                  storePopover.onClose();
+                }}
+              >
+                <Icon icon="mdi:plus-circle-outline" />
+                Layer нэмэх
+              </MenuItem>
+              <Divider sx={{ borderStyle: "dashed" }} />
+              <MenuItem
+                onClick={() => {
+                  confirmStore.onTrue();
+                  storePopover.onClose();
+                }}
+                sx={{ color: "error.main" }}
+              >
+                <Icon icon="solar:trash-bin-trash-bold" />
+                Store устгах
+              </MenuItem>
+            </CustomPopover>
+          </>
         )}
       </Stack>
 
@@ -162,28 +224,14 @@ export default function WorkspaceStoreRow({
                   ) : (
                     <Chip size="small" variant="outlined" label="table" />
                   )}
-                  {canUpdate && ly.is_view && (
-                    <Tooltip title="SQL засах">
-                      <IconButton
-                        size="small"
-                        onClick={() =>
-                          setEditLayer((p) => (p === ly.name ? null : ly.name))
-                        }
-                      >
-                        <Icon icon="solar:pen-bold" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
                   {canUpdate && (
-                    <Tooltip title="Layer устгах">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => setDelLayer(ly)}
-                      >
-                        <Icon icon="solar:trash-bin-trash-bold" />
-                      </IconButton>
-                    </Tooltip>
+                    <LayerActions
+                      canEditSql={ly.is_view}
+                      onEditSql={() =>
+                        setEditLayer((p) => (p === ly.name ? null : ly.name))
+                      }
+                      onDelete={() => setDelLayer(ly)}
+                    />
                   )}
                 </Stack>
 

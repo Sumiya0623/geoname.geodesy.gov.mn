@@ -172,55 +172,60 @@ export default function NameClassTreeRow({
           </Typography>
         ) : null}
 
-        {/* Зөвхөн 3 түвшин: tree level 0 (=2‑р түвшин) л дэд ангилал нэмнэ.
-            level 1 (=3‑р түвшин)‑ээс цааш задрахгүй. */}
-        {menuPermissions?.create && level < 1 && (
-          <IconButton
-            size="small"
-            color={addOpen ? "primary" : "default"}
-            onClick={handleAddToggle}
-            title={addOpen ? "Хаах" : "нэмэх"}
-          >
-            <Icon
-              icon={
-                addOpen ? "mdi:minus-circle-outline" : "mdi:plus-circle-outline"
-              }
-            />
-          </IconButton>
-        )}
-
-        {/* Level‑3 навч — view GeoServer‑т нийтлэгдсэн (gs_exists) үед л style засах
-            боломжтой. View байхгүй бол style гэж байхгүй тул товчийг харуулахгүй. */}
-        {item.is_leaf && item.gs_exists && (
-          <Tooltip title="Style (дүрэм) засах">
-            <IconButton
-              size="small"
-              color="primary"
-              onClick={() =>
-                window.open(
-                  `/dashboard/nameclass/${item.id}/style/`,
-                  "_blank",
-                  "noopener,noreferrer"
-                )
-              }
-            >
-              <Icon icon="mdi:palette-outline" />
+        {/* Бүх үйлдлийг (нэмэх/style/засах/устгах) нэг босоо 3 цэгт цэсэнд төвлөрүүлнэ */}
+        {(() => {
+          const canAdd = menuPermissions?.create && level < 1;
+          const canStyle = item.is_leaf && item.gs_exists;
+          const hasMenu =
+            canAdd || canStyle || menuPermissions?.update || menuPermissions?.delete;
+          if (!hasMenu) return null;
+          return (
+            <IconButton size="small" onClick={popover.onOpen}>
+              <Icon icon="mdi:dots-vertical" />
             </IconButton>
-          </Tooltip>
-        )}
-
-        {(menuPermissions?.update || menuPermissions?.delete) && (
-          <IconButton size="small" onClick={popover.onOpen}>
-            <Icon icon="mdi:dots-vertical" />
-          </IconButton>
-        )}
+          );
+        })()}
 
         <CustomPopover
           open={popover.open}
           onClose={popover.onClose}
           arrow="right-top"
-          sx={{ width: 160 }}
+          sx={{ width: 200 }}
         >
+          {menuPermissions?.create && level < 1 && (
+            <MenuItem
+              onClick={() => {
+                handleAddToggle();
+                popover.onClose();
+              }}
+            >
+              <Icon
+                icon={
+                  addOpen
+                    ? "mdi:minus-circle-outline"
+                    : "mdi:plus-circle-outline"
+                }
+              />
+              {addOpen ? "Хаах" : "Дэд ангилал нэмэх"}
+            </MenuItem>
+          )}
+
+          {item.is_leaf && item.gs_exists && (
+            <MenuItem
+              onClick={() => {
+                window.open(
+                  `/dashboard/nameclass/${item.id}/style/`,
+                  "_blank",
+                  "noopener,noreferrer"
+                );
+                popover.onClose();
+              }}
+            >
+              <Icon icon="mdi:palette-outline" />
+              Style засах
+            </MenuItem>
+          )}
+
           {menuPermissions?.update && (
             <MenuItem
               onClick={() => {

@@ -5,16 +5,11 @@ import { useState, useMemo, useCallback } from "react";
 import {
   Box,
   Card,
-  Chip,
   Table,
   Stack,
   Button,
-  Tooltip,
-  TableRow,
-  TableCell,
   TableBody,
   Typography,
-  IconButton,
   TableContainer,
 } from "@mui/material";
 
@@ -33,12 +28,14 @@ import {
 } from "src/components/table";
 
 import RasterPrintPanel from "../print-map-panel";
+import RasterTableRow from "../raster-table-row";
 
 const TABLE_HEAD = [
+  { id: "", label: "Nº", width: 48 },
   { id: "year", label: "Он", width: 70 },
   { id: "title", label: "Зургийн нэр" },
-  { id: "name_count", label: "Нэрийн тоо", width: 100, align: "center" },
-  { id: "is_border", label: "Хилийн цэс", width: 100, align: "center" },
+  { id: "name_count", label: "Нэрийн тоо", align: "center" },
+  { id: "is_border", label: "Хилийн цэс", align: "center" },
   { id: "scale", label: "Масштаб", width: 110 },
   { id: "user_name", label: "Хэвлэсэн", width: 150 },
   { id: "", label: "PDF", width: 90, align: "center" },
@@ -59,8 +56,13 @@ export default function RasterListView() {
     () => ({ page: table.page + 1, page_size: table.rowsPerPage }),
     [table.page, table.rowsPerPage],
   );
-  const { rasters, rastersCount, rastersLoading, rastersEmpty, rastersMutation } =
-    useGetRasters(requestBody);
+  const {
+    rasters,
+    rastersCount,
+    rastersLoading,
+    rastersEmpty,
+    rastersMutation,
+  } = useGetRasters(requestBody);
 
   const handleDelete = useCallback(
     async (id) => {
@@ -79,8 +81,15 @@ export default function RasterListView() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Typography variant="h5">Газар зүйн нэрийн зургийн хэвлэлийн эх</Typography>
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ mb: 2 }}
+      >
+        <Typography variant="h5">
+          Газар зүйн нэрийн зургийн хэвлэлийн эх
+        </Typography>
         <Button
           variant="contained"
           startIcon={<Iconify icon="solar:printer-bold" />}
@@ -100,51 +109,15 @@ export default function RasterListView() {
                   ? Array.from({ length: table.rowsPerPage }).map((_, i) => (
                       <TableSkeleton key={i} headLength={TABLE_HEAD.length} />
                     ))
-                  : rasters.map((row) => (
-                      <TableRow key={row.id} hover>
-                        <TableCell>{row.year || "—"}</TableCell>
-                        <TableCell>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {row.title || row.units_text || "—"}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="center">{row.name_count}</TableCell>
-                        <TableCell align="center">
-                          {row.is_border ? (
-                            <Chip size="small" color="warning" label="Тийм" />
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {row.scale ? `1 : ${Number(row.scale).toLocaleString()}` : "—"}
-                        </TableCell>
-                        <TableCell>{row.user_name || "—"}</TableCell>
-                        <TableCell align="center">
-                          {row.file_url ? (
-                            <Tooltip title="PDF татах">
-                              <IconButton
-                                color="error"
-                                component="a"
-                                href={row.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                <Iconify icon="mdi:file-pdf-box" width={24} />
-                              </IconButton>
-                            </Tooltip>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Tooltip title="Устгах">
-                            <IconButton color="default" onClick={() => handleDelete(row.id)}>
-                              <Iconify icon="solar:trash-bin-trash-bold" width={20} />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
+                  : rasters.map((row, i) => (
+                      <RasterTableRow
+                        key={row.id}
+                        row={row}
+                        page={table.page}
+                        rowsPerPage={table.rowsPerPage}
+                        index={i}
+                        onDelete={handleDelete}
+                      />
                     ))}
                 <TableNoData notFound={notFound} />
               </TableBody>

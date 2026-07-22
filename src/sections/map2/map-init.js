@@ -1,6 +1,7 @@
 import VectorLayer from "ol/layer/Vector";
 import TileLayer from "ol/layer/Tile";
 import TileWMS from "ol/source/TileWMS";
+import GeoJSON from "ol/format/GeoJSON";
 import Map from "ol/Map";
 import View from "ol/View";
 import MousePosition from "ol/control/MousePosition";
@@ -51,6 +52,7 @@ export function initMap(opts) {
     handleClearHighlight,
     enabledGeoserverFiltersRef,
     cqlWmsLayerRef,
+    recountLayerRef,
     setFeatureSelector,
     sidebarOpen,
     lastClickCoordinateRef,
@@ -431,6 +433,37 @@ export function initMap(opts) {
           } catch (innerErr) {
             console.error("GetFeatureInfo for layer failed", innerErr);
           }
+        }
+      }
+
+      // Recount vector (төслийн газрын зураг) — feature дээр дарахад дэлгэрэнгүй
+      if (
+        recountLayerRef &&
+        recountLayerRef.current &&
+        recountLayerRef.current.getVisible()
+      ) {
+        const rcFeat = map.forEachFeatureAtPixel(
+          event.pixel,
+          (feat, lyr) => (lyr === recountLayerRef.current ? feat : null),
+          { hitTolerance: 6 },
+        );
+        if (rcFeat) {
+          const props = { ...rcFeat.getProperties() };
+          delete props.geometry;
+          const g = rcFeat.getGeometry();
+          // _geom‑ийг 4326 GeoJSON болгож highlight‑д зориулна
+          try {
+            props._geom = JSON.parse(
+              new GeoJSON().writeGeometry(g, {
+                dataProjection: "EPSG:4326",
+                featureProjection: view.getProjection(),
+              }),
+            );
+          } catch (e) {
+            props._geom = null;
+          }
+          props._isRecount = true;
+          allFeatures.push(props);
         }
       }
 

@@ -44,6 +44,7 @@ import { useGetGeoserver } from "src/api/map";
 import MapAddName from "./MapAddName";
 import RasterPrintPanel from "../../sections/raster/print-map-panel";
 import NameCategoryTree from "./NameCategoryTree";
+import RecountPanel from "./RecountPanel";
 import AdvancedSearch from "./AdvancedSearch";
 
 // geoname:geoname_view (бүх геонэр) WMS суурь URL — Нэрийн ангилал филтерт
@@ -272,6 +273,7 @@ function GeoserverDialog({
   onPanelClose,
   geonameSearchTerm,
   scaleDenom,
+  onRecountCql,
 }) {
   const theme = useTheme();
   const isSmall = useMediaQuery(theme.breakpoints.down("sm"));
@@ -879,7 +881,9 @@ function GeoserverDialog({
                     }}
                   >
                     <Typography variant="subtitle2" sx={{ color: "#0675c9" }}>
-                      Газар зүйн нэрийн ангилал
+                      {addProjectId
+                        ? "Тооллогын ангилал"
+                        : "Газар зүйн нэрийн ангилал"}
                     </Typography>
                     <Box sx={{ display: "flex", alignItems: "center" }}>
                       <Tooltip title="Идэвхтэй ангиллыг цэвэрлэх">
@@ -927,7 +931,11 @@ function GeoserverDialog({
                       )}
                     </Box>
                   </Box>
-                  <Collapse in={searchOpen} timeout="auto" unmountOnExit>
+                  <Collapse
+                    in={searchOpen && !addProjectId}
+                    timeout="auto"
+                    unmountOnExit
+                  >
                     <AdvancedSearch
                       onSearch={handleGeonameSearch}
                       onClear={handleGeonameSearchClear}
@@ -951,11 +959,19 @@ function GeoserverDialog({
                     </Collapse>
                   )}
                   <Box sx={{ flex: 1, overflowY: "auto", px: 0.5 }}>
-                    <NameCategoryTree
-                      onToggle={handleNameToggle}
-                      checkedSet={nameChecked}
-                      filters={treeFilters}
-                    />
+                    {addProjectId ? (
+                      <RecountPanel
+                        projectId={addProjectId}
+                        onCql={onRecountCql}
+                        searchOpen={searchOpen}
+                      />
+                    ) : (
+                      <NameCategoryTree
+                        onToggle={handleNameToggle}
+                        checkedSet={nameChecked}
+                        filters={treeFilters}
+                      />
+                    )}
                   </Box>
                   <RasterPrintPanel
                     open={printOpen}

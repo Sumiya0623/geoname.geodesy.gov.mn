@@ -42,16 +42,62 @@ import Iconify from "src/components/iconify";
 import Scrollbar from "src/components/scrollbar";
 import { useSnackbar } from "src/components/snackbar";
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
+import CustomPopover, { usePopover } from "src/components/custom-popover";
+
+// Зөвлөлийн мөрийн үйлдэл (засах) — босоо 3 цэгт цэс
+function CouncilRowMenu({ onEdit }) {
+  const popover = usePopover();
+  return (
+    <>
+      <IconButton
+        size="small"
+        onClick={(e) => {
+          e.stopPropagation();
+          popover.onOpen(e);
+        }}
+      >
+        <Iconify icon="eva:more-vertical-fill" />
+      </IconButton>
+      <CustomPopover
+        open={popover.open}
+        onClose={popover.onClose}
+        arrow="right-top"
+        sx={{ width: 160 }}
+      >
+        <MenuItem
+          onClick={() => {
+            onEdit();
+            popover.onClose();
+          }}
+        >
+          <Iconify icon="solar:pen-bold" />
+          Засах
+        </MenuItem>
+      </CustomPopover>
+    </>
+  );
+}
+CouncilRowMenu.propTypes = { onEdit: PropTypes.func };
 
 // ----------------------------------------------------------------------
 // LegalOrder (тогтоол/захирамж) сонгогч — баримтаар баталгаажуулна
 // ----------------------------------------------------------------------
-function LegalDocPicker({ value, onChange, label = "Баримт (тогтоол/захирамж)" }) {
+function LegalDocPicker({
+  value,
+  onChange,
+  label = "Баримт (тогтоол/захирамж)",
+}) {
   const [q, setQ] = useState("");
   const dq = useDebounce(q, 350);
   const { data } = useSWR(
     dq && dq.trim().length >= 2
-      ? [endpoints.legal.list(`search=${encodeURIComponent(dq.trim())}&page_size=20`), axiosInstance, "get"]
+      ? [
+          endpoints.legal.list(
+            `search=${encodeURIComponent(dq.trim())}&page_size=20`,
+          ),
+          axiosInstance,
+          "get",
+        ]
       : null,
     fetcher,
     { shouldRetryOnError: false },
@@ -65,7 +111,9 @@ function LegalDocPicker({ value, onChange, label = "Баримт (тогтоол
       onChange={(e, v) => onChange(v)}
       onInputChange={(e, v, r) => r === "input" && setQ(v)}
       getOptionLabel={(o) =>
-        o?.name ? `${o.name}${o.order_number ? ` (${o.order_number})` : ""}` : ""
+        o?.name
+          ? `${o.name}${o.order_number ? ` (${o.order_number})` : ""}`
+          : ""
       }
       isOptionEqualToValue={(o, v) => o?.id === v?.id}
       noOptionsText={dq?.length >= 2 ? "Олдсонгүй" : "Нэр/дугаараар хайх"}
@@ -84,7 +132,9 @@ function useUnits(level, parentId, enabled = true) {
   const params = new URLSearchParams({ level });
   if (parentId) params.append("parent", parentId);
   const { data } = useSWR(
-    enabled ? [endpoints.legal.units(params.toString()), axiosInstance, "get"] : null,
+    enabled
+      ? [endpoints.legal.units(params.toString()), axiosInstance, "get"]
+      : null,
     fetcher,
     { shouldRetryOnError: false },
   );
@@ -100,7 +150,8 @@ export default function CouncilListView() {
 
   const { constants: kinds } = useGetConstantsFordropdown("COUNCIL_KINDS");
   const { constants: statuses } = useGetConstantsFordropdown("COUNCIL_STATUS");
-  const { constants: positions } = useGetConstantsFordropdown("COUNCIL_POSITIONS");
+  const { constants: positions } =
+    useGetConstantsFordropdown("COUNCIL_POSITIONS");
 
   const { councils, councilsLoading, councilsMutation } = useGetCouncils();
 
@@ -142,7 +193,9 @@ export default function CouncilListView() {
       ...(cf.kind_id ? { kind_id: cf.kind_id } : {}),
       ...(cf.status_id ? { status_id: cf.status_id } : {}),
       ...(cf.established_date ? { established_date: cf.established_date } : {}),
-      ...(cf.established_doc?.id ? { established_doc_id: cf.established_doc.id } : {}),
+      ...(cf.established_doc?.id
+        ? { established_doc_id: cf.established_doc.id }
+        : {}),
       unit_id: (sum || aimag)?.id || null,
     };
     try {
@@ -173,7 +226,9 @@ export default function CouncilListView() {
   const [mDlg, setMDlg] = useState(null);
   const saveMember = async () => {
     if (!mDlg.full_name.trim() || !mDlg.appoint_doc?.id || !mDlg.start_date) {
-      enqueueSnackbar("Нэр, томилсон баримт, огноо заавал", { variant: "warning" });
+      enqueueSnackbar("Нэр, томилсон баримт, огноо заавал", {
+        variant: "warning",
+      });
       return;
     }
     try {
@@ -205,10 +260,13 @@ export default function CouncilListView() {
       return;
     }
     try {
-      await axiosInstance.post(endpoints.council.memberRelease(rDlg.member.id), {
-        release_doc_id: rDlg.release_doc.id,
-        ...(rDlg.end_date ? { end_date: rDlg.end_date } : {}),
-      });
+      await axiosInstance.post(
+        endpoints.council.memberRelease(rDlg.member.id),
+        {
+          release_doc_id: rDlg.release_doc.id,
+          ...(rDlg.end_date ? { end_date: rDlg.end_date } : {}),
+        },
+      );
       enqueueSnackbar("Чөлөөллөө");
       setRDlg(null);
       membersMutation();
@@ -224,7 +282,7 @@ export default function CouncilListView() {
     d ? `${d.name}${d.order_number ? ` (${d.order_number})` : ""}` : "—";
 
   return (
-    <Container maxWidth={settings.themeStretch ? false : "xl"}>
+    <Container maxWidth={settings.themeStretch ? false : "xxl"}>
       <CustomBreadcrumbs
         heading="Газар зүйн нэрийн зөвлөлийн сан"
         links={[{ name: "Дашбоард" }, { name: "Зөвлөлийн сан" }]}
@@ -269,17 +327,22 @@ export default function CouncilListView() {
                     <TableCell>{c.unit?.unit || "Үндэсний"}</TableCell>
                     <TableCell>
                       {c.status?.name ? (
-                        <Chip size="small" label={c.status.name} variant="outlined" />
+                        <Chip
+                          size="small"
+                          label={c.status.name}
+                          variant="outlined"
+                        />
                       ) : (
                         "—"
                       )}
                     </TableCell>
                     <TableCell align="center">{c.member_count}</TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                    <TableCell
+                      align="right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <CouncilRowMenu
+                        onEdit={() => {
                           setCf({
                             id: c.id,
                             name: c.name || "",
@@ -292,9 +355,7 @@ export default function CouncilListView() {
                           setSum(null);
                           councilForm.onTrue();
                         }}
-                      >
-                        <Iconify icon="solar:pen-bold" />
-                      </IconButton>
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -363,11 +424,19 @@ export default function CouncilListView() {
                 </TableHead>
                 <TableBody>
                   {members.map((m) => (
-                    <TableRow key={m.id} hover sx={{ opacity: m.is_active ? 1 : 0.55 }}>
+                    <TableRow
+                      key={m.id}
+                      hover
+                      sx={{ opacity: m.is_active ? 1 : 0.55 }}
+                    >
                       <TableCell>
                         {m.full_name}
                         {m.register ? (
-                          <Typography variant="caption" color="text.secondary" display="block">
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            display="block"
+                          >
                             {m.register}
                           </Typography>
                         ) : null}
@@ -377,7 +446,12 @@ export default function CouncilListView() {
                       <TableCell>{m.start_date || "—"}</TableCell>
                       <TableCell>
                         {m.is_active ? (
-                          <Chip size="small" color="success" label="идэвхтэй" variant="outlined" />
+                          <Chip
+                            size="small"
+                            color="success"
+                            label="идэвхтэй"
+                            variant="outlined"
+                          />
                         ) : (
                           m.end_date
                         )}
@@ -391,7 +465,11 @@ export default function CouncilListView() {
                               size="small"
                               color="warning"
                               onClick={() =>
-                                setRDlg({ member: m, end_date: "", release_doc: null })
+                                setRDlg({
+                                  member: m,
+                                  end_date: "",
+                                  release_doc: null,
+                                })
                               }
                             >
                               <Iconify icon="solar:logout-3-bold" />
@@ -418,7 +496,12 @@ export default function CouncilListView() {
       )}
 
       {/* Зөвлөл нэмэх/засах диалог */}
-      <Dialog open={councilForm.value} onClose={councilForm.onFalse} fullWidth maxWidth="sm">
+      <Dialog
+        open={councilForm.value}
+        onClose={councilForm.onFalse}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>{cf.id ? "Зөвлөл засах" : "Зөвлөл нэмэх"}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -434,7 +517,9 @@ export default function CouncilListView() {
                 fullWidth
                 label="Төрөл"
                 value={cf.kind_id}
-                onChange={(e) => setCf((p) => ({ ...p, kind_id: e.target.value }))}
+                onChange={(e) =>
+                  setCf((p) => ({ ...p, kind_id: e.target.value }))
+                }
               >
                 <MenuItem value="">—</MenuItem>
                 {kinds.map((k) => (
@@ -448,7 +533,9 @@ export default function CouncilListView() {
                 fullWidth
                 label="Төлөв"
                 value={cf.status_id}
-                onChange={(e) => setCf((p) => ({ ...p, status_id: e.target.value }))}
+                onChange={(e) =>
+                  setCf((p) => ({ ...p, status_id: e.target.value }))
+                }
               >
                 <MenuItem value="">—</MenuItem>
                 {statuses.map((s) => (
@@ -481,7 +568,9 @@ export default function CouncilListView() {
                 onChange={(e, v) => setSum(v)}
                 getOptionLabel={(o) => o?.unit || ""}
                 isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                renderInput={(params) => <TextField {...params} label="Сум/Дүүрэг" />}
+                renderInput={(params) => (
+                  <TextField {...params} label="Сум/Дүүрэг" />
+                )}
               />
             </Stack>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
@@ -514,7 +603,12 @@ export default function CouncilListView() {
       </Dialog>
 
       {/* Гишүүн нэмэх диалог */}
-      <Dialog open={!!mDlg} onClose={() => setMDlg(null)} fullWidth maxWidth="sm">
+      <Dialog
+        open={!!mDlg}
+        onClose={() => setMDlg(null)}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>Гишүүн нэмэх (баримтаар)</DialogTitle>
         {mDlg && (
           <DialogContent>
@@ -524,12 +618,16 @@ export default function CouncilListView() {
                   label="Овог нэр"
                   fullWidth
                   value={mDlg.full_name}
-                  onChange={(e) => setMDlg((p) => ({ ...p, full_name: e.target.value }))}
+                  onChange={(e) =>
+                    setMDlg((p) => ({ ...p, full_name: e.target.value }))
+                  }
                 />
                 <TextField
                   label="Регистр"
                   value={mDlg.register}
-                  onChange={(e) => setMDlg((p) => ({ ...p, register: e.target.value }))}
+                  onChange={(e) =>
+                    setMDlg((p) => ({ ...p, register: e.target.value }))
+                  }
                 />
               </Stack>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
@@ -538,7 +636,9 @@ export default function CouncilListView() {
                   fullWidth
                   label="Албан тушаал"
                   value={mDlg.position_id}
-                  onChange={(e) => setMDlg((p) => ({ ...p, position_id: e.target.value }))}
+                  onChange={(e) =>
+                    setMDlg((p) => ({ ...p, position_id: e.target.value }))
+                  }
                 >
                   <MenuItem value="">—</MenuItem>
                   {positions.map((p) => (
@@ -553,14 +653,18 @@ export default function CouncilListView() {
                   InputLabelProps={{ shrink: true }}
                   fullWidth
                   value={mDlg.start_date}
-                  onChange={(e) => setMDlg((p) => ({ ...p, start_date: e.target.value }))}
+                  onChange={(e) =>
+                    setMDlg((p) => ({ ...p, start_date: e.target.value }))
+                  }
                 />
               </Stack>
               <TextField
                 label="Төлөөлж буй албан тушаал"
                 fullWidth
                 value={mDlg.org_title}
-                onChange={(e) => setMDlg((p) => ({ ...p, org_title: e.target.value }))}
+                onChange={(e) =>
+                  setMDlg((p) => ({ ...p, org_title: e.target.value }))
+                }
               />
               <LegalDocPicker
                 label="Томилсон баримт (заавал)"
@@ -581,7 +685,12 @@ export default function CouncilListView() {
       </Dialog>
 
       {/* Гишүүн чөлөөлөх диалог */}
-      <Dialog open={!!rDlg} onClose={() => setRDlg(null)} fullWidth maxWidth="xs">
+      <Dialog
+        open={!!rDlg}
+        onClose={() => setRDlg(null)}
+        fullWidth
+        maxWidth="xs"
+      >
         <DialogTitle>Гишүүн чөлөөлөх</DialogTitle>
         {rDlg && (
           <DialogContent>
@@ -595,7 +704,9 @@ export default function CouncilListView() {
                 InputLabelProps={{ shrink: true }}
                 fullWidth
                 value={rDlg.end_date}
-                onChange={(e) => setRDlg((p) => ({ ...p, end_date: e.target.value }))}
+                onChange={(e) =>
+                  setRDlg((p) => ({ ...p, end_date: e.target.value }))
+                }
               />
               <LegalDocPicker
                 label="Чөлөөлсөн баримт (заавал)"

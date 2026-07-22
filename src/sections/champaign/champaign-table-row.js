@@ -1,11 +1,17 @@
 import PropTypes from "prop-types";
-import { useState } from "react";
+
 import TableRow from "@mui/material/TableRow";
-import { Stack, Button, Tooltip, Typography, IconButton } from "@mui/material";
 import TableCell from "@mui/material/TableCell";
+import MenuItem from "@mui/material/MenuItem";
+import IconButton from "@mui/material/IconButton";
+import { Stack, Button, Divider, Tooltip, Typography } from "@mui/material";
+
+import { useBoolean } from "src/hooks/use-boolean";
+
 import Iconify from "src/components/iconify";
-import { ConfirmDialog } from "src/components/custom-dialog";
 import ProfileAvatar from "src/components/profile-avatar";
+import { ConfirmDialog } from "src/components/custom-dialog";
+import CustomPopover, { usePopover } from "src/components/custom-popover";
 // ----------------------------------------------------------------------
 
 export default function ChampaignTableRow({
@@ -17,7 +23,10 @@ export default function ChampaignTableRow({
   const { page, rowsPerPage, index } = rowQueue;
   const { name, signed_date, id, dugaar, org } = row;
 
-  const [openConfirm, setOpenConfirm] = useState(false);
+  const confirm = useBoolean();
+  const popover = usePopover();
+
+  const hasMenu = menuPermissions?.detail || menuPermissions?.delete;
 
   return (
     <>
@@ -63,24 +72,58 @@ export default function ChampaignTableRow({
           </Stack>
         </TableCell>
 
-        <TableCell align="right">
-          {menuPermissions?.delete && (
-            <Tooltip title="Устгах">
-              <IconButton
-                color="error"
-                size="small"
-                onClick={() => setOpenConfirm(true)}
-              >
-                <Iconify icon="eva:trash-2-fill" />
-              </IconButton>
-            </Tooltip>
+        <TableCell align="right" sx={{ px: 1 }}>
+          {hasMenu && (
+            <IconButton
+              color={popover.open ? "inherit" : "default"}
+              onClick={popover.onOpen}
+              id={`champaign-action-${index}`}
+            >
+              <Iconify icon="eva:more-vertical-fill" />
+            </IconButton>
           )}
         </TableCell>
       </TableRow>
 
+      <CustomPopover
+        open={popover.open}
+        onClose={popover.onClose}
+        arrow="right-top"
+        sx={{ width: 200 }}
+      >
+        {menuPermissions?.detail && (
+          <MenuItem
+            onClick={() => {
+              window.open(`/dashboard/champaign/${id}/`, "_blank");
+              popover.onClose();
+            }}
+          >
+            <Iconify icon="solar:eye-bold" />
+            Дэлгэрэнгүй
+          </MenuItem>
+        )}
+
+        {menuPermissions?.detail && menuPermissions?.delete && (
+          <Divider sx={{ borderStyle: "dashed" }} />
+        )}
+
+        {menuPermissions?.delete && (
+          <MenuItem
+            onClick={() => {
+              confirm.onTrue();
+              popover.onClose();
+            }}
+            sx={{ color: "error.main" }}
+          >
+            <Iconify icon="solar:trash-bin-trash-bold" />
+            Устгах
+          </MenuItem>
+        )}
+      </CustomPopover>
+
       <ConfirmDialog
-        open={openConfirm}
-        onClose={() => setOpenConfirm(false)}
+        open={confirm.value}
+        onClose={confirm.onFalse}
         title="Устгах"
         content="Та энэ гэрээт ажлыг устгахдаа итгэлтэй байна уу?"
         action={
@@ -89,7 +132,7 @@ export default function ChampaignTableRow({
             color="error"
             onClick={() => {
               onDelete?.(id);
-              setOpenConfirm(false);
+              confirm.onFalse();
             }}
           >
             Устгах

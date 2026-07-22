@@ -83,12 +83,14 @@ export default function RequestTableRow({
     <>
       <TableRow hover>
         <TableCell>{page * rowsPerPage + index + 1}</TableCell>
-        <TableCell>
+        <TableCell sx={{ whiteSpace: "normal", maxWidth: 280 }}>
+          {firstName}
           <IconButton size="small" onClick={open.onToggle}>
-            <Icon icon={open.value ? "mdi:chevron-down" : "mdi:chevron-right"} />
+            <Icon
+              icon={open.value ? "mdi:chevron-down" : "mdi:chevron-right"}
+            />
           </IconButton>
         </TableCell>
-        <TableCell sx={{ whiteSpace: "normal", maxWidth: 280 }}>{firstName}</TableCell>
         <TableCell>{type?.name || "-"}</TableCell>
         <TableCell align="center">
           <Tooltip title="Өргөдлийн маягт татах (PDF)">
@@ -135,16 +137,31 @@ export default function RequestTableRow({
                 </Typography>
               )}
               {purpose.length > 0 && (
-                <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mb: 1.5 }}>
+                <Stack
+                  direction="row"
+                  flexWrap="wrap"
+                  gap={0.5}
+                  sx={{ mb: 1.5 }}
+                >
                   {purpose.map((p) => (
-                    <Chip key={p.id} size="small" variant="outlined" label={p.name} />
+                    <Chip
+                      key={p.id}
+                      size="small"
+                      variant="outlined"
+                      label={p.name}
+                    />
                   ))}
                 </Stack>
               )}
               {options.map((o, i) => (
                 <Box
                   key={o.id || i}
-                  sx={{ p: 1.5, mb: 1, borderRadius: 1, bgcolor: "background.paper" }}
+                  sx={{
+                    p: 1.5,
+                    mb: 1,
+                    borderRadius: 1,
+                    bgcolor: "background.paper",
+                  }}
                 >
                   <Typography variant="subtitle2">
                     Санал 1: {o.name || "-"}

@@ -1,4 +1,5 @@
 import { m } from "framer-motion";
+import { useState } from "react";
 
 import Box from "@mui/material/Box";
 import Avatar from "@mui/material/Avatar";
@@ -16,6 +17,8 @@ import { useSnackbar } from "src/components/snackbar";
 import CustomPopover, { usePopover } from "src/components/custom-popover";
 import { Button, Chip } from "@mui/material";
 
+import PluginTokenDialog from "./plugin-token-dialog";
+
 export default function AccountPopover() {
   const router = useRouter();
 
@@ -24,6 +27,8 @@ export default function AccountPopover() {
   const { enqueueSnackbar } = useSnackbar();
 
   const popover = usePopover();
+
+  const [tokenOpen, setTokenOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -136,12 +141,23 @@ export default function AccountPopover() {
           </Button>
         </MenuItem>
         <MenuItem
+          onClick={() => {
+            popover.onClose();
+            setTokenOpen(true);
+          }}
+          sx={{ m: 1, fontWeight: "fontWeightBold" }}
+        >
+          QGIS Plugin Token
+        </MenuItem>
+        <MenuItem
           onClick={handleLogout}
           sx={{ m: 1, fontWeight: "fontWeightBold", color: "error.main" }}
         >
           Гарах
         </MenuItem>
       </CustomPopover>
+
+      <PluginTokenDialog open={tokenOpen} onClose={() => setTokenOpen(false)} />
     </>
   );
 }
