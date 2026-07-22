@@ -407,6 +407,8 @@ class ReCount(models.Model):
 	nomeks=models.ManyToManyField(Nomek,related_name='recount100',verbose_name='Нэрлэвэр',blank=True)
 	loc=models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
 	status=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төрөл',related_name='recountstatuses',blank=True, null=True)
+	# Олон төлөв (ж: байршил зөрүүтэй + нэр алдаатай) — M2M. status нь үндсэн/эхний.
+	statuses=models.ManyToManyField(Constant,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төлөв (олон)',related_name='recount_multi_statuses',blank=True)
 
 class ReCountMap(models.Model):
 	names=models.ManyToManyField(ReCount,verbose_name='Нэрс', related_name='recountmaps')
@@ -426,7 +428,6 @@ class LegalOrder(UserMixin):
 	document=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Баримт бичиг')
 	signer=models.CharField(max_length=255, verbose_name='Гарын үсэг', blank=True, null=True)
 
-
 class GeoNameSource(models.Model):
 	name=models.ForeignKey(GeoName, on_delete=models.CASCADE, related_name='sources', verbose_name='Нэр')
 	order=models.ForeignKey(LegalOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='name_sources', verbose_name='Тогтоол')
@@ -436,13 +437,11 @@ class GeoNameSource(models.Model):
 	raw_text=models.CharField(max_length=1000, blank=True, null=True, verbose_name='Эх мөр')
 	confidence=models.FloatField(blank=True, null=True, verbose_name='Итгэлийн оноо')
 	needs_review=models.BooleanField(default=False, verbose_name='Хянах шаардлагатай')
-
 	class Meta:
 		indexes=[models.Index(fields=['volume','page'])]
 
 	def __str__(self):
 		return f'{self.name} — {self.volume} х.{self.page}'
-
 
 class RasterMap(UserMixin):
 	names=models.ManyToManyField(GeoName,related_name='namemaps',verbose_name='Нэрлэвэр',blank=True)
@@ -453,7 +452,6 @@ class RasterMap(UserMixin):
 	map_date=models.DateField(verbose_name='Гарсан огноо', blank=True, null=True)
 	is_geo=models.BooleanField(default=False,verbose_name='Холболттой эсэх')
 	file=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Газрын зураг')
-
 
 class PrintMap(UserMixin):
 	"""Газар зүйн нэрийн зургийн ХЭВЛЭЛИЙН ЭХ (PDF). Аймгийн нэг буюу хэд хэдэн
@@ -467,7 +465,6 @@ class PrintMap(UserMixin):
 	title=models.CharField(max_length=500, blank=True, null=True, verbose_name='Зургийн нэр (авто)')
 	scale=models.IntegerField(blank=True, null=True, verbose_name='Масштаб')
 	file=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Хэвлэлийн эх (PDF)')
-
 	class Meta:
 		verbose_name='Хэвлэлийн эх'
 		verbose_name_plural='Хэвлэлийн эх'
@@ -489,75 +486,6 @@ class NameContact(models.Model):
 	email=models.EmailField(max_length=1000,blank=True,null=True,verbose_name='Имэйл')
 	photo=models.ImageField(upload_to=photo_upload_path, blank=True, null=True,verbose_name='Зураг')
 	requested_by=models.ForeignKey(RemoteUser,on_delete=models.CASCADE,verbose_name='Нэр', related_name='requestedcontacts',blank=True, null=True)
-
-class Cart(UserMixin):
-	status = models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'CARTSTATUS'}, verbose_name='Төрөл', related_name='carts',blank=True, null=True)
-	catalogy=models.FileField(upload_to='upload_files/payment/catalogy',blank=True, null=True)
-	inquire_qr = models.ImageField(upload_to='upload_files/payment/qr',blank=True, null=True)
-	link=models.CharField(max_length=1000,blank=True, null=True)
-	def __str__(self): 
-		return f'Cart#{self.id} {self.user} [{self.status}]'
-
-class CartItem(models.Model):
-	cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items')
-	point = models.ForeignKey(GeoName, on_delete=models.CASCADE, related_name='cart_items')
-	unit_price = models.DecimalField(max_digits=12, decimal_places=2)  # capture price at time of add
-	added_at = models.DateTimeField(auto_now_add=True)
-	class Meta:
-		unique_together = [('cart', 'point')]  # нэг cart-д нэг point ганц л удаа
-		indexes = [models.Index(fields=['cart']), models.Index(fields=['point'])]
-
-class Payment(UserMixin):
-	order = models.OneToOneField(Cart, on_delete=models.CASCADE,  verbose_name='Захиалга')
-	receiver = models.CharField(max_length=20, null=True, blank=True, verbose_name='Хүлээн авагчийн регистр')
-	# QPay талын metadata
-	invoice_id = models.CharField(max_length=40, verbose_name='QPAY дугаар', blank=True)
-	qp_qrcode  = models.ImageField(upload_to=photo_upload_path, blank=True)
-	call_back  = models.URLField(blank=True)
-	amount     = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='Дүн', blank=True, null=True)
-	payment_id = models.CharField(max_length=40, verbose_name='QPAY төлбөрийн дугаар', blank=True)
-	wallet     = models.CharField(max_length=40, verbose_name='Төрөл', blank=True)
-	is_paid=models.BooleanField(default=False,verbose_name='Төлбөр')
-	counter=models.IntegerField(default=0,null=True, blank=True,verbose_name='counter')
-	# Ебаримт
-	ebarimt_id         = models.CharField(max_length=40,  verbose_name='Ebarim дугаар', blank=True)
-	ebarimt_bill_id    = models.CharField(max_length=200, verbose_name='ДДТД', blank=True)
-	ebarimt_qr_data    = models.CharField(max_length=5000, verbose_name='Ebarimt data', blank=True)
-	ebarimt_qrcode     = models.ImageField(upload_to=photo_upload_path, blank=True)
-	ebarimt_lottery_id = models.CharField(max_length=5000, verbose_name='Ebarimt сугалааны дугаар', blank=True)
-	class Meta:
-		ordering = ['-created_date']
-		verbose_name_plural = "Гүйлгээ"
-
-	def __str__(self):
-		return f'Payment#{self.pk}'
-
-class QpayToken(models.Model):
-	payment=models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='payments', verbose_name='Төлбөр',blank=True, null=True)
-	type=models.CharField(null=True, blank=True,verbose_name='type')
-	expire=models.CharField(null=True, blank=True,verbose_name='expire')
-	refresh_expire=models.CharField(null=True, blank=True,verbose_name='refresh expire')
-	refresh=models.CharField(null=True, blank=True,verbose_name='refresh')
-	access=models.CharField(null=True, blank=True,verbose_name='access')
-	scope=models.CharField(null=True, blank=True,verbose_name='scope')
-	session_state=models.CharField(null=True, blank=True,verbose_name='session_state')
-
-class PaymentBank(models.Model):
-	"""Хүлээн авагч"""
-	payment=models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='banks', verbose_name='Банк',blank=True, null=True)
-	name=models.CharField(max_length=40, verbose_name='QPAY дугаар', blank=True)
-	description=models.CharField(max_length=3000, blank=True, null=True, verbose_name='Дүн')
-	logo=models.ImageField(upload_to=photo_upload_path,blank=True)
-	link=models.CharField(max_length=3000,blank=True)
-	def __str__(self):
-		return f'{self.name}'
-	class Meta:
-		verbose_name_plural = "Банк" 
-
-class Report(models.Model):
-	names = models.ManyToManyField(GeoName, related_name='reports')
-	report=models.FileField(upload_to=file_upload_path,blank=True, null=True)
-	engineer=models.ForeignKey(RemoteUser, on_delete=models.CASCADE, verbose_name='Тэгшитгэн бодсон',related_name='reportengineers',limit_choices_to={'is_citizen': True},null=True, blank=True) # C NonReq
 
 class Passport(models.Model):
 	name=models.ForeignKey(GeoName,related_name='acts', on_delete=models.CASCADE, blank=True, null=True)
