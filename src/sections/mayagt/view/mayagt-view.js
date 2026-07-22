@@ -55,7 +55,9 @@ function useUnits(level, parentId, enabled = true) {
   const params = new URLSearchParams({ level });
   if (parentId) params.append("parent", parentId);
   const { data } = useSWR(
-    enabled ? [endpoints.legal.units(params.toString()), axiosInstance, "get"] : null,
+    enabled
+      ? [endpoints.legal.units(params.toString()), axiosInstance, "get"]
+      : null,
     fetcher,
     { shouldRetryOnError: false },
   );
@@ -79,7 +81,12 @@ function GeomIcon({ geom }) {
   const Ic = g.Ic;
   return (
     <Ic
-      sx={{ fontSize: 15, color: g.color, ml: 0.5, verticalAlign: "text-bottom" }}
+      sx={{
+        fontSize: 15,
+        color: g.color,
+        ml: 0.5,
+        verticalAlign: "text-bottom",
+      }}
     />
   );
 }
@@ -88,13 +95,17 @@ GeomIcon.propTypes = { geom: PropTypes.string };
 // Маягт бүрийн баганы тодорхойлолт
 const COLS = {
   1: [
-    { id: "draft", label: "Зураг дээрх нэр", get: (r) => r.draft },
-    { id: "name", label: "УИХ‑аар батлагдсан нэр", get: (r) => r.name },
-    { id: "nomek_100k", label: "1:100000 нэрлэвэр", get: (r) => r.nomek_100k },
-    { id: "nomek_25k", label: "1:25000 нэрлэвэр", get: (r) => r.nomek_25k },
+    { id: "draft", label: "Нэр", get: (r) => r.name },
+    { id: "name", label: "УИХ‑аар батлагдсан", get: (r) => r.name },
+    { id: "nomek_100k", label: "1:100000", get: (r) => r.nomek_100k },
+    { id: "nomek_25k", label: "1:25000", get: (r) => r.nomek_25k },
   ],
   2: [
-    { id: "draft", label: "Уламжлалт (батлагдаагүй) нэр", get: (r) => r.draft || r.name },
+    {
+      id: "draft",
+      label: "Уламжлалт (батлагдаагүй) нэр",
+      get: (r) => r.draft || r.name,
+    },
     { id: "nomek_100k", label: "1:100000 нэрэлбэр", get: (r) => r.nomek_100k },
     { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
     { id: "lon", label: "Уртраг", get: (r) => r.lon },
@@ -116,14 +127,22 @@ const COLS = {
   ],
   5: [
     { id: "name", label: "Газар зүйн нэр", get: (r) => r.name },
-    { id: "draft", label: "Зэргэлдээх суманд нэрлэж буй нэр", get: (r) => r.draft },
+    {
+      id: "draft",
+      label: "Зэргэлдээх суманд нэрлэж буй нэр",
+      get: (r) => r.draft,
+    },
     { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
     { id: "lon", label: "Уртраг", get: (r) => r.lon },
     { id: "note", label: "Хэрхэн шийдвэрлэсэн (тайлбар)", get: () => "" },
   ],
   // Маягт 6, 8, 9 — одоохондоо дотроо хоосон (дата холбоогүй), зөвхөн PDF загвар
   6: [
-    { id: "name", label: "Шинээр бий болсон объект", get: (r) => r.draft || r.name },
+    {
+      id: "name",
+      label: "Шинээр бий болсон объект",
+      get: (r) => r.draft || r.name,
+    },
     { id: "type", label: "Дэвсгэр нэр", get: (r) => r.gtype },
     { id: "nomek_25k", label: "1:25000 нэрэлбэр", get: (r) => r.nomek_25k },
     { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
@@ -166,7 +185,10 @@ const FORM_TITLES = {
   9: "Газар зүйн нэрийн хээрийн тодотголын ажилд газарчнаар ажилласан иргэний нотолгоо",
 };
 
-export default function MayagtView({ projectId = "", stepName = "Суурин судалгаа" }) {
+export default function MayagtView({
+  projectId = "",
+  stepName = "Суурин судалгаа",
+}) {
   const { enqueueSnackbar } = useSnackbar();
   const table = useTable({ defaultRowsPerPage: 25 });
 
@@ -291,7 +313,10 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
   const handleDownloadPdf = async () => {
     setPdfLoading(true);
     try {
-      const params = new URLSearchParams({ form: tab, project: String(projectId) });
+      const params = new URLSearchParams({
+        form: tab,
+        project: String(projectId),
+      });
       if (stepObj?.id) params.append("step", stepObj.id);
       if (sum?.id) params.append("sum_geom", sum.id);
       const res = await axiosInstance.get(
@@ -331,9 +356,7 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
 
   if (!projectId) return null;
 
-  const headLabel = [
-    ...cols.map((c) => ({ id: c.id, label: c.label })),
-  ];
+  const headLabel = [...cols.map((c) => ({ id: c.id, label: c.label }))];
 
   return (
     <Box>
@@ -368,7 +391,12 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
         )}
 
         {/* Toolbar — хайлт + шүүлт (Extra) + PDF */}
-        <Stack sx={{ px: 2, pb: 1, pt: 1 }} direction="row" alignItems="center" spacing={1}>
+        <Stack
+          sx={{ px: 2, pb: 1, pt: 1 }}
+          direction="row"
+          alignItems="center"
+          spacing={1}
+        >
           <TextField
             fullWidth
             size="small"
@@ -378,7 +406,10 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                  <Iconify
+                    icon="eva:search-fill"
+                    sx={{ color: "text.disabled" }}
+                  />
                 </InputAdornment>
               ),
             }}
@@ -398,7 +429,11 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
           {["1", "2", "3", "4", "5", "6", "8", "9"].includes(tab) && (
             <Tooltip title="Маягт татах (PDF)">
               <span>
-                <IconButton color="error" onClick={handleDownloadPdf} disabled={pdfLoading}>
+                <IconButton
+                  color="error"
+                  onClick={handleDownloadPdf}
+                  disabled={pdfLoading}
+                >
                   <Iconify icon="mdi:file-pdf-box" width={26} />
                 </IconButton>
               </span>
@@ -460,7 +495,9 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
                 onChange={(e, v) => handleCat(1, v)}
                 getOptionLabel={(o) => o?.name || ""}
                 isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                renderInput={(params) => <TextField {...params} label="Үндсэн" />}
+                renderInput={(params) => (
+                  <TextField {...params} label="Үндсэн" />
+                )}
               />
               <Autocomplete
                 size="small"
@@ -471,7 +508,9 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
                 onChange={(e, v) => handleCat(2, v)}
                 getOptionLabel={(o) => o?.name || ""}
                 isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                renderInput={(params) => <TextField {...params} label="Анхдагч" />}
+                renderInput={(params) => (
+                  <TextField {...params} label="Анхдагч" />
+                )}
               />
               <Autocomplete
                 size="small"
@@ -552,7 +591,11 @@ export default function MayagtView({ projectId = "", stepName = "Суурин с
         />
       </Card>
 
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ mt: 1, display: "block" }}
+      >
         Нэрлэвэр (1:25000/1:100000) нь цэгийн орон зайн байрлалаар олдоно.
       </Typography>
     </Box>

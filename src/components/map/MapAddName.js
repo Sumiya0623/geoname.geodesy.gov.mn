@@ -215,7 +215,7 @@ export default function MapAddName({ onClose, projectId }) {
           project_id: projectId,
           name_id: apprName.id,
           ...(rStep?.id ? { step_id: rStep.id } : {}),
-          ...(statusId ? { status_id: statusId } : {}),
+          ...(statusId ? { status_ids: [statusId] } : {}),
           loc: geojson,
         });
         enqueueSnackbar(
@@ -228,7 +228,7 @@ export default function MapAddName({ onClose, projectId }) {
           project_id: projectId,
           draft: nm.trim(),
           ...(rStep?.id ? { step_id: rStep.id } : {}),
-          ...(statusId ? { status_id: statusId } : {}),
+          ...(statusId ? { status_ids: [statusId] } : {}),
           loc: geojson,
         });
         enqueueSnackbar(`"${nm}" — ${statusName} төлөвөөр бүртгэгдлээ`);

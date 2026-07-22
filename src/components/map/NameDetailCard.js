@@ -87,6 +87,14 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
       .map(Number);
 
   const errStatusId = statusIdByName("алдаатай");
+  const unapprovedStatusId = statusIdByName("батлагдаагүй");
+  const shineStatusId = statusIdByName("шинэ");
+  // recount АНХНААСАА "шинэ" статустай байсан эсэх (байсан бол checkbox‑д харуулна)
+  const hadShine = parseStatusIds(name?.status_ids).includes(shineStatusId);
+  // "алдаатай" ЭСВЭЛ "батлагдаагүй" сонгосон бол засварласан нэрийн талбар гарна
+  const showDraftField =
+    (errStatusId && rcStatusIds.has(errStatusId)) ||
+    (unapprovedStatusId && rcStatusIds.has(unapprovedStatusId));
 
   // Засах горимыг нээхэд ХУУЧИН төлвүүдийг set хийнэ. draft default = одоогийн нэр.
   const openRcEdit = () => {
@@ -108,10 +116,8 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
     try {
       await axiosInstance.patch(endpoints.recount.edit(name.id), {
         status_ids: [...rcStatusIds],
-        // "алдаатай" сонгосон бол засварласан нэрийг draft‑д хадгална
-        ...(errStatusId && rcStatusIds.has(errStatusId)
-          ? { draft: rcDraft.trim() }
-          : {}),
+        // "алдаатай"/"батлагдаагүй" сонгосон бол засварласан нэрийг draft‑д хадгална
+        ...(showDraftField ? { draft: rcDraft.trim() } : {}),
       });
       enqueueSnackbar("Төлөв хадгалагдлаа");
       setRcEdit(false);
@@ -153,7 +159,7 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
         name_id: name.id,
         draft: draftText || "",
         ...(rStep?.id ? { step_id: rStep.id } : {}),
-        ...(statusIdByName(statusName) ? { status_id: statusIdByName(statusName) } : {}),
+        ...(statusIdByName(statusName) ? { status_ids: [statusIdByName(statusName)] } : {}),
         ...(loc ? { loc } : coord ? { loc: { type: "Point", coordinates: coord } } : {}),
       });
       enqueueSnackbar(`"${name.name}" — ${statusName} төлөвөөр бүртгэгдлээ`);
@@ -376,7 +382,8 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
                 <Box sx={{ display: "flex", flexWrap: "wrap" }}>
                   {rStatuses
                     /* Засах үед "шинэ" хэрэггүй (зөвхөн шинээр бүртгэхэд) */
-                    .filter((s) => s.name !== "шинэ")
+                    /* "шинэ"‑г зөвхөн анх байсан бол харуулна (засахад шинэ нэмэхгүй) */
+                    .filter((s) => s.name !== "шинэ" || hadShine)
                     .map((s) => {
                       const c = statusColorByName(s.name);
                       return (
@@ -405,11 +412,11 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
                       );
                     })}
                 </Box>
-                {errStatusId && rcStatusIds.has(errStatusId) && (
+                {showDraftField && (
                   <TextField
                     size="small"
                     fullWidth
-                    label="Засварласан нэр (алдаатай)"
+                    label="Засварласан нэр"
                     value={rcDraft}
                     onChange={(e) => setRcDraft(e.target.value)}
                   />
