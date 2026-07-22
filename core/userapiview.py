@@ -344,6 +344,10 @@ class UserViewSet(PublicListMixin, viewsets.ModelViewSet):
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter] 
 	ordering_fields = [f.name for f in RemoteUser._meta.fields]+['roles_in','name_or_register']
 	def get_permissions(self):
+		# plugin-token — нэвтэрсэн ямар ч хэрэглэгч өөрийн token‑оо авч болно
+		# (тусгай submenu эрх шаардахгүй).
+		if getattr(self, 'action', None) == 'plugin_token':
+			return [IsAuthenticated()]
 		perms = function_permission('user')
 		return [perm() for perm in perms]
 	@action(detail=False, methods=['get'], url_path='me',permission_classes=[AllowAny])
@@ -352,6 +356,28 @@ class UserViewSet(PublicListMixin, viewsets.ModelViewSet):
 			serializer = MeSerializer(request.user, context={'request': request})
 			return Response(serializer.data)
 		return Response({'ok': False}, status=401)
+	@action(detail=False, methods=['get'], url_path='plugin-token',
+			permission_classes=[IsAuthenticated])
+	def plugin_token(self, request):
+		"""QGIS plugin‑д зориулж урт хугацааны (12 цаг) хандалтын token гаргана.
+		Одоогийн нэвтэрсэн хэрэглэгчийн cookie/header token‑ий бүх SSO claim‑ийг
+		(sso_id, register, username г.м.) хуулж, зөвхөн хугацааг нь сунгаж дахин
+		гарын үсэг зурна — geoname API‑ийн JWTAuthFromCookie нь Authorization:
+		Bearer‑ийг уншдаг тул plugin шууд ашиглана."""
+		from rest_framework_simplejwt.tokens import AccessToken
+		new = AccessToken()
+		src = getattr(request, 'auth', None)
+		if src is not None and getattr(src, 'payload', None):
+			for k, v in dict(src.payload).items():
+				if k in ('exp', 'iat', 'jti', 'token_type'):
+					continue
+				new.payload[k] = v
+		else:
+			# cookie/header байхгүй тохиолдолд (боломжгүй) — доод тал sso_id
+			new['sso_id'] = str(getattr(request.user, 'sso_id', '') or '')
+		new.set_exp(lifetime=timedelta(hours=12))
+		return Response({'token': str(new), 'expires_in': 12 * 3600})
+
 	@action(detail=False, methods=['post'],url_path='logout')
 	def logout(self, request):
 		refresh = sj.get('COOKIE_REFRESH', 'refresh_token')

@@ -258,6 +258,19 @@ def _gwc_seed(layer_full, *, do_seed=True):
         return False
 
 
+def _gwc_masstruncate(layer_full):
+    """GWC‑д кэшлэгдсэн layer/layergroup‑ийн БҮХ tile‑ийг устгана (mass truncate).
+    Style засагдсаны дараа хуучин tile арилахад найдвартай."""
+    from django.conf import settings as _st
+    auth = HTTPBasicAuth(_st.GEOSERVER_USER, _st.GEOSERVER_PASSWORD)
+    body = f'<truncateLayer><layerName>{layer_full}</layerName></truncateLayer>'
+    try:
+        requests.post(f"{_st.GEOSERVER_URL}/gwc/rest/masstruncate", data=body,
+                      headers={'Content-Type': 'text/xml'}, auth=auth, timeout=30)
+    except requests.RequestException:
+        pass
+
+
 def geoname_type_view_name(const):
     """Ангиллын замын (root→leaf) .code‑уудыг нийлүүлж '_view' залгана.
     Жишээ: top.code + level2.code + level3.code + '_view' → 'B0101_view'.
@@ -389,12 +402,17 @@ _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.status_id, r.draft,
     COALESCE(r.loc, g.geoloc) AS geoloc,
     g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
     json_build_array(t.parent_id, g.type_id) AS type,
-    COALESCE(g.name, r.draft) AS name
+    COALESCE(g.name, r.draft) AS name,
+    g.number AS number,
+    COALESCE(g.is_border, false) AS is_border,
+    COALESCE(' '||(SELECT string_agg(gu.adminunit_id::text,' ') FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' ','') AS unit_ids,
+    COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes
 FROM core_recount r
 LEFT JOIN core_geoname g  ON g.id = r.name_id
 LEFT JOIN core_constant t  ON t.id = g.type_id
 LEFT JOIN core_constant t2 ON t2.id = t.parent_id
-WHERE COALESCE(r.loc, g.geoloc) IS NOT NULL"""
+WHERE COALESCE(r.loc, g.geoloc) IS NOT NULL
+  AND NOT ST_IsEmpty(COALESCE(r.loc, g.geoloc))"""
 
 
 def _build_recount_type_sld():
@@ -527,8 +545,73 @@ def _sld11_to_sld10(sld_xml):
 			if local == 'SvgParameter':
 				local = 'CssParameter'
 			el.tag = f'{{{_SLD_NS}}}{local}'
+	# SE 1.1 LinePlacement дахь Gap/IsRepeated‑ийг GeoServer VendorOption болгоно.
+	# SLD 1.0 LinePlacement нь зөвхөн PerpendicularOffset‑ийг дэмждэг тул GeoStyler‑ийн
+	# Repeat (Gap) утга GeoServer‑т үл тоомсорлогдож, ажилладаггүй байсан. Gap →
+	# <VendorOption name="repeat">; IsRepeated/бусад SE‑only элементийг хасна.
+	SLD = _SLD_NS
+	for ts in root.iter(f'{{{SLD}}}TextSymbolizer'):
+		lp = None
+		for cand in ts.iter(f'{{{SLD}}}LinePlacement'):
+			lp = cand
+			break
+		if lp is None:
+			continue
+		gap = lp.find(f'{{{SLD}}}Gap')
+		gap_val = gap.text.strip() if (gap is not None and gap.text) else None
+		for extra in ('Gap', 'IsRepeated', 'InitialGap', 'GeneralizeLine'):
+			e = lp.find(f'{{{SLD}}}{extra}')
+			if e is not None:
+				lp.remove(e)
+		if gap_val is not None:
+			vo = ET.SubElement(ts, f'{{{SLD}}}VendorOption')
+			vo.set('name', 'repeat')
+			vo.text = gap_val
+		# LinePlacement‑тэй текст — шугам дагуулж (followLine) харагдана
+		fl = ET.SubElement(ts, f'{{{SLD}}}VendorOption')
+		fl.set('name', 'followLine')
+		fl.text = 'true'
 	if root.tag.split('}', 1)[-1] == 'StyledLayerDescriptor':
 		root.set('version', '1.0.0')
+	return ET.tostring(root, encoding='unicode')
+
+
+def _sld_for_geostyler_read(sld_xml):
+	"""GeoServer‑т хадгалсан SLD 1.0‑г GeoStyler уншихад тохируулж SE 1.1 хэлбэрт
+	хөрвүүлнэ: version→1.1.0, CssParameter→SvgParameter, TextSymbolizer‑ийн
+	VendorOption repeat → LinePlacement Gap+IsRepeated. Ингэснээр GeoStyler‑ийн
+	Repeat, өнгө талбарууд зөв дүүрнэ (geostyler нь repeat‑г ЗӨВХӨН SLD 1.1 + Gap‑аас
+	уншдаг; өнгийг 1.1 үед SvgParameter‑аас уншдаг)."""
+	import xml.etree.ElementTree as ET
+	ET.register_namespace('sld', _SLD_NS)
+	ET.register_namespace('ogc', _OGC_NS)
+	ET.register_namespace('xlink', _XLINK_NS)
+	try:
+		root = ET.fromstring(sld_xml)
+	except Exception:
+		return sld_xml
+	SLD = _SLD_NS
+	for el in root.iter(f'{{{SLD}}}CssParameter'):
+		el.tag = f'{{{SLD}}}SvgParameter'
+	for ts in root.iter(f'{{{SLD}}}TextSymbolizer'):
+		repeat_val = None
+		for vo in list(ts.findall(f'{{{SLD}}}VendorOption')):
+			nm = vo.get('name')
+			if nm == 'repeat':
+				repeat_val = (vo.text or '').strip()
+				ts.remove(vo)
+			elif nm == 'followLine':
+				ts.remove(vo)  # geostyler хэрэглэдэггүй
+		if repeat_val is not None:
+			lp = None
+			for cand in ts.iter(f'{{{SLD}}}LinePlacement'):
+				lp = cand
+				break
+			if lp is not None:
+				ET.SubElement(lp, f'{{{SLD}}}IsRepeated').text = 'true'
+				ET.SubElement(lp, f'{{{SLD}}}Gap').text = repeat_val
+	if root.tag.split('}', 1)[-1] == 'StyledLayerDescriptor':
+		root.set('version', '1.1.0')
 	return ET.tostring(root, encoding='unicode')
 
 
@@ -1185,6 +1268,18 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 					'published': True, **svc_flags(nm),
 				})
 			rows.sort(key=lambda r: (r['level1'], r['level2'], r['level3']))
+			# Нэгдсэн/бусад published view‑ууд (geoname_view, recount_view,
+			# geoname_search_view г.м.) — per‑type leaf view‑үүд устсан тул
+			# эдгээр бодит давхаргуудыг мөн жагсаана.
+			added = {r['view'] for r in rows}
+			for nm in sorted(published):
+				if nm in added:
+					continue
+				rows.append({
+					'view': nm, 'type_id': None, 'geom': '',
+					'level1': '', 'level2': '', 'level3': '',
+					'published': True, **svc_flags(nm),
+				})
 		else:
 			# бусад workspace: featuretype жагсаалт (ангилалгүй)
 			for nm in sorted(published):
@@ -1594,9 +1689,11 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 						sld = cand
 				if sld is None:
 					sld = self._default_sld_for_layer(ws.name, layer, style_name)
-			# GeoStyler‑ийн parser‑т тохируулах: WellKnownName‑гүй Mark + dasharray
+			# GeoStyler‑ийн parser‑т тохируулах: WellKnownName‑гүй Mark + dasharray,
+			# дараа нь SE 1.1 хэлбэрт (Repeat/өнгө зөв дүүргэх).
 			sld = _sanitize_sld_marks(sld)
 			sld = _fix_sld_dasharray(sld)
+			sld = _sld_for_geostyler_read(sld)
 			sld = _absolutize_sld_symbols(sld, request)
 			return Response({'sld': sld, 'style_name': style_name, 'ws': ws.name,
 							 'layer': layer}, status=200)
@@ -1634,7 +1731,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 			headers={'Content-Type': 'application/xml'}, auth=auth, timeout=20)
 		# 4) GWC‑д хуучин tile байвал цэвэрлэх (шинэ style шууд харагдана)
 		try:
-			_gwc_seed(f"{ws.name}:{layer}", do_seed=False)
+			self._gwc_truncate_layer_and_groups(ws.name, layer)
 		except Exception:
 			pass
 		return Response({'saved': True, 'style_name': style_name, 'ws': ws.name,
@@ -1671,6 +1768,37 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 			pass
 		return Response({'url': request.build_absolute_uri(default_storage.url(saved)),
 						 'path': saved}, status=201)
+
+	def _gwc_truncate_layer_and_groups(self, ws_name, layer):
+		"""Layer‑ийн GWC кэш + түүнийг агуулсан layergroup‑уудын GWC кэшийг ч
+		цэвэрлэнэ. Газрын зураг ихэвчлэн layergroup‑оор (TILED) рендерлэдэг тул
+		зөвхөн layer‑ийг truncate хийхэд style засвар харагдахгүй байдаг."""
+		_gwc_masstruncate(f"{ws_name}:{layer}")
+		rest, auth = self._gs_rest(), self._gs_auth()
+		try:
+			r = requests.get(f"{rest}/workspaces/{ws_name}/layergroups.json",
+							 auth=auth, timeout=10)
+			root = (r.json().get('layerGroups') or '') if r.status_code == 200 else ''
+			items = (root.get('layerGroup') if isinstance(root, dict) else []) or []
+			if isinstance(items, dict):
+				items = [items]
+			targets = {f"{ws_name}:{layer}", layer}
+			for it in items:
+				gname = it.get('name')
+				if not gname:
+					continue
+				gr = requests.get(f"{rest}/workspaces/{ws_name}/layergroups/{gname}.json",
+								  auth=auth, timeout=10)
+				if gr.status_code != 200:
+					continue
+				pubs = (((gr.json().get('layerGroup') or {}).get('publishables') or {})
+						.get('published')) or []
+				if isinstance(pubs, dict):
+					pubs = [pubs]
+				if any((p.get('name') in targets) for p in pubs):
+					_gwc_masstruncate(f"{ws_name}:{gname}")
+		except requests.RequestException:
+			pass
 
 	def _gs_layer_geom_field(self, ws, layer):
 		"""Layer‑ийн геометрийн баганын нэр (default 'geom')."""
@@ -1730,7 +1858,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				d['font_size'] = g(r'font-size[^>]*>([^<]+)', lambda x: int(float(x)), 12)
 				d['fill'] = g(r'name="fill">([^<]+)', str, '#333333')
 				d['stroke'] = g(r'name="stroke">([^<]+)', str, '#888888')
-				d['repeat'] = g(r'name="repeat">([^<]+)', lambda x: int(float(x)), 400)
+				d['repeat'] = g(r'name="repeat">([^<]+)', lambda x: int(float(x)), 0)
 				d['scale_min'] = g(r'<(?:\w+:)?MinScaleDenominator>([^<]+)', lambda x: int(float(x)))
 				d['scale_max'] = g(r'<(?:\w+:)?MaxScaleDenominator>([^<]+)', lambda x: int(float(x)))
 			return Response(d, status=200)
@@ -1748,6 +1876,10 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 		smax = request.data.get('scale_max')            # MaxScaleDenominator (жижиг зум)
 		if not self._IDENT_RE.match(label):
 			return Response({'detail': 'label талбар буруу'}, status=400)
+		try:
+			repeat_val = float(repeat)
+		except (TypeError, ValueError):
+			repeat_val = 0
 		geom = self._gs_layer_geom_field(ws.name, layer)
 		gtype = self._gs_layer_geom_type(ws.name, layer)
 		# polygon бол захын шугам (boundary функц), line бол шугамаа шууд label‑дэнэ
@@ -1778,8 +1910,10 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 			f'</sld:LinePlacement></sld:LabelPlacement>'
 			f'<sld:Fill><sld:CssParameter name="fill">{fill}</sld:CssParameter></sld:Fill>'
 			f'<sld:VendorOption name="followLine">true</sld:VendorOption>'
-			f'<sld:VendorOption name="repeat">{repeat}</sld:VendorOption>'
-			f'<sld:VendorOption name="maxAngleDelta">90</sld:VendorOption>'
+			# repeat > 0 бол шугам дагаж давтана; 0/хоосон бол ГАНЦ label (давтахгүй)
+			+ (f'<sld:VendorOption name="repeat">{repeat}</sld:VendorOption>'
+			   if repeat_val > 0 else '')
+			+ f'<sld:VendorOption name="maxAngleDelta">90</sld:VendorOption>'
 			f'<sld:VendorOption name="maxDisplacement">50</sld:VendorOption>'
 			f'<sld:VendorOption name="group">yes</sld:VendorOption>'
 			f'</sld:TextSymbolizer>'
@@ -1836,7 +1970,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				 f'<workspace>{ws.name}</workspace></defaultStyle></layer>',
 			headers={'Content-Type': 'application/xml'}, auth=auth, timeout=20)
 		try:
-			_gwc_seed(f"{ws.name}:{layer}", do_seed=False)
+			self._gwc_truncate_layer_and_groups(ws.name, layer)
 		except Exception:
 			pass
 		return Response({'saved': True, 'style_name': style_name, 'ws': ws.name,

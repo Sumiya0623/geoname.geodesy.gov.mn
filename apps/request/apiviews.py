@@ -733,6 +733,93 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			'has_geom': has_geom,
 		}, status=200)
 
+	@action(detail=False, methods=['get'], url_path='type-tree')
+	def type_tree(self, request):
+		"""Тухайн төслийн GeoName‑тэй recount‑уудыг ангиллын мод (type_l1→type_l2→
+		type_id)‑оор бүлэглэж, зангилаа бүрийн тоог буцаана. Мөн GeoName‑гүй
+		(draft) буюу зөвхөн өөрийн geom‑той recount‑ын тоог draft_count‑аар өгнө.
+		Frontend: дээд хэсэгт мод (checkbox шүүлт), доод хэсэгт draft WMS."""
+		from django.db import connection
+		try:
+			from apps.geoserver.apiviews import ensure_recount_view
+			ensure_recount_view()
+		except Exception:
+			pass
+		pid = request.query_params.get('project')
+		if not pid:
+			return Response({'results': [], 'draft_count': 0})
+		# Хайлтын филтэр (recount панелийн формтой уялдана) — модны тоог шүүнэ
+		p = request.query_params
+		conds = ['project_id=%s']
+		params = [pid]
+		if p.get('name'):
+			conds.append('name ILIKE %s')
+			params.append('%' + p['name'] + '%')
+		if p.get('number'):
+			conds.append('number ILIKE %s')
+			params.append('%' + p['number'] + '%')
+		if p.get('unit'):
+			conds.append('unit_ids LIKE %s')
+			params.append('% ' + p['unit'] + ' %')
+		if p.get('nomek'):
+			conds.append('nomek_codes ILIKE %s')
+			params.append('%' + p['nomek'] + '%')
+		if p.get('border') in ('1', 'true', 'True'):
+			conds.append('is_border = true')
+		status_ids = [s for s in (p.get('status') or '').split(',') if s.strip().isdigit()]
+		if status_ids:
+			conds.append('status_id IN (%s)' % ','.join(status_ids))
+		where = ' AND '.join(conds)
+		with connection.cursor() as c:
+			c.execute(
+				'SELECT type_l1, type_l2, type_id, COUNT(*) '
+				'FROM recount_view WHERE ' + where + ' AND type_id IS NOT NULL '
+				'GROUP BY type_l1, type_l2, type_id', params)
+			rows = c.fetchall()
+			c.execute(
+				'SELECT COUNT(*) FROM recount_view '
+				'WHERE ' + where + ' AND type_id IS NULL', params)
+			draft_count = c.fetchone()[0]
+		# оролцсон бүх constant‑ийн нэр/desc
+		ids = set()
+		for l1, l2, tid, _ in rows:
+			for x in (l1, l2, tid):
+				if x:
+					ids.add(x)
+		consts = {o.id: o for o in Constant.objects.filter(id__in=ids)}
+
+		def node(cid):
+			o = consts.get(cid)
+			return {'id': cid, 'name': (o.name if o else str(cid)),
+					'desc': (o.desc if o else ''), 'count': 0, 'children': {}}
+
+		roots = {}
+		for l1, l2, tid, cnt in rows:
+			# 3 түвшний мод: l1 (үндсэн) → l2 (анхдагч) → leaf (type_id)
+			top = l1 or l2 or tid
+			r = roots.setdefault(top, node(top))
+			r['count'] += cnt
+			mid_id = l2 if (l1 and l2) else None
+			if mid_id and mid_id != top:
+				m = r['children'].setdefault(mid_id, node(mid_id))
+				m['count'] += cnt
+				parent = m
+			else:
+				parent = r
+			if tid and tid != parent['id']:
+				leaf = parent['children'].setdefault(tid, node(tid))
+				leaf['count'] += cnt
+
+		def finalize(n):
+			kids = [finalize(v) for v in n['children'].values()]
+			n['children'] = sorted(kids, key=lambda x: x['name'])
+			n['child_count'] = len(n['children'])
+			return n
+
+		results = sorted((finalize(r) for r in roots.values()),
+						 key=lambda x: x['name'])
+		return Response({'results': results, 'draft_count': draft_count})
+
 
 class ReCountMapViewSet(PublicListMixin, viewsets.ModelViewSet):
 	serializer_class = ReCountMapSerializer
