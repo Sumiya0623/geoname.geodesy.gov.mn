@@ -208,7 +208,7 @@ export default function MapAddName({ onClose, projectId }) {
     setSaving(true);
     try {
       if (approvedMode) {
-        // Батлагдсан нэрэнд геометр оноох — статус "байршил" (зөрүүтэй)
+        // Батлагдсан нэр — статус "байршил" (зөрүүтэй)
         const statusId =
           rStatuses.find((s) => s.name === "байршил")?.id || null;
         await axiosInstance.post(endpoints.recount.create, {

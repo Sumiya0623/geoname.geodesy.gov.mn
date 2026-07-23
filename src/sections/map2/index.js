@@ -126,7 +126,6 @@ const GEONAME_WMS_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?se
 const RADIUS_FILL_COLOR = "rgba(33, 150, 243, 0.1)";
 const RADIUS_STROKE_COLOR = "#2196f3";
 const RADIUS_CENTER_STROKE_COLOR = "white";
-const CHATBOT_OUTER_FILL_COLOR = "rgba(255,215,0,0.3)";
 
 const buildWmsParams = (overrides = {}) => ({ ...WMS_PARAMS, ...overrides });
 
@@ -533,11 +532,6 @@ const inActiveWMS = {
 };
 
 function Map2() {
-  let LayerSwitcher;
-  if (typeof window !== "undefined") {
-    const mod = require("ol-layerswitcher");
-    LayerSwitcher = mod?.default || mod;
-  }
   const mdUp = useResponsive("up", "md");
 
   // Read URL parameters
@@ -605,7 +599,6 @@ function Map2() {
   const [cursorCoords, setCursorCoords] = useState({ lon: null, lat: null });
   const [mapScale, setMapScale] = useState(null);
   // Давхаргын жагсаалт дахь ИДЭВХТЭЙ давхарга (мөр дээр дарж сонгоно)
-  const [activeLayerKey, setActiveLayerKey] = useState(null);
   // Зүүн 'Удирдлага' панелийн эзлэх өргөн (чирж солино) — доод хүснэгт үүнтэй уялдана
   const [managePanelW, setManagePanelW] = useState(0);
   // Доод attribute хүснэгт — нээсэн ангилал/давхарга бүрд НЭГ ТАБ
@@ -769,8 +762,6 @@ function Map2() {
 
   // Systems‑оос WMS давхаргууд үүсгэж map дээр нэмэх
   const [systemLayersByName, setSystemLayersByName] = useState({});
-  const [systemUiItems, setSystemUiItems] = useState([]);
-
   const geoserverLeafLayers = useMemo(() => {
     if (!Array.isArray(geoserver)) return [];
 
@@ -814,19 +805,6 @@ function Map2() {
       }
     });
   }, [systemLayersByName]);
-
-  const legendLayers = useMemo(
-    () =>
-      systemUiItems.map((it) => {
-        const layerName = `point:${it.layer}`;
-        const legendUrl = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/point/wms?SERVICE=WMS&REQUEST=GetLegendGraphic&FORMAT=image/png&LAYER=${layerName}`;
-        return {
-          url: legendUrl,
-          title: it.name,
-        };
-      }),
-    [systemUiItems],
-  );
 
   // Цэгийн системийн admin unit/network/system dropdown‑ууд geoname‑д
   // хэрэггүй — registered API дуудахгүйн тулд хоосон.
@@ -914,41 +892,6 @@ function Map2() {
       }),
     [radiusCenterImage, radiusFill, radiusStroke],
   );
-  const chatbotHighlightStyles = useMemo(
-    () => [
-      new Style({
-        image: new CircleStyle({
-          radius: 15,
-          fill: new Fill({ color: CHATBOT_OUTER_FILL_COLOR }),
-        }),
-      }),
-      new Style({
-        image: new CircleStyle({
-          radius: 10,
-          fill: new Fill({ color: "#FFD700" }),
-          stroke: new Stroke({ color: "#ffffff", width: 3 }),
-        }),
-      }),
-    ],
-    [],
-  );
-
-  const getSinglePointStyle = (color = "#1976d2") => [
-    new Style({
-      image: new CircleStyle({
-        radius: 8,
-        fill: new Fill({ color: "rgba(0,0,0,0.15)" }),
-      }),
-    }),
-    new Style({
-      image: new CircleStyle({
-        radius: 6,
-        fill: new Fill({ color }),
-        stroke: new Stroke({ color: "#ffffff", width: 2 }),
-      }),
-    }),
-  ];
-
   const getDefaultPointStyle = () =>
     new Style({
       image: new CircleStyle({
@@ -1034,38 +977,6 @@ function Map2() {
       ? Math.round((length / 1000) * 100) / 100 + " км"
       : Math.round(length * 100) / 100 + " м";
   };
-
-  const buildPointCqlFilter = useCallback(() => {
-    const conditions = [];
-    if (filters.network) conditions.push(`network_id=${filters.network}`);
-    if (filters.system) conditions.push(`system_id=${filters.system}`);
-    if (filters.number) conditions.push(`number ILIKE '%${filters.number}%'`);
-
-    if (filters.soum) {
-      const soum = soums.find((s) => String(s.id) === String(filters.soum));
-      if (soum && soum.id) {
-        conditions.push(
-          `INTERSECTS(geoloc, querySingle('point:core_adminunit', 'geom', 'fid=''adminUnit.${soum.id}'''))`,
-        );
-      }
-    } else if (filters.aimag) {
-      const aimag = aimags.find((a) => String(a.id) === String(filters.aimag));
-      if (aimag && aimag.id) {
-        conditions.push(
-          `INTERSECTS(geoloc, querySingle('point:core_adminunit', 'geom', 'fid=''adminUnit.${aimag.id}'''))`,
-        );
-      }
-    }
-    return conditions.length > 0 ? conditions.join(" AND ") : null;
-  }, [
-    filters.network,
-    filters.system,
-    filters.number,
-    filters.soum,
-    filters.aimag,
-    soums,
-    aimags,
-  ]);
 
   const handleBaseLayerToggle = (layer, enabled, group) => {
     const map = mapObjRef.current;
@@ -1888,16 +1799,6 @@ function Map2() {
     }
   }, [showAdminBoundaries]);
 
-  const zoomIn = () => {
-    const view = mapObjRef.current && mapObjRef.current.getView();
-    if (view) view.animate({ zoom: view.getZoom() + 1, duration: 300 });
-  };
-
-  const zoomOut = () => {
-    const view = mapObjRef.current && mapObjRef.current.getView();
-    if (view) view.animate({ zoom: view.getZoom() - 1, duration: 300 });
-  };
-
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       if (mapRef.current && mapRef.current.requestFullscreen)
@@ -2466,24 +2367,7 @@ function Map2() {
   }, []);
 
   // ── Давхаргын жагсаалтын тоолбар ──────────────────────────────────────
-  const handleShowAllOverlays = useCallback(() => {
-    setExtraOverlayOn(
-      Object.fromEntries(extraOverlayConfigs.map((c) => [c.key, true])),
-    );
-  }, [extraOverlayConfigs]);
-
-  const handleHideAllOverlays = useCallback(() => {
-    setExtraOverlayOn({});
-  }, []);
-
   // Идэвхтэй давхаргыг дээш/доош (zIndex) зөөнө. dir: -1 = дээш, 1 = доош
-  const handleMoveOverlay = useCallback((key, dir) => {
-    const lyr = extraOverlayLayersRef.current?.[key];
-    if (!lyr) return;
-    const z = lyr.getZIndex() ?? 300;
-    lyr.setZIndex(z - dir * 10); // дээш → zIndex өснө
-  }, []);
-
   // ── Давхарга/ангиллын үйлдлүүд ─────────────────────────────────────────
   // WFS‑ээр дурын давхаргын feature‑үүдийг татна (GeoJSON, CQL‑тэй).
   const fetchWfs = useCallback(async (layerName, cql, count = 1000) => {
@@ -2501,11 +2385,6 @@ function Map2() {
     }
     return data;
   }, []);
-
-  const fetchLayerFeatures = useCallback(
-    (cfg, count = 500) => fetchWfs(cfg.gs_layer, null, count),
-    [fetchWfs],
-  );
 
   // Доод хүснэгтэд ШИНЭ ТАБ нээнэ (аль хэдийн нээлттэй бол идэвхжүүлнэ)
   const openFeatureTab = useCallback(
@@ -2867,88 +2746,6 @@ function Map2() {
     [recountProjectId, openFeatureTab, fetchWfs],
   );
 
-  const handleLayerAction = useCallback(
-    async (cfg, action) => {
-      const map = mapObjRef.current;
-      if (!cfg) return;
-      const label = cfg.label || cfg.key;
-
-      if (action === "zoom") {
-        try {
-          const res = await axiosInstance.get(
-            endpoints.basemap.layerExtent(cfg.gs_layer),
-          );
-          const e = res?.data?.extent;
-          if (!e || !map) return;
-          map
-            .getView()
-            .fit(
-              transformExtent(e, "EPSG:4326", map.getView().getProjection()),
-              { duration: 500, padding: [60, 60, 60, 60], maxZoom: 16 },
-            );
-        } catch (err) {
-          setQualityReport({
-            label,
-            loading: false,
-            error: "Давхаргын хил олдсонгүй.",
-          });
-        }
-        return;
-      }
-
-      if (action === "style") {
-        // Одоо байгаа style засварлагч (workspace → давхаргын style)
-        window.open(
-          `/settings/gis?tab=geoserver&layer=${encodeURIComponent(cfg.gs_layer)}`,
-          "_blank",
-        );
-        return;
-      }
-
-      if (action === "features") {
-        openFeatureTab({
-          key: `ly-${cfg.key}`,
-          label,
-          layer: cfg.gs_layer,
-        });
-        return;
-      }
-
-      if (action === "quality") {
-        setQualityReport({ label, loading: true });
-        try {
-          const data = await fetchLayerFeatures(cfg, 2000);
-          const feats = data.features || [];
-          const noGeom = feats.filter((f) => !f.geometry).length;
-          const nameKeys = ["name", "nэр", "нэр", "label", "title"];
-          const key = Object.keys(feats[0]?.properties || {}).find((k) =>
-            nameKeys.includes(k.toLowerCase()),
-          );
-          const noName = key
-            ? feats.filter((f) => !String(f.properties?.[key] || "").trim())
-                .length
-            : null;
-          setQualityReport({
-            label,
-            loading: false,
-            total: data.totalFeatures ?? feats.length,
-            checked: feats.length,
-            noGeom,
-            nameField: key || null,
-            noName,
-          });
-        } catch (err) {
-          setQualityReport({
-            label,
-            loading: false,
-            error: "Шалгалт хийх боломжгүй (растер эсвэл WFS идэвхгүй).",
-          });
-        }
-      }
-    },
-    [fetchLayerFeatures, openFeatureTab],
-  );
-
   const handleStopDrawing = useCallback(() => {
     const map = mapObjRef.current;
     if (map) {
@@ -3190,7 +2987,7 @@ function Map2() {
 
     const pointId = parseInt(urlParams.point_id);
     if (!isNaN(pointId)) {
-      const layer = createCqlWmsLayer([pointId], {
+      createCqlWmsLayer([pointId], {
         opacity: 0.9,
         zIndex: 1500,
         tiled: true,
@@ -3216,54 +3013,6 @@ function Map2() {
       cqlWmsSourceRef.current = null;
     }
   }, []);
-
-  const handleShowOnMap = useCallback(
-    (pointData) => {
-      const map = mapObjRef.current;
-      if (!map || !pointData) return;
-
-      let coords;
-      if (pointData.coordinates) {
-        coords = pointData.coordinates;
-      } else if (pointData.longitude && pointData.latitude) {
-        coords = [
-          parseFloat(pointData.longitude),
-          parseFloat(pointData.latitude),
-        ];
-      } else {
-        return;
-      }
-
-      const [lon, lat] = coords;
-
-      if (isNaN(lon) || isNaN(lat)) return;
-
-      const view = map.getView();
-      const pointCoords = fromLonLat([lon, lat]);
-
-      view.animate({
-        center: pointCoords,
-        duration: 1000,
-      });
-
-      const source = measurementSearchSourceRef.current;
-      if (source) {
-        source.clear();
-
-        const highlightFeature = new Feature({
-          geometry: new Point(pointCoords),
-          name: "chatbot-highlight",
-          measurement: pointData.pointData,
-          point: pointData.point,
-        });
-
-        highlightFeature.setStyle(chatbotHighlightStyles);
-
-        source.addFeature(highlightFeature);
-      }
-    },
-    [chatbotHighlightStyles],
-  );
 
   const handleShowMultiplePointsWithCql = useCallback(
     (points, options = {}) => {
@@ -3583,57 +3332,6 @@ function Map2() {
     radiusCircleSourceRef.current?.clear();
     removeCqlWmsLayer();
   }, [removeCqlWmsLayer]);
-
-  const showPointsWithCurrentFilters = useCallback(
-    (additionalCql = "") => {
-      const currentCql = buildPointCqlFilter();
-      let finalCql = currentCql || "";
-
-      if (additionalCql) {
-        finalCql = finalCql
-          ? `${finalCql} AND ${additionalCql}`
-          : additionalCql;
-      }
-
-      if (!finalCql) {
-        console.warn("No CQL filter available");
-        return;
-      }
-
-      if (cqlWmsLayerRef.current) {
-        mapObjRef.current.removeLayer(cqlWmsLayerRef.current);
-        cqlWmsLayerRef.current = null;
-      }
-
-      cqlWmsSourceRef.current = new TileWMS({
-        url: WMS_URL,
-        params: buildWmsParams({
-          TILED: true,
-          CQL_FILTER: finalCql,
-          STYLES: "filtered_points",
-        }),
-        serverType: "geoserver",
-      });
-
-      // Debug: WMS for filter‑based showPointsWithCurrentFilters
-      // eslint-disable-next-line no-console
-      console.log("[WMS DEBUG] showPointsWithCurrentFilters", {
-        url: WMS_URL,
-        cql: finalCql,
-      });
-
-      cqlWmsLayerRef.current = new TileLayer({
-        source: cqlWmsSourceRef.current,
-        opacity: 0.8,
-        zIndex: 1000,
-      });
-
-      mapObjRef.current.addLayer(cqlWmsLayerRef.current);
-
-      return cqlWmsLayerRef.current;
-    },
-    [buildPointCqlFilter],
-  );
 
   useEffect(() => {
     const handleOpenGeoserverDialog = () => {

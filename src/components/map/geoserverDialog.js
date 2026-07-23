@@ -1,5 +1,4 @@
 import React, {
-  useMemo,
   useState,
   useEffect,
   useRef,
@@ -12,7 +11,6 @@ import {
   Tooltip,
   Paper,
   Avatar,
-  Checkbox,
   Divider,
   Chip,
   Collapse,
@@ -33,7 +31,6 @@ import {
   Print as PrintIcon,
   FilterList as FilterIcon,
   Layers as LayersIcon,
-  FiberManualRecord as DotIcon,
   Close as CloseIcon,
   Satellite as SatelliteIcon,
   Map as MapIcon,
@@ -54,7 +51,6 @@ import {
   Pentagon as PolySelIcon,
 } from "@mui/icons-material";
 
-import { useGetGeoserver } from "src/api/map";
 import MapAddName from "./MapAddName";
 import RasterPrintPanel from "../../sections/raster/print-map-panel";
 import NameCategoryTree from "./NameCategoryTree";
@@ -64,8 +60,6 @@ import AdvancedSearch from "./AdvancedSearch";
 // geoname:geoname_view (бүх геонэр) WMS суурь URL — Нэрийн ангилал филтерт
 const GEONAME_VIEW_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:geoname_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
 
-const isLeaf = (node) => !node?.children || node.children.length === 0;
-
 // Идэвхтэй давхаргын геометрийн дүрс (Цэг/Шугам/Талбай)
 function ActiveGeomIcon({ desc }) {
   const d = (desc || "").trim();
@@ -74,206 +68,6 @@ function ActiveGeomIcon({ desc }) {
   if (d === "Талбай") return <GeomPolyIcon sx={{ fontSize: 16, color: "#d97706" }} />;
   return <GeomOtherIcon sx={{ fontSize: 16, color: "#0675c9" }} />;
 }
-
-function LeafItem({ leaf, group, path, color, isEnabled, toggleLeaf }) {
-  return (
-    <ListItemButton
-      key={path}
-      onClick={() => toggleLeaf(leaf, group, path, !isEnabled)}
-      sx={{
-        py: 0.5,
-        borderRadius: 1,
-        mx: 1,
-        backgroundColor: isEnabled ? `${color}08` : "transparent",
-        "&:hover": { backgroundColor: `${color}12` },
-        borderLeft: isEnabled ? `2px solid ${color}` : "2px solid transparent",
-      }}
-    >
-      <ListItemIcon sx={{ minWidth: 36 }}>
-        <DotIcon sx={{ fontSize: 12, color: isEnabled ? color : "#ccc" }} />
-      </ListItemIcon>
-      <ListItemText
-        primary={
-          <Typography
-            variant="body2"
-            sx={{ fontWeight: isEnabled ? 500 : 400 }}
-          >
-            {leaf.name} ({leaf.count})
-          </Typography>
-        }
-      />
-      <Box sx={{ minWidth: 48, display: "flex", justifyContent: "flex-end" }}>
-        <Checkbox
-          edge="end"
-          checked={isEnabled}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            toggleLeaf(leaf, group, path, e.target.checked);
-          }}
-          size="small"
-          sx={{ color, "&.Mui-checked": { color } }}
-        />
-      </Box>
-    </ListItemButton>
-  );
-}
-
-function GroupItem({
-  group,
-  originalIndex,
-  expandedGroups,
-  toggleGroupExpanded,
-  triState,
-  countEnabledLeaves,
-  countLeaves,
-  getGroupColor,
-  toggleAllLeavesUnder,
-  renderNode,
-  enabledSet,
-}) {
-  const groupColor = getGroupColor(originalIndex);
-  const isExpanded = expandedGroups.has(originalIndex);
-  const groupState = triState(group.children || []);
-  const groupChecked = groupState === "all";
-  const groupIndeterminate = groupState === "some";
-  const groupEnabled = countEnabledLeaves(group.children || [], enabledSet);
-
-  return (
-    <Box>
-      <ListItemButton
-        onClick={() => toggleGroupExpanded(originalIndex)}
-        sx={{
-          pt: 1,
-          display: "flex",
-          borderLeft:
-            groupEnabled > 0
-              ? `4px solid ${groupColor}`
-              : `4px solid transparent`,
-          backgroundColor: groupEnabled > 0 ? `${groupColor}08` : "transparent",
-          "&:hover": {
-            backgroundColor: `${groupColor}12`,
-          },
-        }}
-      >
-        <ListItemText
-          sx={{
-            alignItems: "center",
-            display: { xs: "block", sm: "flex" },
-            justifyContent: { sm: "space-between" },
-          }}
-          primary={
-            <Box
-              sx={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 1.25,
-                minWidth: 0,
-              }}
-            >
-              <LayersIcon sx={{ fontSize: 16, groupColor }} />
-              <Typography
-                variant="body2"
-                fontWeight={700}
-                noWrap
-                title={group.name}
-                sx={{ minWidth: 0 }}
-              >
-                {group.name}
-              </Typography>
-            </Box>
-          }
-          secondary={
-            group?.count && (
-              <Chip
-                label={`${group.count}ш`}
-                size="small"
-                color="default"
-                variant="outlined"
-              />
-            )
-          }
-        />
-
-        <Checkbox
-          edge="end"
-          indeterminate={groupIndeterminate}
-          checked={groupChecked}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            toggleAllLeavesUnder(
-              group.children || [],
-              group,
-              group.name,
-              e.target.checked,
-            );
-          }}
-          size="small"
-          sx={{
-            mr: 1,
-            color: groupColor,
-            "&.Mui-checked": { color: groupColor },
-          }}
-        />
-      </ListItemButton>
-      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-        <List dense sx={{ pl: 2, py: 0 }}>
-          {(group.children || []).map((node, idx) =>
-            renderNode(
-              node,
-              group,
-              group.name,
-              groupColor,
-              1,
-              `${originalIndex}-${idx}`,
-            ),
-          )}
-        </List>
-      </Collapse>
-    </Box>
-  );
-}
-
-const staticLayer = {
-  id: "static_layer",
-  name: "Идэвхигүй цэг тэмдэгт",
-  url: `${
-    process.env.NEXT_PUBLIC_GEOSERVER_URL
-  }/point/wms?service=WMS&version=1.1.0&request=GetMap&bbox=97.5,41,120,52&layers=point:unknown&srs=EPSG:4326&width=768&height=330&format=image/png`,
-  children: [
-    {
-      id: "inactive_gnss_114",
-      type: "group",
-      name: "GNSS-ИЙН СҮЛЖЭЭ",
-      cql_filter: "system_id = 114",
-    },
-    {
-      id: "inactive_gravity_116",
-      type: "group",
-      name: "ГРАВИМЕТРИЙН СҮЛЖЭЭ",
-      cql_filter: "system_id = 116",
-    },
-    {
-      id: "inactive_polygonometry_242",
-      type: "group",
-      name: "ПОЛИГОНОМЕТРИЙН СҮЛЖЭЭ",
-      cql_filter: "system_id = 242",
-    },
-    {
-      id: "inactive_triangulation_792",
-      type: "group",
-      name: "ТРИАНГУЛЯЦИЙН СҮЛЖЭЭ",
-      cql_filter: "system_id = 792",
-    },
-    {
-      id: "inactive_height_115",
-      type: "group",
-      name: "ӨНДРИЙН СҮЛЖЭЭ",
-      cql_filter: "system_id = 115",
-    },
-  ],
-};
 
 function GeoserverDialog({
   enabledFilters = new Set(),
@@ -363,8 +157,6 @@ function GeoserverDialog({
     },
     [panelW],
   );
-  const [expandedGroups, setExpandedGroups] = useState(new Set([0]));
-  const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [tab, setTab] = useState("layers");
   const [addOpen, setAddOpen] = useState(false);
 
@@ -385,7 +177,6 @@ function GeoserverDialog({
       setTab(forceTab);
     }
   }, [forceOpen, forceTab]);
-  const [layerGroups, setLayerGroups] = useState([]);
   const [nameChecked, setNameChecked] = useState(() => new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [treeFilters, setTreeFilters] = useState(null);
@@ -443,16 +234,6 @@ function GeoserverDialog({
     checkedNodesRef.current.forEach((node) => applyNameLayer(node, true));
   }, [extraCql, applyNameLayer]);
 
-  const handleClearNames = useCallback(() => {
-    if (onFilterChange) {
-      nameChecked.forEach((id) =>
-        onFilterChange(`name_${id}`, false, { id: `name_${id}` }),
-      );
-    }
-    checkedNodesRef.current.clear();
-    setNameChecked(new Set());
-  }, [nameChecked, onFilterChange]);
-
   // Газар зүйн нэрийн дэлгэрэнгүй хайлт — CQL‑ийг geoname_view‑д тавина
   const handleGeonameSearch = useCallback(
     (cql) => {
@@ -476,35 +257,6 @@ function GeoserverDialog({
     }
   }, [onFilterChange]);
 
-  const { geoserver, geoserverLoading } = useGetGeoserver();
-
-  useEffect(() => {
-    if (geoserver) {
-      setLayerGroups(geoserver);
-    }
-  }, [geoserver]);
-
-  const enabledSet = useMemo(() => {
-    if (enabledFilters instanceof Set)
-      return new Set(Array.from(enabledFilters, (v) => String(v)));
-    if (Array.isArray(enabledFilters))
-      return new Set(enabledFilters.map((v) => String(v)));
-    return new Set();
-  }, [enabledFilters]);
-
-  const getGroupColor = (index) => {
-    const colors = [
-      "#1976d2",
-      "#4caf50",
-      "#ff9800",
-      "#2196f3",
-      "#9c27b0",
-      "#795548",
-      "#607d8b",
-    ];
-    return colors[index % colors.length];
-  };
-
   const isLeaf = useCallback(
     (node) => !node?.children || node.children.length === 0,
     [],
@@ -520,26 +272,6 @@ function GeoserverDialog({
     },
     [isLeaf],
   );
-
-  const countLeaves = (nodes = []) => collectLeaves(nodes).length;
-
-  const countEnabledLeaves = useCallback(
-    (nodes = [], enabledSet) =>
-      collectLeaves(nodes).reduce(
-        (acc, leaf) => acc + (enabledSet.has(String(leaf.id)) ? 1 : 0),
-        0,
-      ),
-    [collectLeaves],
-  );
-
-  const triState = (nodes = []) => {
-    const total = countLeaves(nodes);
-    if (total === 0) return "none";
-    const enabled = countEnabledLeaves(nodes, enabledSet);
-    if (enabled === 0) return "none";
-    if (enabled === total) return "all";
-    return "some";
-  };
 
   const filterNodesBySearch = useCallback(
     (nodes = [], term = "") => {
@@ -560,247 +292,11 @@ function GeoserverDialog({
     [isLeaf],
   );
 
-  const activeFiltersCount = useMemo(() => {
-    const allGroups = [...geoserver, staticLayer];
-    return allGroups.reduce(
-      (acc, group) =>
-        acc + countEnabledLeaves(group.children || [], enabledSet),
-      0,
-    );
-  }, [geoserver, enabledSet, countEnabledLeaves]);
-
-  const filteredData = useMemo(() => {
-    const allGroups = [...layerGroups, staticLayer];
-
-    if (!searchValue) {
-      return allGroups;
-    }
-    return allGroups
-      .map((group) => ({
-        ...group,
-        children: filterNodesBySearch(group.children || [], searchValue),
-      }))
-      .filter((group) => (group.children?.length || 0) > 0);
-  }, [layerGroups, searchValue, filterNodesBySearch]);
-
-  const handleClick = () => setOpen((s) => !s);
   const handleClose = () => {
     setOpen(false);
     if (onPanelClose) onPanelClose();
   };
-  const handleSearchChange = (e) =>
-    onSearchChange && onSearchChange(e.target.value);
   const handleTabChange = (_e, value) => setTab(value);
-
-  const toggleGroupExpanded = (groupIndex) => {
-    const next = new Set(expandedGroups);
-    if (next.has(groupIndex)) next.delete(groupIndex);
-    else next.add(groupIndex);
-    setExpandedGroups(next);
-  };
-
-  const toggleNodeExpanded = (key) => {
-    const next = new Set(expandedNodes);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setExpandedNodes(next);
-  };
-
-  const resolveGroupUrl = (groupData, node) => node?.url || groupData?.url;
-  const resolveLayerHint = (node) =>
-    node.layer || node.layers || node.typename || node.TYPENAME;
-
-  const toggleLeaf = (leaf, group, path, nextEnabled) => {
-    if (!onFilterChange) return;
-    onFilterChange(leaf.id, nextEnabled, {
-      ...leaf,
-      path,
-      groupName: group.name,
-      groupUrl: resolveGroupUrl(group, leaf),
-      layer: resolveLayerHint(leaf),
-      isFromStaticLayer: group.id === "static_layer",
-    });
-  };
-
-  const toggleAllLeavesUnder = (nodes, group, parentPath, enable) => {
-    const leaves = collectLeaves(nodes);
-    leaves.forEach((leaf) => {
-      const path = `${parentPath} / ${leaf.name}`;
-      const isEnabled = enabledSet.has(String(leaf.id));
-      if (enable && !isEnabled) toggleLeaf(leaf, group, path, true);
-      if (!enable && isEnabled) toggleLeaf(leaf, group, path, false);
-    });
-  };
-
-  const clearAllFilters = () => {
-    const allGroups = [...geoserver, staticLayer];
-    allGroups.forEach((group) =>
-      toggleAllLeavesUnder(group.children || [], group, group.name, false),
-    );
-  };
-
-  const enableAllFilters = () => {
-    const allGroups = [...geoserver, staticLayer];
-    allGroups.forEach((group) =>
-      toggleAllLeavesUnder(group.children || [], group, group.name, true),
-    );
-  };
-
-  const autoExpandOnceRef = useRef(false);
-  useEffect(() => {
-    if (geoserver.length === 0) return;
-    if (autoExpandOnceRef.current) return;
-    const groupsWithEnabled = new Set();
-    const allGroups = [...geoserver, staticLayer];
-    allGroups.forEach((group, idx) => {
-      if (countEnabledLeaves(group.children || [], enabledSet) > 0)
-        groupsWithEnabled.add(idx);
-    });
-    if (groupsWithEnabled.size > 0) {
-      setExpandedGroups((prev) => {
-        const next = new Set(prev);
-        groupsWithEnabled.forEach((g) => next.add(g));
-        return next;
-      });
-    }
-    autoExpandOnceRef.current = true;
-  }, [geoserver, enabledSet, countEnabledLeaves]);
-
-  const renderLeaf = (leaf, group, path, color) => {
-    const isEnabled = enabledSet.has(String(leaf.id));
-    return (
-      <LeafItem
-        key={leaf.id}
-        leaf={leaf}
-        group={group}
-        path={path}
-        color={color}
-        isEnabled={isEnabled}
-        toggleLeaf={toggleLeaf}
-      />
-    );
-  };
-
-  const renderNode = (
-    node,
-    group,
-    parentPath,
-    color,
-    depth,
-    indexPath = "",
-  ) => {
-    const path = `${parentPath} / ${node.name}`;
-    if (isLeaf(node)) return renderLeaf(node, group, path, color);
-
-    const key = node?.id
-      ? `id:${node.id}`
-      : `${parentPath}#${indexPath || (node?.name ?? "group")}`;
-    const state = triState(node.children || []);
-    const checked = state === "all";
-    const indeterminate = state === "some";
-    const nodeOpen = expandedNodes.has(key);
-    const subgroupEnabled = countEnabledLeaves(node.children || [], enabledSet);
-    const totalLeaves = countLeaves(node.children || []);
-
-    return (
-      <Box key={key}>
-        <ListItemButton
-          onClick={() => toggleNodeExpanded(key)}
-          sx={{
-            py: 0.5,
-            borderRadius: 1,
-            mx: 1,
-            borderLeft:
-              subgroupEnabled > 0
-                ? `2px solid ${color}`
-                : "2px solid transparent",
-            backgroundColor: subgroupEnabled > 0 ? `${color}08` : "transparent",
-            "&:hover": { backgroundColor: `${color}12` },
-          }}
-        >
-          <ListItemText
-            sx={{
-              alignItems: "center",
-              display: { xs: "block", sm: "flex" },
-              justifyContent: { sm: "space-between" },
-            }}
-            primary={
-              <Box
-                sx={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 1.25,
-                  minWidth: 0,
-                }}
-              >
-                <LayersIcon sx={{ fontSize: 16, color }} />
-                <Typography
-                  variant="body2"
-                  fontWeight={700}
-                  noWrap
-                  title={node.name}
-                  sx={{ minWidth: 0 }}
-                >
-                  {node.name}
-                </Typography>
-              </Box>
-            }
-            secondary={
-              <Chip
-                label={`${totalLeaves} анги`}
-                size="small"
-                color="success"
-                variant="outlined"
-              />
-            }
-          />
-
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.5,
-              minWidth: 48,
-              justifyContent: "flex-end",
-            }}
-          >
-            <Checkbox
-              edge="end"
-              indeterminate={indeterminate}
-              checked={checked}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => {
-                e.stopPropagation();
-                toggleAllLeavesUnder(
-                  node.children || [],
-                  group,
-                  path,
-                  e.target.checked,
-                );
-              }}
-              size="small"
-              sx={{ color, "&.Mui-checked": { color } }}
-            />
-          </Box>
-        </ListItemButton>
-
-        <Collapse in={nodeOpen} timeout="auto" unmountOnExit>
-          <List dense sx={{ pl: depth + 1, py: 0 }}>
-            {(node.children || []).map((child, idx) =>
-              renderNode(
-                child,
-                group,
-                path,
-                color,
-                depth + 1,
-                `${indexPath}-${idx}`,
-              ),
-            )}
-          </List>
-        </Collapse>
-      </Box>
-    );
-  };
 
   return (
     <Box
