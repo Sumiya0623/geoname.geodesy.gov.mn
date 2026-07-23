@@ -401,6 +401,7 @@ RECOUNT_VIEW = 'recount_view'
 _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.draft,
     r.name_id AS name_id,
     COALESCE(r.loc, g.geoloc) AS geoloc,
+    GeometryType(COALESCE(r.loc, g.geoloc)) AS geom_type,
     g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
     json_build_array(t.parent_id, g.type_id) AS type,
     COALESCE(g.name, r.draft) AS name,
@@ -761,11 +762,21 @@ def _assign_recount_type_style():
 
 def ensure_recount_view():
     """recount_view (төслийн дахин тооллогын view) — байхгүй бол үүсгэж нийтэлнэ,
-    type symbol бүхий combined style ононо."""
+    type symbol бүхий combined style ононо. Багана дутуу (хуучин хувилбар) бол
+    view‑г ДАХИН үүсгэнэ (ж: geom_type нэмэгдсэн)."""
     try:
         with connection.cursor() as c:
             c.execute("SELECT to_regclass('public.recount_view')")
-            if not c.fetchone()[0]:
+            exists = bool(c.fetchone()[0])
+            if exists:
+                c.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name=%s", [RECOUNT_VIEW])
+                cols = {r[0] for r in c.fetchall()}
+                if 'geom_type' not in cols:
+                    c.execute('DROP VIEW public."%s" CASCADE' % RECOUNT_VIEW)
+                    exists = False
+            if not exists:
                 c.execute('CREATE VIEW public."%s" AS %s' % (RECOUNT_VIEW, _RECOUNT_VIEW_SQL))
         _ensure_geoname_store()
         _publish_or_recalc(RECOUNT_VIEW, 'Дахин тооллого')

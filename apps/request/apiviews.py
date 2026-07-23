@@ -500,6 +500,29 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				obj.statuses.set(sids)
 		return Response({'created': len(created)}, status=201)
 
+	@action(detail=True, methods=['post'], url_path='set-geom')
+	def set_geom(self, request, pk=None):
+		"""Тухайн тооллогын БАЙРШЛЫГ шинэчилнэ (QGIS plugin‑ээс засварласан
+		геометр). body: {"loc": <GeoJSON geometry>} — EPSG:4326."""
+		from django.contrib.gis.geos import GEOSGeometry
+		import json as _json
+		obj = self.get_object()
+		raw = request.data.get('loc')
+		if not raw:
+			return Response({'detail': 'loc шаардлагатай'}, status=400)
+		try:
+			val = raw if isinstance(raw, str) else _json.dumps(raw)
+			geom = GEOSGeometry(val)
+			if not geom.srid:
+				geom.srid = 4326
+			if geom.srid != 4326:
+				geom = geom.transform(4326, clone=True)
+		except Exception as exc:
+			return Response({'detail': f'Геометр буруу: {exc}'}, status=400)
+		obj.loc = geom
+		obj.save(update_fields=['loc'])
+		return Response({'detail': 'ok'}, status=200)
+
 	@action(detail=True, methods=['post'], url_path='reverse-geom')
 	def reverse_geom(self, request, pk=None):
 		"""Тухайн тооллогын ГЕОМЕТРИЙН чиглэлийг эргүүлнэ (LineString‑ийн
