@@ -4,8 +4,6 @@ import TileWMS from "ol/source/TileWMS";
 import GeoJSON from "ol/format/GeoJSON";
 import Map from "ol/Map";
 import View from "ol/View";
-import MousePosition from "ol/control/MousePosition";
-import { toStringHDMS } from "ol/coordinate";
 import { fromLonLat } from "ol/proj";
 import { boundingExtent } from "ol/extent";
 import Style from "ol/style/Style";
@@ -172,18 +170,8 @@ export function initMap(opts) {
   baseLayerRef.current = baseLayer;
   mapObjRef.current = map;
 
-  const mousePositionControl = new MousePosition({
-    coordinateFormat: function (coord) {
-      const hdms = toStringHDMS(coord);
-      return hdms;
-    },
-    projection: "EPSG:4326",
-    className: "ol-mouse-position",
-    target: document.getElementById("mouse-position"),
-    undefinedHTML: "&nbsp;",
-  });
-
-  map.addControl(mousePositionControl);
+  // Солбицлыг зургийн ДООД status bar дээр (map2/index.js) харуулдаг болсон тул
+  // OL‑ийн MousePosition контролыг нэмэхгүй (давхардахгүй).
   map.on("click", async (event) => {
     if (lastClickCoordinateRef) {
       lastClickCoordinateRef.current = event.coordinate;

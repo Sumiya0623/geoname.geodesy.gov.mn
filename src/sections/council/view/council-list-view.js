@@ -282,9 +282,9 @@ export default function CouncilListView() {
     d ? `${d.name}${d.order_number ? ` (${d.order_number})` : ""}` : "—";
 
   return (
-    <Container maxWidth={settings.themeStretch ? false : "xxl"}>
+    <Container maxWidth="xxl">
       <CustomBreadcrumbs
-        heading="Газар зүйн нэрийн зөвлөлийн сан"
+        heading="Газар зүйн нэрийн зөвлөл"
         links={[{ name: "Дашбоард" }, { name: "Зөвлөлийн сан" }]}
         action={
           <Button
@@ -295,11 +295,10 @@ export default function CouncilListView() {
             Зөвлөл нэмэх
           </Button>
         }
-        sx={{ mb: 3 }}
       />
 
       {/* Зөвлөлийн жагсаалт */}
-      <Card sx={{ mb: 3 }}>
+      <Card>
         <TableContainer>
           <Scrollbar>
             <Table size="small" sx={{ minWidth: 800 }}>

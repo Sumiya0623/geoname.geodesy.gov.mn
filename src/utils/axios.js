@@ -181,6 +181,10 @@ export const endpoints = {
     adjacent: (request_body) => `/api/n/raster/adjacent/?${request_body}`,
     geometry: (request_body) => `/api/n/raster/geometry/?${request_body}`,
     preview: (request_body) => `/api/n/raster/preview/?${request_body}`,
+    // Ажлын зураг (хээрийн судалгаа — төслийн дахин тооллогоор)
+    workUnits: (request_body) => `/api/n/raster/work-units/?${request_body}`,
+    workPreview: (request_body) => `/api/n/raster/work-preview/?${request_body}`,
+    workPrint: `/api/n/raster/work-print/`,
   },
 
   legal: {
@@ -218,6 +222,7 @@ export const endpoints = {
     delete: (id) => `/api/r/recount/${id}/`,
     wms: (request_body) => `/api/r/recount/wms/?${request_body}`,
     typeTree: (request_body) => `/api/r/recount/type-tree/?${request_body}`,
+    reverseGeom: (id) => `/api/r/recount/${id}/reverse-geom/`,
   },
 
   workspace: {
@@ -265,6 +270,9 @@ export const endpoints = {
     details: (id) => `/api/g/basemap/${id}/`,
     available: (request_body) => `/api/g/basemap/available/?${request_body || ""}`,
     forMap: `/api/g/basemap/for-map/`,
+    // Давхаргын хил (Zoom to Layer) — ?layer=<ws:name>
+    layerExtent: (layer) =>
+      `/api/g/basemap/layer-extent/?layer=${encodeURIComponent(layer)}`,
   },
 
   // GeoServer — backend нь /api/g/ дээр (ws/st/fs/rule/group/item).

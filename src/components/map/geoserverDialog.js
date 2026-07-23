@@ -20,6 +20,8 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Menu,
+  MenuItem,
   Tabs,
   Tab,
   useMediaQuery,
@@ -38,6 +40,18 @@ import {
   Terrain as TerrainIcon,
   Public as PublicIcon,
   LayersClearRounded as ClearLayersIcon,
+  Place as GeomPointIcon,
+  Timeline as GeomLineIcon,
+  CropSquare as GeomPolyIcon,
+  FolderOutlined as GeomOtherIcon,
+  DoNotDisturbAlt as NoLayerIcon,
+  KeyboardArrowUp as CollapseAllIcon,
+  KeyboardArrowDown as ExpandAllIcon,
+  HighlightAlt as SelectFeatureIcon,
+  ArrowDropDown as ArrowDropDownIcon,
+  RadioButtonChecked as CircleSelIcon,
+  CropFree as RectSelIcon,
+  Pentagon as PolySelIcon,
 } from "@mui/icons-material";
 
 import { useGetGeoserver } from "src/api/map";
@@ -51,6 +65,15 @@ import AdvancedSearch from "./AdvancedSearch";
 const GEONAME_VIEW_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:geoname_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
 
 const isLeaf = (node) => !node?.children || node.children.length === 0;
+
+// Идэвхтэй давхаргын геометрийн дүрс (Цэг/Шугам/Талбай)
+function ActiveGeomIcon({ desc }) {
+  const d = (desc || "").trim();
+  if (d === "Цэг") return <GeomPointIcon sx={{ fontSize: 16, color: "#16a34a" }} />;
+  if (d === "Шугам") return <GeomLineIcon sx={{ fontSize: 16, color: "#2563eb" }} />;
+  if (d === "Талбай") return <GeomPolyIcon sx={{ fontSize: 16, color: "#d97706" }} />;
+  return <GeomOtherIcon sx={{ fontSize: 16, color: "#0675c9" }} />;
+}
 
 function LeafItem({ leaf, group, path, color, isEnabled, toggleLeaf }) {
   return (
@@ -274,10 +297,72 @@ function GeoserverDialog({
   geonameSearchTerm,
   scaleDenom,
   onRecountCql,
+  // Ангиллын мөрийн 3 цэгийн цэс (Zoom/Feature table/Чанар) — map2 боловсруулна
+  onNodeAction,
+  // Панелийн өргөн өөрчлөгдөхөд эцэгт мэдэгдэнэ (доод хүснэгт мөрөө тааруулна)
+  onWidthChange,
 }) {
   const theme = useTheme();
   const isSmall = useMediaQuery(theme.breakpoints.down("sm"));
   const [open, setOpen] = useState(false);
+  // Панелийн ӨРГӨН — баруун ирмэгээс чирж солино
+  const [panelW, setPanelW] = useState(440);
+  // Орон зайн сонголтын (Select Feature) цэс
+  const [selMenu, setSelMenu] = useState(null);
+  const [hasActive, setHasActive] = useState(false);
+  // Идэвхтэй давхаргын нэр/геометрийн төрөл (толгойн мөрөнд харуулна)
+  const [activeLayer, setActiveLayer] = useState(null);
+  // Тооллогын модонд сонгогдсон ангиллын тоо (доод мөрийн тоолуур)
+  const [recountChecked, setRecountChecked] = useState(0);
+  useEffect(() => {
+    const h = (e) => {
+      setHasActive(!!e?.detail?.id);
+      setActiveLayer(
+        e?.detail?.id
+          ? { name: e.detail.name, desc: e.detail.desc }
+          : null,
+      );
+      setRecountChecked(e?.detail?.checkedCount ?? 0);
+    };
+    window.addEventListener("recount:active", h);
+    return () => window.removeEventListener("recount:active", h);
+  }, []);
+  // QGIS маягийн мэдэгдэл — идэвхтэй давхаргагүй үед
+  const noActiveNotice = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent("map:notice", {
+        detail: {
+          title: "Идэвхтэй вектор давхарга алга:",
+          text: "Объект сонгохын тулд давхаргын жагсаалтаас давхарга сонгоно уу",
+        },
+      }),
+    );
+  }, []);
+  const widthDragRef = useRef(null);
+  const startWidthResize = useCallback(
+    (e) => {
+      e.preventDefault();
+      widthDragRef.current = { x: e.clientX, w: panelW };
+      const onMove = (ev) => {
+        const d = widthDragRef.current;
+        if (!d) return;
+        setPanelW(
+          Math.min(
+            Math.max(300, d.w + (ev.clientX - d.x)),
+            window.innerWidth - 320,
+          ),
+        );
+      };
+      const onUp = () => {
+        widthDragRef.current = null;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [panelW],
+  );
   const [expandedGroups, setExpandedGroups] = useState(new Set([0]));
   const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [tab, setTab] = useState("layers");
@@ -288,6 +373,11 @@ function GeoserverDialog({
   const _cm = (pathname || "").match(/^\/dashboard\/champaign\/([^/]+)\/map/);
   const addProjectId = _cm ? _cm[1] : null;
 
+  // Панелийн эзлэх өргөнийг эцэгт мэдэгдэнэ (хаалттай бол 0)
+  useEffect(() => {
+    if (onWidthChange) onWidthChange(open && !isSmall ? panelW : 0);
+  }, [open, panelW, isSmall, onWidthChange]);
+
   // forceOpen‑ийг бодит open төлөвтэй синк (толгойн товч toggle хийнэ)
   useEffect(() => {
     setOpen(forceOpen);
@@ -296,36 +386,19 @@ function GeoserverDialog({
     }
   }, [forceOpen, forceTab]);
   const [layerGroups, setLayerGroups] = useState([]);
-
-  // Нэрийн ангилал (GEONAME_TYPES) — идэвхжсэн ангиллын id‑ууд
   const [nameChecked, setNameChecked] = useState(() => new Set());
-  // Дэлгэрэнгүй хайлтын формыг ангиллын дээр харуулах эсэх
   const [searchOpen, setSearchOpen] = useState(false);
-  // Хайлтын шүүлтүүр — ангиллын модны тоог хайлттай уялдуулахад
   const [treeFilters, setTreeFilters] = useState(null);
-  // Type‑ээс бусад хайлтын CQL (нэгж/нэр г.м.) — ангиллын давхаргад нэмнэ
   const [extraCql, setExtraCql] = useState("");
   const [printOpen, setPrintOpen] = useState(false);
-
-  // Толгойн хайлтаас (илэрц 1‑с их) ирвэл дэлгэрэнгүй формыг нээнэ
   useEffect(() => {
     if (geonameSearchTerm?.term) setSearchOpen(true);
   }, [geonameSearchTerm]);
-
-  // Идэвхтэй ангиллын нод‑уудыг (extraCql өөрчлөгдөхөд дахин тавихад) санана
   const checkedNodesRef = useRef(new Map());
-  // onFilterChange / extraCql‑ийг ref‑ээр барина — applyNameLayer‑ыг тогтвортой
-  // (empty deps) болгож, доорх effect‑ийг зөвхөн extraCql өөрчлөгдөхөд ажиллуулна.
-  // (onFilterChange нь index.js‑д useCallback биш тул рендер бүрд шинэ reference —
-  //  deps‑д оруулбал infinite render loop үүснэ.)
   const onFilterChangeRef = useRef(onFilterChange);
   onFilterChangeRef.current = onFilterChange;
   const extraCqlRef = useRef(extraCql);
   extraCqlRef.current = extraCql;
-
-  // Ангиллын давхаргыг газрын зурагт тавих/авах. extraCql (нэгж/нэр/дугаар г.м.
-  // хайлтын шүүлт) байвал төрлийн CQL дээр нэмж, зөвхөн тухайн шүүлтэд
-  // тохирох нэрсийг харуулна (жишээ нь сонгосон аймгийн уулс).
   const applyNameLayer = useCallback((node, enabled) => {
     const onFilterChange = onFilterChangeRef.current;
     if (!onFilterChange) return;
@@ -748,9 +821,11 @@ function GeoserverDialog({
             position: "fixed",
             top: 60,
             left: 0,
+            // Цонхны ёроол хүртэл — доод attribute хүснэгт нь панелийн БАРУУН
+            // талаас эхэлдэг тул давхцахгүй.
             bottom: 0,
-            zIndex: 1201,
-            width: isSmall ? "100dvw" : 440,
+            zIndex: 1300,
+            width: isSmall ? "100dvw" : panelW,
             boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
             borderRight: "1px solid rgba(0,0,0,0.08)",
             borderRadius: 0,
@@ -762,6 +837,22 @@ function GeoserverDialog({
           }}
           id="geoserver-dialog-container"
         >
+          {/* Баруун ирмэгийн чирэх бариул — панелийн ӨРГӨНийг солино */}
+          {!isSmall && (
+            <Box
+              onMouseDown={startWidthResize}
+              sx={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                bottom: 0,
+                width: 6,
+                cursor: "col-resize",
+                zIndex: 5,
+                "&:hover": { bgcolor: "primary.light" },
+              }}
+            />
+          )}
           <Box
             sx={{
               p: 1.5,
@@ -880,57 +971,218 @@ function GeoserverDialog({
                       justifyContent: "space-between",
                     }}
                   >
-                    <Typography variant="subtitle2" sx={{ color: "#0675c9" }}>
-                      {addProjectId
-                        ? "Тооллогын ангилал"
-                        : "Газар зүйн нэрийн ангилал"}
-                    </Typography>
-                    <Box sx={{ display: "flex", alignItems: "center" }}>
-                      <Tooltip title="Идэвхтэй ангиллыг цэвэрлэх">
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={handleClearNames}
-                            disabled={nameChecked.size === 0}
-                            sx={{ color: "#d32f2f" }}
-                          >
-                            <ClearLayersIcon sx={{ fontSize: 20 }} />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Дэлгэрэнгүй хайлт">
-                        <IconButton
+                    <Box
+                      sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}
+                    >
+                      <Typography
+                        variant="subtitle2"
+                        sx={{ color: "#0675c9", flexShrink: 0 }}
+                      >
+                        {addProjectId
+                          ? "Тооллогын ангилал"
+                          : "Газар зүйн нэрийн ангилал"}
+                      </Typography>
+                      {/* Идэвхтэй ДАВХАРГА — нэр + геометрийн дүрс. Байхгүй бол
+                          "сонгоогүй" тэмдэг. */}
+                      <Tooltip
+                        title={
+                          activeLayer
+                            ? `Идэвхтэй давхарга: ${activeLayer.name}`
+                            : "Идэвхтэй давхарга сонгоогүй — модноос ангилал дарна уу"
+                        }
+                      >
+                        <Chip
                           size="small"
-                          onClick={() => setSearchOpen((v) => !v)}
+                          icon={
+                            activeLayer ? (
+                              <ActiveGeomIcon desc={activeLayer.desc} />
+                            ) : (
+                              <NoLayerIcon sx={{ fontSize: 16 }} />
+                            )
+                          }
+                          label={activeLayer ? activeLayer.name : "Давхарга алга"}
                           sx={{
-                            color: searchOpen ? "#0675c9" : "text.secondary",
+                            height: 22,
+                            maxWidth: 160,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: activeLayer ? "#0675c9" : "text.disabled",
+                            bgcolor: activeLayer ? "#0675c914" : "transparent",
+                            border: "1px solid",
+                            borderColor: activeLayer ? "#0675c933" : "divider",
                           }}
-                        >
-                          <FilterIcon sx={{ fontSize: 18 }} />
-                        </IconButton>
+                        />
                       </Tooltip>
-                      <Tooltip title="Газар зүйн нэрийн зураг хэвлэх">
+                    </Box>
+                    <Box sx={{ display: "flex", alignItems: "center" }}></Box>
+                  </Box>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.25,
+                      px: 1,
+                      py: 0.5,
+                      flexShrink: 0,
+                      borderBottom: "1px solid #f0f0f0",
+                      bgcolor: "#fafafa",
+                    }}
+                  >
+                    <Tooltip title="Идэвхтэй ангиллыг ДЭЭШ (эхэнд зурагдана)">
+                      <span>
                         <IconButton
                           size="small"
-                          onClick={() => setPrintOpen(true)}
-                          sx={{ color: "#2e7d32" }}
+                          disabled={!hasActive}
+                          onClick={() =>
+                            window.dispatchEvent(new Event("recount:moveUp"))
+                          }
                         >
-                          <PrintIcon sx={{ fontSize: 20 }} />
+                          <CollapseAllIcon sx={{ fontSize: 20 }} />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Идэвхтэй ангиллыг ДООШ (дээр нь зурагдана)">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={!hasActive}
+                          onClick={() =>
+                            window.dispatchEvent(new Event("recount:moveDown"))
+                          }
+                        >
+                          <ExpandAllIcon sx={{ fontSize: 20 }} />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+
+                    <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+                    <Tooltip title="Select Feature — газрын зураг дээрээс сонгох">
+                      <IconButton
+                        size="small"
+                        onClick={() =>
+                          hasActive ? onStartPickPoint?.() : noActiveNotice()
+                        }
+                        sx={{ color: hasActive ? "#f59e0b" : "text.disabled" }}
+                      >
+                        <SelectFeatureIcon sx={{ fontSize: 20 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <IconButton
+                      size="small"
+                      sx={{ p: 0, ml: -0.5 }}
+                      onClick={(e) => setSelMenu(e.currentTarget)}
+                    >
+                      <ArrowDropDownIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                    <Menu
+                      anchorEl={selMenu}
+                      open={Boolean(selMenu)}
+                      onClose={() => setSelMenu(null)}
+                      slotProps={{ paper: { sx: { minWidth: 210 } } }}
+                    >
+                      <MenuItem
+                        onClick={() => {
+                          setSelMenu(null);
+                          if (!hasActive) {
+                            noActiveNotice();
+                            return;
+                          }
+                          onStartDrawing?.();
+                        }}
+                      >
+                        <ListItemIcon>
+                          <CircleSelIcon
+                            sx={{ fontSize: 18, color: "#f59e0b" }}
+                          />
+                        </ListItemIcon>
+                        <ListItemText>Тойргоор</ListItemText>
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          setSelMenu(null);
+                          if (!hasActive) {
+                            noActiveNotice();
+                            return;
+                          }
+                          onStartDrawRectangle?.();
+                        }}
+                      >
+                        <ListItemIcon>
+                          <RectSelIcon
+                            sx={{ fontSize: 18, color: "#f59e0b" }}
+                          />
+                        </ListItemIcon>
+                        <ListItemText>Тэгш өнцөгтөөр</ListItemText>
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          setSelMenu(null);
+                          if (!hasActive) {
+                            noActiveNotice();
+                            return;
+                          }
+                          onStartDrawPolygon?.();
+                        }}
+                      >
+                        <ListItemIcon>
+                          <PolySelIcon
+                            sx={{ fontSize: 18, color: "#f59e0b" }}
+                          />
+                        </ListItemIcon>
+                        <ListItemText>Полигоноор</ListItemText>
+                      </MenuItem>
+                      <Divider />
+                      <MenuItem
+                        onClick={() => {
+                          setSelMenu(null);
+                          onClearSearchArea?.();
+                        }}
+                      >
+                        <ListItemIcon>
+                          <ClearLayersIcon
+                            sx={{ fontSize: 18, color: "#d32f2f" }}
+                          />
+                        </ListItemIcon>
+                        <ListItemText>Сонголтын мужийг цэвэрлэх</ListItemText>
+                      </MenuItem>
+                    </Menu>
+
+                    {/* Баруун тал — хайлт / хэвлэх / нэр нэмэх */}
+                    <Box sx={{ flex: 1 }} />
+                    <Tooltip title="Дэлгэрэнгүй хайлт">
+                      <IconButton
+                        size="small"
+                        onClick={() => setSearchOpen((v) => !v)}
+                        sx={{
+                          color: searchOpen ? "#0675c9" : "text.secondary",
+                        }}
+                      >
+                        <FilterIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Газар зүйн нэрийн зураг хэвлэх">
+                      <IconButton
+                        size="small"
+                        onClick={() => setPrintOpen(true)}
+                        sx={{ color: "#2e7d32" }}
+                      >
+                        <PrintIcon sx={{ fontSize: 20 }} />
+                      </IconButton>
+                    </Tooltip>
+                    {addProjectId && (
+                      <Tooltip title="Шинэ нэр нэмэх">
+                        <IconButton
+                          size="small"
+                          onClick={() => setAddOpen((v) => !v)}
+                          sx={{ color: addOpen ? "#16a34a" : "text.secondary" }}
+                        >
+                          <AddIcon sx={{ fontSize: 20 }} />
                         </IconButton>
                       </Tooltip>
-                      {addProjectId && (
-                        <Tooltip title="Шинэ нэр нэмэх">
-                          <IconButton
-                            size="small"
-                            onClick={() => setAddOpen((v) => !v)}
-                            sx={{ color: addOpen ? "#16a34a" : "text.secondary" }}
-                          >
-                            <AddIcon sx={{ fontSize: 20 }} />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
+                    )}
                   </Box>
+
                   <Collapse
                     in={searchOpen && !addProjectId}
                     timeout="auto"
@@ -964,6 +1216,7 @@ function GeoserverDialog({
                         projectId={addProjectId}
                         onCql={onRecountCql}
                         searchOpen={searchOpen}
+                        onNodeAction={onNodeAction}
                       />
                     ) : (
                       <NameCategoryTree
@@ -980,7 +1233,8 @@ function GeoserverDialog({
                   <Divider />
                   <Box sx={{ p: 1.5, textAlign: "center", flexShrink: 0 }}>
                     <Typography variant="caption" color="text.secondary">
-                      {nameChecked.size} ангилал идэвхтэй
+                      {addProjectId ? recountChecked : nameChecked.size} ангилал
+                      идэвхтэй
                       {typeof scaleDenom === "number" &&
                         scaleDenom > 0 &&
                         ` • Zoom ~ ${Math.round(Math.log2(559082264.028 / scaleDenom))}`}
@@ -992,71 +1246,77 @@ function GeoserverDialog({
                 <Box sx={{ minHeight: 300, p: 1, overflowY: "auto" }}>
                   <Typography variant="h6">Суурь зураг сонгох</Typography>
                   <List dense>
-                    {["CRV", "OSM", "GMS", "ESRI", "TOPO", "M100k", "M100kGeoName"].map(
-                      (key) => {
-                        const colorMap = {
-                          CRV: "#1976d2",
-                          OSM: "#4caf50",
-                          GMS: "#ff9800",
-                          ESRI: "#9c27b0",
-                          TOPO: "#795548",
-                          M100k: "#607d8b",
-                          M100kGeoName: "#f44336",
-                        };
-                        const iconFor = (k) => {
-                          if (k === "GMS" || k === "ESRI")
-                            return <SatelliteIcon />;
-                          if (k === "TOPO") return <TerrainIcon />;
-                          if (k === "OSM") return <PublicIcon />;
-                          return <MapIcon />;
-                        };
-                        const labelMap = {
-                          CRV: "Voyager",
-                          OSM: "OpenStreetMap",
-                          GMS: "Google Satellite",
-                          ESRI: "Esri Imagery",
-                          TOPO: "Topographic",
-                          M100kGeoName: "Нэрийн зураг",
-                          M100k: "Байр зүй",
-                        };
-                        const selected = baseMap === key;
-                        const color = colorMap[key] || "#607d8b";
-                        return (
-                          <ListItemButton
-                            key={key}
-                            selected={selected}
-                            onClick={() => setBaseMap && setBaseMap(key)}
-                            sx={{
-                              borderLeft: selected
-                                ? `3px solid ${color}`
-                                : "3px solid transparent",
-                              "&.Mui-selected": {
-                                backgroundColor: `${color}12`,
-                              },
-                              "&:hover": { backgroundColor: `${color}08` },
-                            }}
-                          >
-                            <ListItemIcon sx={{ minWidth: 40 }}>
-                              <Avatar
-                                variant="rounded"
-                                sx={{
-                                  width: 32,
-                                  height: 32,
-                                  backgroundColor: `${color}18`,
-                                  color,
-                                }}
-                              >
-                                {iconFor(key)}
-                              </Avatar>
-                            </ListItemIcon>
-                            <ListItemText
-                              primary={labelMap[key] || key}
-                              secondary={key}
-                            />
-                          </ListItemButton>
-                        );
-                      },
-                    )}
+                    {[
+                      "CRV",
+                      "OSM",
+                      "GMS",
+                      "ESRI",
+                      "TOPO",
+                      "M100k",
+                      "M100kGeoName",
+                    ].map((key) => {
+                      const colorMap = {
+                        CRV: "#1976d2",
+                        OSM: "#4caf50",
+                        GMS: "#ff9800",
+                        ESRI: "#9c27b0",
+                        TOPO: "#795548",
+                        M100k: "#607d8b",
+                        M100kGeoName: "#f44336",
+                      };
+                      const iconFor = (k) => {
+                        if (k === "GMS" || k === "ESRI")
+                          return <SatelliteIcon />;
+                        if (k === "TOPO") return <TerrainIcon />;
+                        if (k === "OSM") return <PublicIcon />;
+                        return <MapIcon />;
+                      };
+                      const labelMap = {
+                        CRV: "Voyager",
+                        OSM: "OpenStreetMap",
+                        GMS: "Google Satellite",
+                        ESRI: "Esri Imagery",
+                        TOPO: "Topographic",
+                        M100kGeoName: "Нэрийн зураг",
+                        M100k: "Байр зүй",
+                      };
+                      const selected = baseMap === key;
+                      const color = colorMap[key] || "#607d8b";
+                      return (
+                        <ListItemButton
+                          key={key}
+                          selected={selected}
+                          onClick={() => setBaseMap && setBaseMap(key)}
+                          sx={{
+                            borderLeft: selected
+                              ? `3px solid ${color}`
+                              : "3px solid transparent",
+                            "&.Mui-selected": {
+                              backgroundColor: `${color}12`,
+                            },
+                            "&:hover": { backgroundColor: `${color}08` },
+                          }}
+                        >
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <Avatar
+                              variant="rounded"
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                backgroundColor: `${color}18`,
+                                color,
+                              }}
+                            >
+                              {iconFor(key)}
+                            </Avatar>
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={labelMap[key] || key}
+                            secondary={key}
+                          />
+                        </ListItemButton>
+                      );
+                    })}
                   </List>
                 </Box>
               )}

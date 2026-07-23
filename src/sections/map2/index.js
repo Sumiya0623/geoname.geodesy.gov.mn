@@ -9,8 +9,13 @@ import React, {
 import {
   Box,
   Fab,
+  Tab,
+  Tabs,
+  Stack,
   Table,
   Paper,
+  Button,
+  Dialog,
   Tooltip,
   TableRow,
   TextField,
@@ -19,9 +24,13 @@ import {
   TableHead,
   Typography,
   IconButton,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   TableContainer,
   InputAdornment,
   TablePagination,
+  CircularProgress,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import {
@@ -51,7 +60,7 @@ import Circle from "ol/geom/Circle";
 import Polygon, { circular } from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
 import GeometryCollection from "ol/geom/GeometryCollection";
-import { fromLonLat, transform, transformExtent } from "ol/proj";
+import { fromLonLat, toLonLat, transform, transformExtent } from "ol/proj";
 import Style from "ol/style/Style";
 import Fill from "ol/style/Fill";
 import Stroke from "ol/style/Stroke";
@@ -79,14 +88,17 @@ import {
 } from "./layers-wmts";
 import { createLegalOverlay } from "./legal-overlay";
 import { useGetGeoserver, useGetBaseLayers } from "src/api/map";
+import Iconify from "src/components/iconify";
 import GeoserverDialog from "src/components/map/geoserverDialog";
+import FeatureTabPanel from "src/components/map/FeatureTabPanel";
+import RecountEditDialog from "src/components/map/RecountEditDialog";
+import FieldCalcDialog from "src/components/map/FieldCalcDialog";
 import RecountLegend from "src/components/map/RecountLegend";
 import { statusColorByName } from "src/components/map/recountStatus";
 import MapHeader from "src/components/map/MapHeader";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { usePathname } from "next/navigation";
 import "./style.css";
-import ScaleBadge from "src/components/map/ScaleBadge";
 import { setViewportVar } from "src/utils/viewportHeight";
 import { initMap } from "./map-init";
 import { statusCheck } from "../utils/statusCheck";
@@ -121,63 +133,193 @@ const buildWmsParams = (overrides = {}) => ({ ...WMS_PARAMS, ...overrides });
 // status_id → өнгө (map2 нь RECOUNT_STATUS татаж дүүргэнэ)
 let recountStatusColorById = {};
 
-// Нэрний доор дараалсан ӨНГӨТ ЗУРААС — status бүрд нэг сегмент (давтагдашгүй өнгө)
+// Аравтын градус → DMS (Градус°Минут′Секунд″Чиглэл) — доод status bar‑д
+function toDMS(decimal, isLat) {
+  const abs = Math.abs(decimal);
+  const deg = Math.floor(abs);
+  const minFloat = (abs - deg) * 60;
+  const min = Math.floor(minFloat);
+  const sec = ((minFloat - min) * 60).toFixed(1);
+  const dir = isLat ? (decimal >= 0 ? "N" : "S") : decimal >= 0 ? "E" : "W";
+  const minStr = String(min).padStart(2, "0");
+  const secStr = parseFloat(sec) < 10 ? `0${sec}` : sec;
+  return `${deg}°${minStr}′${secStr}″${dir}`;
+}
+
+// Attribute хүснэгтэд ХАРАГДАХГҮЙ техникийн багана (дотоод түлхүүрүүд).
+// Дата нь татагдсан хэвээр (засах/устгах/шүүлтэд хэрэгтэй) ч анхдагчаар
+// нуугдана — 'Багана харуулах/нуух' цэснээс буцааж нээж болно.
+const HIDDEN_FEATURE_COLS = [
+  "id",
+  "project_id",
+  "name_id",
+  "type_id",
+  "type_l1",
+  "type_l2",
+  "type",
+  "unit_ids",
+  "nomek_codes",
+];
+
+// Доод мөрөнд сонгож болох масштабууд
+const MAP_SCALE_OPTIONS = [
+  5000, 10000, 25000, 50000, 100000, 200000, 500000, 1000000,
+];
+
+// Ангиллын ЗУРАГДАХ дараалал — Удирдлага панелийн ↑/↓ товчоор солигдоно.
+// {type_id: эрэмбэ}. Жагсаалтын доод талынх нь ӨНДӨР zIndex‑тэй → дээр зурагдана.
+let recountTypeOrder = {};
+// Орон зайн сонголтоор ОЛДСОН тооллогын id‑ууд — газрын зураг дээр тодорно
+let recountSelectedIds = new Set();
+
+// Recount харагдац нь ХОЁР ГОРИМТОЙ:
+//   • z > 12 (ойр)  — ДЭЛГЭРЭНГҮЙ: од + нэр (фонт нь px‑ээр ТҮГЖЭЭТЭЙ) + статус
+//   • z ≤ 12 (хол)  — CLUSTER: ойр цэгүүд нэг бөмбөлөгт нийлж ТОО нь бичигдэнэ
+//     (шугам/талбай нь дүрсээрээ, нэргүй харагдана) → овоорохгүй
+const RECOUNT_LABEL_PX = 12; // шошгын өндөр (px, бүх zoom дээр ижил)
+const RECOUNT_CLUSTER_MAX_ZOOM = 11; // үүнээс хол бол cluster
+const RECOUNT_CLUSTER_DISTANCE = 50; // cluster нэгтгэх зай (px)
+
+// Нэрний доор дараалсан ӨНГӨТ ЗУРААС — status бүрд нэг сегмент (давтагдашгүй өнгө).
+// ШУГАМАН дүрс дээр зураас нь мөн placement:"line" — нэр шигээ МУРУЙГ ДАГАНА.
+// (line placement нь offsetX‑ийг дэмждэггүй тул зураас бүрийг зайн тэмдэгтээр
+// зэрэгцүүлж байрлуулна: бүх мөр ижил өргөнтэй тул төвдөө тэгширнэ.)
+const BAR_PAD = 8; // зураас хооронд оруулах зайн тэмдэгтийн тоо
+
 function recountStatusBars(feature, isLine) {
   const ids = String(feature.get("status_ids") || "")
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  return ids.map(
-    (id, i) =>
-      new Style({
+  const n = ids.length;
+  return ids.map((id, i) => {
+    const fill = new Fill({ color: recountStatusColorById[id] || "#64748b" });
+    const stroke = new Stroke({ color: "#fff", width: 2 });
+    const font = "bold 13px sans-serif";
+    if (isLine) {
+      return new Style({
         text: new Text({
-          text: "━━",
-          font: "bold 13px sans-serif",
-          textAlign: "left",
-          offsetX: (isLine ? 0 : 9) + i * 15,
-          offsetY: isLine ? 12 : 14,
-          fill: new Fill({ color: recountStatusColorById[id] || "#64748b" }),
-          stroke: new Stroke({ color: "#fff", width: 2 }),
+          text:
+            " ".repeat(BAR_PAD * i) + "━━" + " ".repeat(BAR_PAD * (n - 1 - i)),
+          font,
+          placement: "line",
+          overflow: true,
+          maxAngle: Math.PI / 4,
+          offsetY: 11, // нэрийн ЯГ доор, шугамын дагуу
+          fill,
+          stroke,
         }),
+      });
+    }
+    return new Style({
+      text: new Text({
+        text: "━━",
+        font,
+        textAlign: "left",
+        offsetX: 10 + i * 16,
+        offsetY: 12, // нэрийн ЯГ доор (ойртуулсан)
+        fill,
+        stroke,
       }),
-  );
+    });
+  });
 }
 
-// Recount vector (WFS) style — цэг(од)/шугам/талбай + нэрийн label + өнгөт статус
-// зураас. declutter:false тул БҮХ label харагдана.
+// z ≤ 12 — CLUSTER бөмбөлөг (доторх тоо нь нэгтгэсэн цэгийн тоо).
+// Ганц цэг бол энгийн улаан од (нэргүй).
+function makeRecountClusterStyle(feature) {
+  const n = (feature.get("features") || []).length;
+  if (n <= 1) {
+    return new Style({
+      image: new RegularShape({
+        points: 5,
+        radius: 8,
+        radius2: 3.5,
+        fill: new Fill({ color: "rgba(211, 47, 47, 0.22)" }),
+        stroke: new Stroke({ color: "#fff", width: 1 }),
+      }),
+    });
+  }
+  const r = 11 + Math.min(13, Math.log2(n) * 3.5);
+  return new Style({
+    image: new CircleStyle({
+      radius: r,
+      fill: new Fill({ color: "rgba(12, 245, 82, 0.79)" }),
+      stroke: new Stroke({ color: "#fff", width: 2 }),
+    }),
+    text: new Text({
+      text: String(n),
+      font: `bold ${Math.round(r * 0.85)}px sans-serif`,
+      fill: new Fill({ color: "#fff" }),
+    }),
+  });
+}
+
+// z ≤ 12 — шугам/талбайг ЗӨВХӨН дүрсээр (нэргүй). Цэгүүдийг cluster харуулна.
+function makeRecountLowStyle(feature) {
+  const geom = feature.getGeometry();
+  const t = geom ? geom.getType() : "Point";
+  if (t.indexOf("Line") >= 0) {
+    return new Style({ stroke: new Stroke({ color: "#d32f2f", width: 3 }) });
+  }
+  if (t.indexOf("Polygon") >= 0) {
+    return new Style({
+      fill: new Fill({ color: "rgba(211,47,47,0.25)" }),
+      stroke: new Stroke({ color: "#d32f2f", width: 2 }),
+    });
+  }
+  return null;
+}
+
+// Recount ДЭЛГЭРЭНГҮЙ style (z > 12) — цэг(од)/шугам/талбай + нэр + өнгөт статус
+// зураас. Энэ түвшинд БҮХ нэр зурагдана (ерөнхийлөлтгүй), фонт нь түгжээтэй.
 function makeRecountStyle(feature) {
   const geom = feature.getGeometry();
   const t = geom ? geom.getType() : "Point";
   const name = feature.get("name") || "";
+  const isLine = t.indexOf("Line") >= 0;
+
+  const showLabel = !!name;
+  const labelFont = `${RECOUNT_LABEL_PX}px sans-serif`;
   const labelFill = new Fill({ color: "#111" });
   const labelStroke = new Stroke({ color: "#fff", width: 3 });
-  const isLine = t.indexOf("Line") >= 0;
+
+  // Ангиллын дарааллаас зурагдах эрэмбэ (том нь дээр)
+  const zIdx =
+    recountTypeOrder[feature.get("type_id")] ??
+    recountTypeOrder[feature.get("type_l2")] ??
+    recountTypeOrder[feature.get("type_l1")] ??
+    0;
 
   let base;
   if (isLine) {
     // Шугам — нэрийг ШУГАМЫН ДАГУУ (curve) байрлуулна
     base = new Style({
       stroke: new Stroke({ color: "#d32f2f", width: 3 }),
-      text: new Text({
-        text: name,
-        font: "12px sans-serif",
-        placement: "line",
-        overflow: true,
-        maxAngle: Math.PI / 4,
-        fill: labelFill,
-        stroke: labelStroke,
-      }),
+      text: showLabel
+        ? new Text({
+            text: name,
+            font: labelFont,
+            placement: "line",
+            overflow: true,
+            maxAngle: Math.PI / 4,
+            fill: labelFill,
+            stroke: labelStroke,
+          })
+        : undefined,
     });
   } else {
-    const pointLabel = new Text({
-      text: name,
-      font: "12px sans-serif",
-      textAlign: "left",
-      offsetX: 9,
-      overflow: true,
-      fill: labelFill,
-      stroke: labelStroke,
-    });
+    const pointLabel = showLabel
+      ? new Text({
+          text: name,
+          font: labelFont,
+          textAlign: "left",
+          offsetX: 9,
+          overflow: true,
+          fill: labelFill,
+          stroke: labelStroke,
+        })
+      : undefined;
     if (t.indexOf("Point") >= 0) {
       base = new Style({
         image: new RegularShape({
@@ -197,7 +339,22 @@ function makeRecountStyle(feature) {
       });
     }
   }
-  return [base, ...recountStatusBars(feature, isLine)];
+  // Сонгогдсон объектыг ТОД (улбар шар халь + өндөр zIndex) харуулна
+  if (recountSelectedIds.has(String(feature.get("id")))) {
+    base.setZIndex(zIdx + 10000);
+    const img = base.getImage?.();
+    if (img?.getStroke?.()) {
+      img.getStroke().setColor("#f59e0b");
+      img.getStroke().setWidth(3);
+    }
+    if (base.getStroke?.()) {
+      base.getStroke().setColor("#f59e0b");
+      base.getStroke().setWidth(5);
+    }
+  } else {
+    base.setZIndex(zIdx);
+  }
+  return showLabel ? [base, ...recountStatusBars(feature, isLine)] : [base];
 }
 const buildAdminWmsParams = (overrides = {}) => ({
   ...ADMIN_WMS_PARAMS,
@@ -444,6 +601,26 @@ function Map2() {
   // Recount панелийн (type checkbox + draft) бүрдүүлсэн CQL. null → бүх recount.
   const [recountCql, setRecountCql] = useState(null);
   const recountLayerRef = useRef(null);
+  // Доод status bar — курсорын солбицол (DMS) ба масштаб
+  const [cursorCoords, setCursorCoords] = useState({ lon: null, lat: null });
+  const [mapScale, setMapScale] = useState(null);
+  // Давхаргын жагсаалт дахь ИДЭВХТЭЙ давхарга (мөр дээр дарж сонгоно)
+  const [activeLayerKey, setActiveLayerKey] = useState(null);
+  // Зүүн 'Удирдлага' панелийн эзлэх өргөн (чирж солино) — доод хүснэгт үүнтэй уялдана
+  const [managePanelW, setManagePanelW] = useState(0);
+  // Доод attribute хүснэгт — нээсэн ангилал/давхарга бүрд НЭГ ТАБ
+  const [featureTabs, setFeatureTabs] = useState([]);
+  const [activeTabKey, setActiveTabKey] = useState(null);
+  const [splitH, setSplitH] = useState(280); // доод хэсгийн өндөр (чирж солино)
+  const splitDragRef = useRef(null);
+  const featureTabsRef = useRef([]);
+  // Мөр засах диалог (тооллого)
+  const [editRow, setEditRow] = useState(null);
+  // Field Calculator (бөөнөөр талбар шинэчлэх) — аль табд ажиллах
+  const [fieldCalcTab, setFieldCalcTab] = useState(null);
+  // Чанарын шалгалтын үр дүн (dialog)
+  const [qualityReport, setQualityReport] = useState(null);
+  const recountExtraLayersRef = useRef([]); // low(шугам/талбай) + cluster давхарга
   const recountLoadRef = useRef(null); // (cql, doFit) => recount vector‑ийг WFS‑ээр ачаална
   const [recountStatuses, setRecountStatuses] = useState([]); // [{id,name,color}]
   const [recountStatusCounts, setRecountStatusCounts] = useState({}); // {id:count}
@@ -1960,12 +2137,99 @@ function Map2() {
     return () => registerMapExtent(null);
   }, []);
 
+  // Удирдлага панелийн ИДЭВХТЭЙ давхарга (level3 ангилал) — орон зайн сонголт
+  // ЗӨВХӨН энэ давхаргад хамаарна.
+  const [activeRecountLayer, setActiveRecountLayer] = useState(null);
+  useEffect(() => {
+    const h = (e) =>
+      setActiveRecountLayer(
+        e?.detail?.id ? { id: e.detail.id, name: e.detail.name } : null,
+      );
+    window.addEventListener("recount:active", h);
+    return () => window.removeEventListener("recount:active", h);
+  }, []);
+
+  // QGIS маягийн мэдэгдлийн мөр (жишээ нь идэвхтэй давхарга сонгоогүй үед)
+  const [mapNotice, setMapNotice] = useState(null);
+  useEffect(() => {
+    const h = (e) => {
+      setMapNotice(e?.detail || null);
+      window.clearTimeout(h._t);
+      h._t = window.setTimeout(() => setMapNotice(null), 10000);
+    };
+    window.addEventListener("map:notice", h);
+    return () => {
+      window.clearTimeout(h._t);
+      window.removeEventListener("map:notice", h);
+    };
+  }, []);
+
+  // Ангиллын зурагдах дарааллыг Удирдлага панелаас хүлээж авна
+  useEffect(() => {
+    const h = (e) => {
+      const order = e?.detail?.order || [];
+      const m = {};
+      order.forEach((id, i) => {
+        m[id] = order.length - i; // доод талынх нь ӨНДӨР → дээр зурагдана
+      });
+      recountTypeOrder = m;
+      recountLayerRef.current?.changed();
+      recountExtraLayersRef.current?.forEach((l) => l?.changed());
+    };
+    window.addEventListener("recount:order", h);
+    return () => window.removeEventListener("recount:order", h);
+  }, []);
+
+  // Доод status bar — курсорын солбицол (DMS) + масштаб (96dpi, өргөрөгт тааруулсан)
+  useEffect(() => {
+    let map = null;
+    let view = null;
+    let cancelled = false;
+    const onMove = (evt) => {
+      if (evt.dragging) return;
+      const [lon, lat] = toLonLat(evt.coordinate);
+      setCursorCoords({ lon, lat });
+    };
+    const updateScale = () => {
+      if (!view) return;
+      const res = view.getResolution();
+      if (res == null) return;
+      const lat = toLonLat(view.getCenter())[1];
+      const cosLat = Math.cos((lat * Math.PI) / 180);
+      setMapScale(Math.round((res * cosLat * 96) / 0.0254));
+    };
+    const attach = () => {
+      if (cancelled) return;
+      map = mapObjRef.current;
+      if (!map) {
+        setTimeout(attach, 300);
+        return;
+      }
+      view = map.getView();
+      map.on("pointermove", onMove);
+      view.on("change:resolution", updateScale);
+      map.on("moveend", updateScale);
+      updateScale();
+    };
+    attach();
+    return () => {
+      cancelled = true;
+      if (map) {
+        map.un("pointermove", onMove);
+        map.un("moveend", updateScale);
+      }
+      if (view) view.un("change:resolution", updateScale);
+    };
+  }, []);
+
   // Тодруулалт — тухайн төслийн recount‑ыг WFS‑ээр (GeoJSON) татаж, client талд
   // OL vector‑оор рендерлэнэ. Сервер талын style/dedup/scale хамааралгүй — БҮХ
   // feature, БҮХ label харагдана (шүүлт = дэд олонлог). Ачаалахад extent‑д fit.
   useEffect(() => {
     if (!recountProjectId) return undefined;
-    let layer = null;
+    let layer = null; // дэлгэрэнгүй (z > 12)
+    let lowLayer = null; // шугам/талбай (z ≤ 12)
+    let clusterLayer = null; // цэгийн cluster (z ≤ 12)
     let cancelled = false;
     const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
     const geojson = new GeoJSON();
@@ -2035,32 +2299,71 @@ function Map2() {
           ),
         )
         .catch(() => {});
+      // Нэг эх сурвалж (WFS feature) дээр 3 давхарга:
+      //  • layer     — z > 12: дэлгэрэнгүй (од + нэр + статус)
+      //  • lowLayer  — z ≤ 12: зөвхөн шугам/талбайн дүрс (нэргүй)
+      //  • clusterLayer — z ≤ 12: цэгүүдийн cluster (бөмбөлөг + тоо)
+      // OL: minZoom нь "энэ zoom‑оос ДЭЭШ (exclusive)", maxZoom нь "энэ zoom
+      // хүртэл (inclusive)" — 12 дээр яг таарч солигдоно.
+      const src = new VectorSource();
       layer = new VectorLayer({
-        source: new VectorSource(),
+        source: src,
         style: makeRecountStyle,
-        declutter: false, // БҮХ label харагдана
+        declutter: false, // энэ түвшинд зай хангалттай — бүх нэр харагдана
         zIndex: 60,
+        minZoom: RECOUNT_CLUSTER_MAX_ZOOM,
+      });
+      lowLayer = new VectorLayer({
+        source: src,
+        style: makeRecountLowStyle,
+        zIndex: 59,
+        maxZoom: RECOUNT_CLUSTER_MAX_ZOOM,
+      });
+      clusterLayer = new VectorLayer({
+        source: new Cluster({
+          source: src,
+          distance: RECOUNT_CLUSTER_DISTANCE,
+          minDistance: 18,
+          // Зөвхөн цэгүүдийг нэгтгэнэ (шугам/талбайг lowLayer зурна)
+          geometryFunction: (f) => {
+            const g = f.getGeometry();
+            const gt = g && g.getType();
+            if (gt === "Point") return g;
+            if (gt === "MultiPoint") return new Point(g.getCoordinates()[0]);
+            return null;
+          },
+        }),
+        style: makeRecountClusterStyle,
+        zIndex: 61,
+        maxZoom: RECOUNT_CLUSTER_MAX_ZOOM,
       });
       recountLayerRef.current = layer;
+      recountExtraLayersRef.current = [lowLayer, clusterLayer];
       recountLoadRef.current = load;
-      layer.setVisible(recountOn);
-      map.addLayer(layer);
+      [layer, lowLayer, clusterLayer].forEach((l) => {
+        l.setVisible(recountOn);
+        map.addLayer(l);
+      });
       load(`project_id=${recountProjectId}`, true); // анх ачаалахад extent fit
     };
     attach();
     return () => {
       cancelled = true;
       const map = mapObjRef.current;
-      if (layer && map) map.removeLayer(layer);
+      if (map) {
+        [layer, lowLayer, clusterLayer].forEach((l) => l && map.removeLayer(l));
+      }
       recountLayerRef.current = null;
+      recountExtraLayersRef.current = [];
       recountLoadRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recountProjectId]);
 
-  // Тодруулалт checkbox‑ийн харагдах байдал
+  // Тодруулалт checkbox‑ийн харагдах байдал (3 давхарга — detail/low/cluster)
   useEffect(() => {
     if (recountLayerRef.current) recountLayerRef.current.setVisible(recountOn);
+    recountExtraLayersRef.current?.forEach((l) => l?.setVisible(recountOn));
   }, [recountOn]);
 
   // RECOUNT_STATUS → status_id‑ийн өнгө (нэрний доорх зураас). Ачаалагдмагц дахин рендер.
@@ -2161,6 +2464,490 @@ function Map2() {
   const handleToggleExtraOverlay = useCallback((key) => {
     setExtraOverlayOn((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
+
+  // ── Давхаргын жагсаалтын тоолбар ──────────────────────────────────────
+  const handleShowAllOverlays = useCallback(() => {
+    setExtraOverlayOn(
+      Object.fromEntries(extraOverlayConfigs.map((c) => [c.key, true])),
+    );
+  }, [extraOverlayConfigs]);
+
+  const handleHideAllOverlays = useCallback(() => {
+    setExtraOverlayOn({});
+  }, []);
+
+  // Идэвхтэй давхаргыг дээш/доош (zIndex) зөөнө. dir: -1 = дээш, 1 = доош
+  const handleMoveOverlay = useCallback((key, dir) => {
+    const lyr = extraOverlayLayersRef.current?.[key];
+    if (!lyr) return;
+    const z = lyr.getZIndex() ?? 300;
+    lyr.setZIndex(z - dir * 10); // дээш → zIndex өснө
+  }, []);
+
+  // ── Давхарга/ангиллын үйлдлүүд ─────────────────────────────────────────
+  // WFS‑ээр дурын давхаргын feature‑үүдийг татна (GeoJSON, CQL‑тэй).
+  const fetchWfs = useCallback(async (layerName, cql, count = 1000) => {
+    const GS = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+    const ws = String(layerName || "").split(":")[0];
+    const url =
+      `${GS}/${ws}/ows?service=WFS&version=2.0.0&request=GetFeature` +
+      `&typeNames=${encodeURIComponent(layerName)}` +
+      `&outputFormat=application/json&srsName=EPSG:4326&count=${count}` +
+      (cql ? `&CQL_FILTER=${encodeURIComponent(cql)}` : "");
+    const res = await fetch(url, { cache: "no-store" });
+    const data = await res.json();
+    if (!data || !Array.isArray(data.features)) {
+      throw new Error("WFS хариу буруу");
+    }
+    return data;
+  }, []);
+
+  const fetchLayerFeatures = useCallback(
+    (cfg, count = 500) => fetchWfs(cfg.gs_layer, null, count),
+    [fetchWfs],
+  );
+
+  // Доод хүснэгтэд ШИНЭ ТАБ нээнэ (аль хэдийн нээлттэй бол идэвхжүүлнэ)
+  const openFeatureTab = useCallback(
+    async ({ key, label, layer, cql }) => {
+      setActiveTabKey(key);
+      let exists = false;
+      setFeatureTabs((prev) => {
+        exists = prev.some((t) => t.key === key);
+        return exists
+          ? prev
+          : [
+              ...prev,
+              {
+                key,
+                label,
+                layer,
+                cql,
+                loading: true,
+                rows: [],
+                cols: [],
+                page: 0,
+                pageSize: 25,
+                searchCol: "",
+                searchText: "",
+                orderBy: "",
+                order: "asc",
+                hiddenCols: new Set(),
+                selected: new Set(),
+                filteringSelected: false,
+              },
+            ];
+      });
+      if (exists) return;
+      try {
+        const data = await fetchWfs(layer, cql);
+        const feats = data.features || [];
+        const cols = [];
+        feats.slice(0, 50).forEach((f) => {
+          Object.keys(f.properties || {}).forEach((k) => {
+            if (!cols.includes(k)) cols.push(k);
+          });
+        });
+        const hidden = new Set(
+          cols.filter((c) => HIDDEN_FEATURE_COLS.includes(c)),
+        );
+        setFeatureTabs((prev) =>
+          prev.map((t) =>
+            t.key === key
+              ? {
+                  ...t,
+                  loading: false,
+                  cols,
+                  hiddenCols: hidden,
+                  rows: feats.map((f) => ({
+                    id: f.id,
+                    props: f.properties || {},
+                    geometry: f.geometry,
+                  })),
+                  total: data.totalFeatures ?? data.numberMatched ?? feats.length,
+                }
+              : t,
+          ),
+        );
+      } catch (err) {
+        setFeatureTabs((prev) =>
+          prev.map((t) =>
+            t.key === key
+              ? {
+                  ...t,
+                  loading: false,
+                  error:
+                    "Хүснэгт үүсгэж чадсангүй — растер давхарга эсвэл WFS идэвхгүй.",
+                }
+              : t,
+          ),
+        );
+      }
+    },
+    [fetchWfs],
+  );
+
+  // Табын төлөвийг шинэчлэх туслах (toolbar‑ын үйлдлүүд)
+  const patchTab = useCallback((key, patch) => {
+    setFeatureTabs((prev) =>
+      prev.map((t) =>
+        t.key === key ? { ...t, ...(typeof patch === "function" ? patch(t) : patch) } : t,
+      ),
+    );
+  }, []);
+
+  const closeFeatureTab = useCallback((key) => {
+    setFeatureTabs((prev) => {
+      const next = prev.filter((t) => t.key !== key);
+      setActiveTabKey((cur) =>
+        cur === key ? (next.length ? next[next.length - 1].key : null) : cur,
+      );
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    featureTabsRef.current = featureTabs;
+  }, [featureTabs]);
+
+  // Табын дата‑г ДАХИН татна (засвар/устгалын дараа)
+  const reloadTab = useCallback(
+    async (key) => {
+      const tab = featureTabsRef.current.find((t) => t.key === key);
+      if (!tab) return;
+      patchTab(key, { loading: true });
+      try {
+        const data = await fetchWfs(tab.layer, tab.cql);
+        const feats = data.features || [];
+        patchTab(key, {
+          loading: false,
+          rows: feats.map((f) => ({
+            id: f.id,
+            props: f.properties || {},
+            geometry: f.geometry,
+          })),
+          total: data.totalFeatures ?? feats.length,
+        });
+      } catch (e) {
+        patchTab(key, { loading: false });
+      }
+    },
+    [fetchWfs, patchTab],
+  );
+
+  // Мөрийн үйлдэл — засах / геометр эргүүлэх / устгах
+  const handleRowAction = useCallback(
+    async (tabKey, row, action) => {
+      const rcId = row?.props?.id;
+      if (!rcId) return;
+      if (action === "edit") {
+        setEditRow({ row, tabKey });
+        return;
+      }
+      if (action === "reverse") {
+        try {
+          await axiosInstance.post(endpoints.recount.reverseGeom(rcId));
+          window.dispatchEvent(new Event("recount:changed"));
+          reloadTab(tabKey);
+        } catch (e) {
+          /* алгасна */
+        }
+        return;
+      }
+      if (action === "delete") {
+        // eslint-disable-next-line no-alert
+        if (!window.confirm("Энэ тооллогыг устгах уу?")) return;
+        try {
+          await axiosInstance.delete(endpoints.recount.delete(rcId));
+          window.dispatchEvent(new Event("recount:changed"));
+          reloadTab(tabKey);
+        } catch (e) {
+          /* алгасна */
+        }
+      }
+    },
+    [reloadTab],
+  );
+
+  // Доод хэсгийн өндөр — чирж өөрчлөх
+  const startSplitResize = useCallback(
+    (e) => {
+      splitDragRef.current = { y: e.clientY, h: splitH };
+      const onMove = (ev) => {
+        const d = splitDragRef.current;
+        if (!d) return;
+        const next = Math.min(
+          Math.max(140, d.h + (d.y - ev.clientY)),
+          window.innerHeight - 220,
+        );
+        setSplitH(next);
+      };
+      const onUp = () => {
+        splitDragRef.current = null;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [splitH],
+  );
+
+  // ── Орон зайн сонголт: зурсан муж дотор ОРСОН тооллогуудыг олно ───────
+  // Олдвол: (1) тэдгээр рүү zoom, (2) газрын зураг дээр тодруулна,
+  // (3) доод хэсэгт recount жагсаалтыг шинэ таб болгон нээнэ.
+  const runSpatialSelect = useCallback(
+    async (ringLonLat) => {
+      if (!recountProjectId || !ringLonLat?.length) return;
+      const ring = [...ringLonLat];
+      const [fx, fy] = ring[0];
+      const [lx, ly] = ring[ring.length - 1];
+      if (fx !== lx || fy !== ly) ring.push([fx, fy]);
+      // ЧУХАЛ: WFS 2.0 + EPSG:4326 дээр CQL‑ийн WKT нь LAT LON дараалалтай
+      // (lon lat бичвэл үргэлж 0 үр дүн буцаана).
+      const wkt = `POLYGON((${ring
+        .map(([x, y]) => `${y.toFixed(6)} ${x.toFixed(6)}`)
+        .join(",")}))`;
+      // ЗӨВХӨН идэвхтэй давхарга (сонгосон ангилал) дотроос сонгоно
+      const layerCql = activeRecountLayer?.id
+        ? ` AND type_id=${activeRecountLayer.id}`
+        : "";
+      const cql =
+        `project_id=${recountProjectId}${layerCql} ` +
+        `AND INTERSECTS(geoloc, ${wkt})`;
+      try {
+        const data = await fetchWfs("geoname:recount_view", cql, 2000);
+        const feats = data.features || [];
+        if (!feats.length) {
+          window.dispatchEvent(
+            new CustomEvent("map:notice", {
+              detail: {
+                title: "Сонголт хоосон:",
+                text: "Тэмдэглэсэн муж дотор тооллого олдсонгүй",
+              },
+            }),
+          );
+          return;
+        }
+        // (1) Zoom + (2) тодруулах
+        const map = mapObjRef.current;
+        recountSelectedIds = new Set(
+          feats.map((f) => String(f.properties?.id)),
+        );
+        if (map) {
+          const src = new VectorSource({
+            features: new GeoJSON().readFeatures(data, {
+              dataProjection: "EPSG:4326",
+              featureProjection: map.getView().getProjection(),
+            }),
+          });
+          map.getView().fit(src.getExtent(), {
+            duration: 500,
+            padding: [80, 80, 80, 80],
+            maxZoom: 16,
+          });
+        }
+        recountLayerRef.current?.changed();
+        recountExtraLayersRef.current?.forEach((l) => l?.changed());
+        // (3) Доод хэсэгт жагсаалт болгон нээнэ (мөрүүд нь сонгогдсон)
+        const cols = [];
+        feats.slice(0, 50).forEach((f) => {
+          Object.keys(f.properties || {}).forEach((k) => {
+            if (!cols.includes(k)) cols.push(k);
+          });
+        });
+        const rows = feats.map((f) => ({
+          id: f.id,
+          props: f.properties || {},
+          geometry: f.geometry,
+        }));
+        const key = `sel-${feats.length}-${rows[0]?.id || ""}`;
+        setFeatureTabs((prev) => {
+          const rest = prev.filter((t) => !t.key.startsWith("sel-"));
+          return [
+            ...rest,
+            {
+              key,
+              label: activeRecountLayer?.name
+                ? `${activeRecountLayer.name} — сонголт (${feats.length})`
+                : `Сонголт (${feats.length})`,
+              layer: "geoname:recount_view",
+              cql,
+              loading: false,
+              cols,
+              hiddenCols: new Set(
+                cols.filter((c) => HIDDEN_FEATURE_COLS.includes(c)),
+              ),
+              rows,
+              total: feats.length,
+              page: 0,
+              pageSize: 25,
+              searchCol: "",
+              searchText: "",
+              orderBy: "",
+              order: "asc",
+              selected: new Set(rows.map((r) => r.id)),
+              filteringSelected: false,
+            },
+          ];
+        });
+        setActiveTabKey(key);
+      } catch (e) {
+        /* алгасна */
+      }
+    },
+    [recountProjectId, fetchWfs, activeRecountLayer],
+  );
+
+  // Тооллогын ангиллын мөрийн цэс (Удирдлага панел) — таб нээх / zoom / чанар
+  const handleRecountNodeAction = useCallback(
+    async (node, action) => {
+      const id = node?.id;
+      if (!id || !recountProjectId) return;
+      const cql =
+        `project_id=${recountProjectId} AND ` +
+        `(type_id=${id} OR type_l2=${id} OR type_l1=${id})`;
+      const layer = "geoname:recount_view";
+
+      if (action === "features") {
+        openFeatureTab({
+          key: `rc-${id}`,
+          label: node.name || `Ангилал ${id}`,
+          layer,
+          cql,
+        });
+        return;
+      }
+      if (action === "zoom") {
+        try {
+          const data = await fetchWfs(layer, cql, 2000);
+          const map = mapObjRef.current;
+          if (!map || !data.features?.length) return;
+          const src = new VectorSource({
+            features: new GeoJSON().readFeatures(data, {
+              dataProjection: "EPSG:4326",
+              featureProjection: map.getView().getProjection(),
+            }),
+          });
+          map.getView().fit(src.getExtent(), {
+            duration: 500,
+            padding: [80, 80, 80, 80],
+            maxZoom: 15,
+          });
+        } catch (e) {
+          /* алгасна */
+        }
+        return;
+      }
+      if (action === "quality") {
+        setQualityReport({ label: node.name, loading: true });
+        try {
+          const data = await fetchWfs(layer, cql, 2000);
+          const feats = data.features || [];
+          setQualityReport({
+            label: node.name,
+            loading: false,
+            total: data.totalFeatures ?? feats.length,
+            checked: feats.length,
+            noGeom: feats.filter((f) => !f.geometry).length,
+            nameField: "name",
+            noName: feats.filter(
+              (f) => !String(f.properties?.name || "").trim(),
+            ).length,
+          });
+        } catch (e) {
+          setQualityReport({
+            label: node.name,
+            loading: false,
+            error: "Шалгалт хийх боломжгүй.",
+          });
+        }
+      }
+    },
+    [recountProjectId, openFeatureTab, fetchWfs],
+  );
+
+  const handleLayerAction = useCallback(
+    async (cfg, action) => {
+      const map = mapObjRef.current;
+      if (!cfg) return;
+      const label = cfg.label || cfg.key;
+
+      if (action === "zoom") {
+        try {
+          const res = await axiosInstance.get(
+            endpoints.basemap.layerExtent(cfg.gs_layer),
+          );
+          const e = res?.data?.extent;
+          if (!e || !map) return;
+          map
+            .getView()
+            .fit(
+              transformExtent(e, "EPSG:4326", map.getView().getProjection()),
+              { duration: 500, padding: [60, 60, 60, 60], maxZoom: 16 },
+            );
+        } catch (err) {
+          setQualityReport({
+            label,
+            loading: false,
+            error: "Давхаргын хил олдсонгүй.",
+          });
+        }
+        return;
+      }
+
+      if (action === "style") {
+        // Одоо байгаа style засварлагч (workspace → давхаргын style)
+        window.open(
+          `/settings/gis?tab=geoserver&layer=${encodeURIComponent(cfg.gs_layer)}`,
+          "_blank",
+        );
+        return;
+      }
+
+      if (action === "features") {
+        openFeatureTab({
+          key: `ly-${cfg.key}`,
+          label,
+          layer: cfg.gs_layer,
+        });
+        return;
+      }
+
+      if (action === "quality") {
+        setQualityReport({ label, loading: true });
+        try {
+          const data = await fetchLayerFeatures(cfg, 2000);
+          const feats = data.features || [];
+          const noGeom = feats.filter((f) => !f.geometry).length;
+          const nameKeys = ["name", "nэр", "нэр", "label", "title"];
+          const key = Object.keys(feats[0]?.properties || {}).find((k) =>
+            nameKeys.includes(k.toLowerCase()),
+          );
+          const noName = key
+            ? feats.filter((f) => !String(f.properties?.[key] || "").trim())
+                .length
+            : null;
+          setQualityReport({
+            label,
+            loading: false,
+            total: data.totalFeatures ?? feats.length,
+            checked: feats.length,
+            noGeom,
+            nameField: key || null,
+            noName,
+          });
+        } catch (err) {
+          setQualityReport({
+            label,
+            loading: false,
+            error: "Шалгалт хийх боломжгүй (растер эсвэл WFS идэвхгүй).",
+          });
+        }
+      }
+    },
+    [fetchLayerFeatures, openFeatureTab],
+  );
 
   const handleStopDrawing = useCallback(() => {
     const map = mapObjRef.current;
@@ -2940,6 +3727,105 @@ function Map2() {
           }}
         />
 
+        {/* Field Calculator — талбарыг бөөнөөр шинэчлэх */}
+        <FieldCalcDialog
+          open={!!fieldCalcTab}
+          tab={featureTabs.find((t) => t.key === fieldCalcTab)}
+          selectedIds={
+            featureTabs.find((t) => t.key === fieldCalcTab)?.selected
+          }
+          onClose={() => setFieldCalcTab(null)}
+          onApplied={() => {
+            if (fieldCalcTab) reloadTab(fieldCalcTab);
+            recountLoadRef.current?.(recountAppliedCqlRef.current || "", false);
+          }}
+        />
+
+        {/* Тооллогын мөр засах */}
+        <RecountEditDialog
+          open={!!editRow}
+          row={editRow?.row}
+          onClose={() => setEditRow(null)}
+          onSaved={() => {
+            if (editRow?.tabKey) reloadTab(editRow.tabKey);
+            recountLoadRef.current?.(recountAppliedCqlRef.current || "", false);
+          }}
+        />
+
+        {/* Чанарын шалгалтын үр дүн */}
+        <Dialog
+          open={!!qualityReport}
+          onClose={() => setQualityReport(null)}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>Чанарын шалгалт — {qualityReport?.label}</DialogTitle>
+          <DialogContent dividers>
+            {qualityReport?.loading && <CircularProgress size={22} />}
+            {qualityReport?.error && (
+              <Typography variant="body2" color="text.secondary">
+                {qualityReport.error}
+              </Typography>
+            )}
+            {!qualityReport?.loading && !qualityReport?.error && qualityReport && (
+              <Stack spacing={1}>
+                <Typography variant="body2">
+                  Нийт объект: <b>{qualityReport.total ?? "—"}</b> (шалгасан:{" "}
+                  {qualityReport.checked})
+                </Typography>
+                <Typography variant="body2">
+                  Геометргүй: <b>{qualityReport.noGeom}</b>
+                </Typography>
+                <Typography variant="body2">
+                  {qualityReport.nameField
+                    ? `Нэр (${qualityReport.nameField}) хоосон: `
+                    : "Нэрийн талбар олдсонгүй: "}
+                  <b>{qualityReport.noName ?? "—"}</b>
+                </Typography>
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setQualityReport(null)}>Хаах</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* QGIS маягийн мэдэгдлийн мөр — зургийн дээд ирмэгт */}
+        {mapNotice && (
+          <Box
+            sx={{
+              // ЗӨВХӨН зургийн талбай дээр (Удирдлага панелийн ард орохгүй)
+              position: "absolute",
+              top: 8,
+              left: `${managePanelW + 8}px`,
+              right: 8,
+              zIndex: 1250,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              px: 1.5,
+              py: 0.5,
+              borderRadius: 1,
+              boxShadow: 2,
+              bgcolor: "#e8f2fe",
+              border: "1px solid",
+              borderColor: "#b6d4f5",
+            }}
+          >
+            <Iconify
+              icon="mdi:information-outline"
+              sx={{ color: "#1565c0", flexShrink: 0 }}
+            />
+            <Typography variant="body2" sx={{ color: "#1565c0" }}>
+              <b>{mapNotice.title}</b> {mapNotice.text}
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <IconButton size="small" onClick={() => setMapNotice(null)}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        )}
+
         {/* Тооллогын газрын зургийн legend — статус бүрийн өнгө + тоо */}
         {recountProjectId && (
           <RecountLegend
@@ -3243,6 +4129,8 @@ function Map2() {
         )}
 
         <GeoserverDialog
+          onNodeAction={handleRecountNodeAction}
+          onWidthChange={setManagePanelW}
           enabledFilters={enabledGeoserverFilters}
           onFilterChange={handleGeoserverFilterChange}
           onFlyTo={handleFlyTo}
@@ -3261,12 +4149,32 @@ function Map2() {
           setBaseMap={setBaseMap}
           onMeasurementSearchResults={handleSearchResults}
           onClearMeasurementResults={handleClearSearchResults}
-          onStartDrawing={handleStartDrawing}
+          onStartDrawing={() =>
+            handleStartDrawing((center, radius) => {
+              if (!center || !radius) return;
+              // Тойргийг 64 талт полигон болгож WFS‑д илгээнэ
+              const ring = [];
+              for (let i = 0; i <= 64; i += 1) {
+                const a = (i / 64) * 2 * Math.PI;
+                const dLat = (radius / 111320) * Math.sin(a);
+                const dLon =
+                  (radius /
+                    (111320 * Math.cos((center[1] * Math.PI) / 180) || 1)) *
+                  Math.cos(a);
+                ring.push([center[0] + dLon, center[1] + dLat]);
+              }
+              runSpatialSelect(ring);
+            })
+          }
           onStopDrawing={handleStopDrawing}
           onDrawCircle={handleDrawCircle}
           onStartPickPoint={handleStartPickPoint}
-          onStartDrawRectangle={handleStartDrawRectangle}
-          onStartDrawPolygon={handleStartDrawPolygon}
+          onStartDrawRectangle={() =>
+            handleStartDrawRectangle((ring) => runSpatialSelect(ring))
+          }
+          onStartDrawPolygon={() =>
+            handleStartDrawPolygon((ring) => runSpatialSelect(ring))
+          }
           onClearSearchArea={handleClearSearchArea}
           onResults={handleNameSearchResults}
           onHighlightPoint={handleHighlightPoint}
@@ -3400,8 +4308,6 @@ function Map2() {
           anchorPosition={anchorPosition}
           onAnchorPositionChange={setAnchorPosition}
         />
-        <ScaleBadge scaleDenom={scaleDenom} mdUp={mdUp} />
-
         <LayerControl
           open={layerControlOpen}
           anchorEl={layerControlAnchor}
@@ -3440,6 +4346,211 @@ function Map2() {
           />
         )}
       </Box>
+
+      {/* Cursor байрлал (DMS) + масштаб — зургийн ДООД status bar.
+          Зургийн (map-viewport) ГАДНА, бие даасан мөр: ямар ч хөвөгч форм/панел
+          үүний цаагуур орохгүй, зураг өөрөө 26px‑ээр богиноснo. */}
+        <Box
+          sx={{
+            flexShrink: 0,
+            zIndex: 10,
+            ml: `${managePanelW}px`,
+            bgcolor: "rgba(255,255,255,0.72)",
+            backdropFilter: "blur(6px)",
+            borderTop: "1px solid",
+            borderColor: "divider",
+            px: 1.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            height: 26,
+          }}
+        >
+          {/* Солбицол — ЗҮҮН, масштаб — БАРУУН (сонгодог GIS байрлал).
+              Панел нээлттэй үед мөр нь панелийн ард биш, хажуугаас эхэлнэ. */}
+          {cursorCoords.lon !== null && (
+            <>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontFamily: "monospace",
+                  color: "text.secondary",
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {toDMS(cursorCoords.lat, true)}
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{ color: "divider", lineHeight: 1 }}
+              >
+                |
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontFamily: "monospace",
+                  color: "text.secondary",
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {toDMS(cursorCoords.lon, false)}
+              </Typography>
+            </>
+          )}
+          <Box sx={{ flex: 1 }} />
+          {mapScale !== null && (
+            <Typography
+              variant="caption"
+              sx={{
+                fontFamily: "monospace",
+                color: "text.secondary",
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              1 : {mapScale.toLocaleString()}
+            </Typography>
+          )}
+          <Box
+            component="select"
+            value=""
+            onChange={(e) => {
+              const s = Number(e.target.value);
+              const map = mapObjRef.current;
+              if (!s || !map) return;
+              const lat = toLonLat(map.getView().getCenter())[1];
+              const cosLat = Math.cos((lat * Math.PI) / 180);
+              map.getView().setResolution((s * 0.0254) / (96 * cosLat));
+            }}
+            sx={{
+              pointerEvents: "auto",
+              fontFamily: "monospace",
+              fontSize: 11,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 0.5,
+              bgcolor: "transparent",
+              color: "text.secondary",
+              height: 20,
+              px: 0.5,
+              cursor: "pointer",
+              outline: "none",
+              "&:hover": { borderColor: "text.primary" },
+            }}
+          >
+            <option value="" disabled>
+              Масштаб
+            </option>
+            {MAP_SCALE_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                1 : {s.toLocaleString("en-US").replace(/,/g, " ")}
+              </option>
+            ))}
+          </Box>
+        </Box>
+
+      {/* ─── Доод ATTRIBUTE хүснэгт — нээсэн ангилал бүрд таб, чирж өндөр солино ─── */}
+      {featureTabs.length > 0 && (
+        <>
+          <Box
+            onMouseDown={startSplitResize}
+            sx={{
+              height: 6,
+              flexShrink: 0,
+              ml: `${managePanelW}px`,
+              cursor: "row-resize",
+              bgcolor: "grey.200",
+              borderTop: "1px solid",
+              borderBottom: "1px solid",
+              borderColor: "divider",
+              "&:hover": { bgcolor: "primary.light" },
+            }}
+          />
+          <Box
+            sx={{
+              height: splitH,
+              flexShrink: 0,
+              ml: `${managePanelW}px`,
+              display: "flex",
+              flexDirection: "column",
+              bgcolor: "background.paper",
+              overflow: "hidden",
+              borderLeft: managePanelW ? "1px solid" : "none",
+              borderColor: "divider",
+            }}
+          >
+            <Tabs
+              value={activeTabKey || false}
+              onChange={(e, v) => setActiveTabKey(v)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{ minHeight: 36, borderBottom: "1px solid", borderColor: "divider" }}
+            >
+              {featureTabs.map((t) => (
+                <Tab
+                  key={t.key}
+                  value={t.key}
+                  sx={{ minHeight: 36, textTransform: "none", pr: 0.5 }}
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      {t.label}
+                      <Box
+                        component="span"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeFeatureTab(t.key);
+                        }}
+                        sx={{
+                          display: "inline-flex",
+                          borderRadius: "50%",
+                          p: 0.2,
+                          "&:hover": { bgcolor: "action.hover" },
+                        }}
+                      >
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </Box>
+                    </Box>
+                  }
+                />
+              ))}
+            </Tabs>
+            {featureTabs
+              .filter((t) => t.key === activeTabKey)
+              .map((t) => (
+                <FeatureTabPanel
+                  key={t.key}
+                  tab={t}
+                  onPatch={(patch) => patchTab(t.key, patch)}
+                  onClose={() => closeFeatureTab(t.key)}
+                  onRowAction={(row, action) =>
+                    handleRowAction(t.key, row, action)
+                  }
+                  onFieldCalc={() => setFieldCalcTab(t.key)}
+                  onZoomTo={(geometry) => {
+                    const map = mapObjRef.current;
+                    if (!map || !geometry) return;
+                    try {
+                      const g = new GeoJSON().readGeometry(geometry, {
+                        dataProjection: "EPSG:4326",
+                        featureProjection: map.getView().getProjection(),
+                      });
+                      map.getView().fit(g.getExtent(), {
+                        duration: 400,
+                        padding: [80, 80, 80, 80],
+                        maxZoom: 16,
+                      });
+                    } catch (e) {
+                      /* алгасна */
+                    }
+                  }}
+                />
+              ))}
+          </Box>
+        </>
+      )}
     </Box>
   );
 }

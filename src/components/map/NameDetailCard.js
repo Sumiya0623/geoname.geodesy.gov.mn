@@ -196,7 +196,8 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   useEffect(() => {
     let active = true;
     const id = name?.id;
-    if (!id) {
+    // Recount дээр name.id нь RECOUNT id (geoname биш) — geoname details татахгүй
+    if (!id || name?._isRecount) {
       setTypePath([]);
       setApproved(undefined);
       return undefined;
@@ -269,10 +270,14 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
         <Typography variant="h6">{name?.number}</Typography>
         {name.name && <Typography variant="body1">{name.name}</Typography>}
 
-        {name?.id && (
+        {/* Дэлгэрэнгүй — geoname рүү. Recount дээр холбоотой geoname (name_id)‑руу;
+            draft (geoname‑гүй) recount дээр линк харагдахгүй. */}
+        {(name?._isRecount ? name?.name_id : name?.id) && (
           <Button
             component="a"
-            href={`/dashboard/geoname/${name.id}`}
+            href={`/dashboard/geoname/${
+              name?._isRecount ? name.name_id : name.id
+            }`}
             target="_blank"
             rel="noopener noreferrer"
             size="small"

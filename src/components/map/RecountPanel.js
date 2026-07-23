@@ -14,6 +14,10 @@ import {
   Typography,
   IconButton,
   Autocomplete,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
   FormControlLabel,
   CircularProgress,
 } from "@mui/material";
@@ -24,6 +28,10 @@ import {
   ExpandMore as ExpandMoreIcon,
   CropSquare as PolygonIcon,
   FolderOutlined as FolderIcon,
+  MoreVert as MoreVertIcon,
+  CenterFocusStrong as ZoomExtentIcon,
+  TableChart as FeaturesIcon,
+  Assessment as QualityIcon,
 } from "@mui/icons-material";
 
 import { useGetLegalUnits } from "src/api/legal";
@@ -68,8 +76,22 @@ function collectLeafIds(node, acc) {
   return acc;
 }
 
-function TreeNode({ node, level, checkedSet, onToggle }) {
+function TreeNode({
+  node,
+  level,
+  checkedSet,
+  onToggle,
+  onNodeMenu,
+  expandSignal,
+  activeId,
+  onActivate,
+}) {
   const [open, setOpen] = useState(level === 0);
+  // Тоолбарын "бүгдийг задлах/хураах" дохио
+  useEffect(() => {
+    if (!expandSignal?.n) return;
+    setOpen(expandSignal.mode === "expand");
+  }, [expandSignal]);
   const hasKids = (node.children || []).length > 0;
   const checked = checkedSet.has(node.id);
   const descLeaves = collectLeafIds(node, []);
@@ -85,8 +107,11 @@ function TreeNode({ node, level, checkedSet, onToggle }) {
           pl: level * 2 + 0.5,
           py: 0.15,
           borderRadius: 1,
+          cursor: "pointer",
+          bgcolor: activeId === node.id ? "#0675c91f" : "transparent",
           "&:hover": { bgcolor: "#0675c90d" },
         }}
+        onClick={() => onActivate?.(node)}
       >
         {hasKids ? (
           <IconButton
@@ -138,6 +163,16 @@ function TreeNode({ node, level, checkedSet, onToggle }) {
             bgcolor: "#0675c914",
           }}
         />
+        {/* Мөрийн 3 цэгийн цэс — Zoom / Feature table / Чанарын шалгалт */}
+        {onNodeMenu && (
+          <IconButton
+            size="small"
+            sx={{ p: 0.25, ml: 0.25 }}
+            onClick={(e) => onNodeMenu(e.currentTarget, node)}
+          >
+            <MoreVertIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        )}
       </Box>
 
       {hasKids && (
@@ -149,6 +184,10 @@ function TreeNode({ node, level, checkedSet, onToggle }) {
               level={level + 1}
               checkedSet={checkedSet}
               onToggle={onToggle}
+              onNodeMenu={onNodeMenu}
+              expandSignal={expandSignal}
+              activeId={activeId}
+              onActivate={onActivate}
             />
           ))}
         </Collapse>
@@ -157,6 +196,10 @@ function TreeNode({ node, level, checkedSet, onToggle }) {
   );
 }
 TreeNode.propTypes = {
+  onNodeMenu: PropTypes.func,
+  expandSignal: PropTypes.object,
+  activeId: PropTypes.number,
+  onActivate: PropTypes.func,
   node: PropTypes.object,
   level: PropTypes.number,
   checkedSet: PropTypes.object,
@@ -173,7 +216,24 @@ const EMPTY_SEARCH = {
   border: false,
 };
 
-export default function RecountPanel({ projectId, onCql, searchOpen }) {
+export default function RecountPanel({
+  projectId,
+  onCql,
+  searchOpen,
+  // Ангиллын мөрийн 3 цэгийн цэсийн үйлдэл: (node, action) —
+  // action: "zoom" | "features" | "quality"
+  onNodeAction,
+}) {
+  // Мөрийн цэсний anchor + сонгосон ангилал
+  const [nodeMenu, setNodeMenu] = useState(null);
+  const openNodeMenu = useCallback((anchor, node) => {
+    setNodeMenu({ anchor, node });
+  }, []);
+  const runNodeAction = (action) => {
+    const node = nodeMenu?.node;
+    setNodeMenu(null);
+    if (node && onNodeAction) onNodeAction(node, action);
+  };
   const [roots, setRoots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false); // мод НЭГ УДАА ачаалагдсан эсэх
@@ -260,6 +320,12 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
       onCql?.(null);
       return;
     }
+    // Мод дээр ангилал байгаа ч НЭГ Ч сонгоогүй бол юу ч харуулахгүй
+    const hasAnyLeaf = roots.some((n) => collectLeafIds(n, []).length > 0);
+    if (hasAnyLeaf && leafIds.length === 0) {
+      onCql?.("1=0");
+      return;
+    }
     const typeOr = [];
     if (leafIds.length) typeOr.push(`type_id IN (${leafIds.join(",")})`);
     // Draft‑ууд (type_id IS NULL) нь ангилалгүй тул үргэлж type‑д тэнцэнэ —
@@ -280,7 +346,7 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
       conds.push(`(${parts.join(" OR ")})`);
     }
     onCql?.(conds.join(" AND "));
-  }, [loaded, leafIds, sf, statusChecked, statuses, onCql]);
+  }, [loaded, roots, leafIds, sf, statusChecked, statuses, onCql]);
 
   const toggleStatus = (id, on) => {
     setStatusChecked((prev) => {
@@ -295,6 +361,92 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
     setSf(EMPTY_SEARCH);
     setStatusChecked(new Set());
   };
+
+  // Тоолбарын үйлдлүүд (Удирдлага панелийн дээд мөр) — event‑ээр ирнэ
+  const [expandSignal, setExpandSignal] = useState({ n: 0, mode: "expand" });
+  // ЗӨВХӨН 3‑р түвшний (навч) ангиллыг ДАВХАРГА гэж үзнэ.
+  // 1/2‑р түвшин нь бүлэг (layer group) тул идэвхтэй давхарга болохгүй.
+  const [activeNode, setActiveNode] = useState(null);
+  const activeId = activeNode?.id || null;
+  const activeIsLayer = !!activeNode && !(activeNode.children || []).length;
+  // Идэвхтэй ангиллыг тоолбарт мэдэгдэнэ (товчнуудыг идэвхжүүлэх/унтраах)
+  useEffect(() => {
+    // Идэвхтэй ДАВХАРГА = навч (level3) + ХАРАГДАЖ буй (checked)
+    window.dispatchEvent(
+      new CustomEvent("recount:active", {
+        detail: {
+          id: activeIsLayer && checkedSet.has(activeId) ? activeId : null,
+          name:
+            activeIsLayer && checkedSet.has(activeId) ? activeNode.name : null,
+          desc:
+            activeIsLayer && checkedSet.has(activeId) ? activeNode.desc : null,
+          isGroup: !!activeNode && !activeIsLayer,
+          checkedCount: checkedSet.size,
+        },
+      }),
+    );
+  }, [activeId, activeIsLayer, activeNode, checkedSet]);
+
+  // Модны дараалал = газрын зураг дээрх ЗУРАГДАХ дараалал. Жагсаалтын ДООД
+  // талынх нь дээр зурагдана (сүүлд зурагдана) — map2 руу event‑ээр дамжуулна.
+  const emitOrder = useCallback((tree) => {
+    const order = [];
+    const walk = (nodes) =>
+      (nodes || []).forEach((n) => {
+        order.push(n.id);
+        walk(n.children);
+      });
+    walk(tree);
+    window.dispatchEvent(
+      new CustomEvent("recount:order", { detail: { order } }),
+    );
+  }, []);
+
+  // Идэвхтэй зангилааг ах/дүү нарынх нь дунд дээш/доош зөөнө
+  const moveActive = useCallback(
+    (dir) => {
+      if (!activeId) return;
+      setRoots((prev) => {
+        const clone = JSON.parse(JSON.stringify(prev));
+        const move = (list) => {
+          const i = list.findIndex((n) => n.id === activeId);
+          if (i >= 0) {
+            const j = i + dir;
+            if (j < 0 || j >= list.length) return true;
+            const [it] = list.splice(i, 1);
+            list.splice(j, 0, it);
+            return true;
+          }
+          return list.some((n) => n.children && move(n.children));
+        };
+        move(clone);
+        emitOrder(clone);
+        return clone;
+      });
+    },
+    [activeId, emitOrder],
+  );
+
+  useEffect(() => {
+    const showAll = () => {
+      const all = new Set();
+      roots.forEach((n) => collectIds(n, []).forEach((id) => all.add(id)));
+      setCheckedSet(all);
+    };
+    const hideAll = () => setCheckedSet(new Set());
+    const up = () => moveActive(-1);
+    const down = () => moveActive(1);
+    window.addEventListener("recount:showAll", showAll);
+    window.addEventListener("recount:hideAll", hideAll);
+    window.addEventListener("recount:moveUp", up);
+    window.addEventListener("recount:moveDown", down);
+    return () => {
+      window.removeEventListener("recount:showAll", showAll);
+      window.removeEventListener("recount:hideAll", hideAll);
+      window.removeEventListener("recount:moveUp", up);
+      window.removeEventListener("recount:moveDown", down);
+    };
+  }, [roots, moveActive]);
 
   const handleToggle = useCallback((node, checked) => {
     setCheckedSet((prev) => {
@@ -427,10 +579,43 @@ export default function RecountPanel({ projectId, onCql, searchOpen }) {
               level={0}
               checkedSet={checkedSet}
               onToggle={handleToggle}
+              onNodeMenu={onNodeAction ? openNodeMenu : null}
+              expandSignal={expandSignal}
+              activeId={activeId}
+              onActivate={setActiveNode}
             />
           ))
         )}
       </Box>
+
+      {/* Ангиллын мөрийн цэс — Zoom / Attribute (таб) / Чанарын шалгалт */}
+      <Menu
+        anchorEl={nodeMenu?.anchor}
+        open={Boolean(nodeMenu)}
+        onClose={() => setNodeMenu(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { minWidth: 210 } } }}
+      >
+        <MenuItem onClick={() => runNodeAction("zoom")}>
+          <ListItemIcon>
+            <ZoomExtentIcon sx={{ fontSize: 18 }} />
+          </ListItemIcon>
+          <ListItemText>Zoom to Layer</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => runNodeAction("features")}>
+          <ListItemIcon>
+            <FeaturesIcon sx={{ fontSize: 18 }} />
+          </ListItemIcon>
+          <ListItemText>Attribute хүснэгт</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => runNodeAction("quality")}>
+          <ListItemIcon>
+            <QualityIcon sx={{ fontSize: 18 }} />
+          </ListItemIcon>
+          <ListItemText>Чанарын шалгалт</ListItemText>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }
@@ -439,4 +624,5 @@ RecountPanel.propTypes = {
   projectId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onCql: PropTypes.func,
   searchOpen: PropTypes.bool,
+  onNodeAction: PropTypes.func,
 };

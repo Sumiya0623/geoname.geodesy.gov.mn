@@ -9,6 +9,7 @@ import { useCallback, useState, useEffect } from "react";
 import { useGetChampaign } from "src/api/champaign";
 import { BeltgelListView } from "src/sections/beltgel/view";
 import { SuurinListView } from "src/sections/suurin/view";
+import { HeerView } from "src/sections/heer/view";
 import { MayagtView } from "src/sections/mayagt/view";
 import ProjectDetailsContent from "../champaign-details-content";
 
@@ -80,6 +81,7 @@ export default function ChampaignDetailsView() {
       {/* Табын контент — lazy (идэвхтэй таб л mount хийгдэнэ) */}
       {currentTab === "beltgel" && <BeltgelListView projectId={id} />}
       {currentTab === "suurin" && <SuurinListView projectId={id} />}
+      {currentTab === "heer" && <HeerView projectId={id} />}
       {currentTab === "result" && <MayagtView projectId={id} />}
     </Container>
   );
