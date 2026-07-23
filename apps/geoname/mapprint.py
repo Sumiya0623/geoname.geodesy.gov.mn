@@ -857,7 +857,9 @@ def draw_header(c, layout, page_w, page_h, margin, header_h, frame_l, frame_r):
     c.setFont(FONT, 14)  # спец: геодезийн солбицол TNR 14
     c.setFillColor(black)
     c.drawString(frame_l, itrf_y, 'ITRF2020 /2015.0/ солбицлын тогтолцоо')
-    c.drawRightString(frame_r, itrf_y, 'АЛБАН ХЭРЭГЦЭЭНД')
+    # Баруун дээд: анхдагчаар 'АЛБАН ХЭРЭГЦЭЭНД' (ажлын зураг дээр өөр)
+    c.drawRightString(frame_r, itrf_y,
+                      layout.get('headerRight') or 'АЛБАН ХЭРЭГЦЭЭНД')
 
 # ---------------------------------------------------------------------------
 # Grid frame
@@ -1612,6 +1614,19 @@ class MapPDFRenderer:
             draw_index_grid(c, self.layout, self.bbox, self.scale,
                             self.map_x, self.map_y, self.map_w, self.map_h)
 
+        # 2d. WFS вектор дата (ажлын зураг) — од тэмдэг + давхцахгүй шошго.
+        # Таних тэмдгийн хайрцгийг УРЬДЧИЛАН тооцож саад болгоно (шошго тойрно).
+        self._status_legend_rect = None
+        if self.layout.get('features'):
+            if self.layout.get('statusLegend'):
+                self._status_legend_rect = status_legend_rect(
+                    c, self.layout, self.bbox,
+                    self.map_x, self.map_y, self.map_w, self.map_h)
+            draw_features(c, self.layout, self.bbox,
+                          self.map_x, self.map_y, self.map_w, self.map_h,
+                          obstacles=[self._status_legend_rect]
+                          if self._status_legend_rect else None)
+
         # 3. Grid frame
         if self.layout.get('showGrid', True) and self.bbox:
             draw_grid_frame(
@@ -1648,8 +1663,14 @@ class MapPDFRenderer:
                 self.rotation,
             )
 
-        # 7. Таних тэмдэг — зургийн хүрээ ДОТОР, хамгийн сул зайтай буланд
-        if self.show_legend:
+        # 7. Таних тэмдэг — зургийн хүрээ ДОТОР, хамгийн сул зайтай буланд.
+        # Ажлын зураг дээр — тооллогын СТАТУС бүрийн өнгө + тоо (веб хэлбэр).
+        if self.layout.get('statusLegend'):
+            rect = self._status_legend_rect or status_legend_rect(
+                c, self.layout, self.bbox,
+                self.map_x, self.map_y, self.map_w, self.map_h)
+            draw_status_legend(c, self.layout, rect)
+        elif self.show_legend:
             draw_legend_inside(
                 c, self.layers, self.layout, self.bbox,
                 self.map_x, self.map_y, self.map_w, self.map_h,
@@ -2121,6 +2142,544 @@ def draw_corner_texts(c, layout, map_x, map_y, map_w):
         c.drawString(map_x, start_y - i * gap, ln)
     for i, ln in enumerate(right):
         c.drawRightString(map_x + map_w, start_y - i * gap, ln)
+
+
+# ===================== WFS вектор дата (ажлын зураг) =====================
+
+def fetch_wfs_features(layer_full_name, cql=None, max_features=None):
+    """GeoServer WFS GetFeature (GeoJSON) — дүрсийг WMS-ээр биш, PDF дээр өөрсдөө
+    зурахын тулд (шошгын давхцлыг бүрэн хянана)."""
+    ws = layer_full_name.split(':')[0] if ':' in layer_full_name else ''
+    url = f"{_gs_base()}/{ws}/wfs" if ws else f"{_gs_base()}/wfs"
+    params = {
+        'service': 'WFS', 'version': '1.0.0', 'request': 'GetFeature',
+        'typeName': layer_full_name, 'outputFormat': 'application/json',
+        'srsName': 'EPSG:4326',
+    }
+    if cql:
+        params['CQL_FILTER'] = cql
+    if max_features:
+        params['maxFeatures'] = int(max_features)
+    auth = (settings.GEOSERVER_USER, settings.GEOSERVER_PASSWORD)
+    r = requests.get(url, params=params, auth=auth, timeout=180)
+    r.raise_for_status()
+    return r.json().get('features', []) or []
+
+
+# ── Цэгэн дата: од тэмдэг + ХЭЗЭЭ Ч ДАВХЦАХГҮЙ нэрийн шошго ──
+
+STAR_R_MM = 1.25       # одны гадаад радиус (жижиг таних тэмдэг)
+STAR_R2_MM = 0.52      # одны дотоод радиус
+LABEL_GAP_MM = 1.1     # тэмдэг ↔ шошгын доод зай
+BAR_LEN_MM = 2.8       # статусын өнгөт зураасны урт
+BAR_GAP_MM = 0.8       # зураас хоорондын зай
+BAR_H_MM = 1.9         # зураасны эзлэх өндөр (шошгын доор)
+BAR_W_MM = 0.65        # зураасны зузаан
+
+
+def _draw_star(c, cx, cy, r_out, r_in, fill_col, stroke_col=None):
+    """5 үзүүрт од (OpenLayers RegularShape points=5-тэй ижил дүрс)."""
+    p = c.beginPath()
+    for i in range(10):
+        ang = -math.pi / 2 + i * math.pi / 5
+        r = r_out if i % 2 == 0 else r_in
+        x, y = cx + r * math.cos(ang), cy - r * math.sin(ang)
+        if i == 0:
+            p.moveTo(x, y)
+        else:
+            p.lineTo(x, y)
+    p.close()
+    c.setFillColor(fill_col)
+    if stroke_col is not None:
+        c.setStrokeColor(stroke_col)
+        c.setLineWidth(0.6)
+        c.drawPath(p, stroke=1, fill=1)
+    else:
+        c.drawPath(p, stroke=0, fill=1)
+
+
+def _halo_text(c, x, y, text, font, size, fill_col=black,
+               halo_col=white, halo_w=1.8):
+    """Цагаан хүрээтэй (halo) текст — арын зураг дээр уншигдахуйц.
+    ЧУХАЛ: Tr (render mode) нь PDF-ийн ТЕКСТИЙН ТӨЛӨВ тул BT/ET хооронд
+    үлддэг. 1-р дамжлагын дараа 0 болгож БУЦААХГҮЙ бол 2 дахь текст мөн
+    зөвхөн контураар (цагаанаар) зурагдана."""
+    t = c.beginText(x, y)
+    t.setFont(font, size)
+    t.setTextRenderMode(1)          # зөвхөн контур (халь)
+    t.setStrokeColor(halo_col)
+    c.setLineWidth(halo_w)
+    t.textLine(text)
+    t.setTextRenderMode(0)          # төлвийг буцаана
+    c.drawText(t)
+    t = c.beginText(x, y)
+    t.setFont(font, size)
+    t.setFillColor(fill_col)
+    t.textLine(text)
+    c.drawText(t)
+
+
+class _RectIndex:
+    """Тэгш өнцөгтийн энгийн торон индекс — шошгын давхцлыг хурдан шалгана."""
+
+    def __init__(self, cell=40.0):
+        self.cell = cell
+        self.grid = {}
+
+    def _keys(self, r):
+        x0, y0, x1, y1 = r
+        for gx in range(int(x0 // self.cell), int(x1 // self.cell) + 1):
+            for gy in range(int(y0 // self.cell), int(y1 // self.cell) + 1):
+                yield (gx, gy)
+
+    def add(self, r):
+        for k in self._keys(r):
+            self.grid.setdefault(k, []).append(r)
+
+    def hits(self, r):
+        x0, y0, x1, y1 = r
+        seen = set()
+        for k in self._keys(r):
+            for o in self.grid.get(k, ()):
+                if id(o) in seen:
+                    continue
+                seen.add(id(o))
+                if not (x1 <= o[0] or x0 >= o[2] or y1 <= o[1] or y0 >= o[3]):
+                    return True
+        return False
+
+
+def _label_candidates(ax, ay, w, h, gap, steps=14, step_mm=4.0):
+    """Шошгын байрлалын нэр дэвшигчид — цэгээс ойрхноос хол руу (8 чиглэл)."""
+    out = []
+    for step in range(0, steps):
+        d = gap + step * mm_to_pt(step_mm)
+        for dx, dy, align in (
+            (d, -h * 0.35, 'l'),          # баруун
+            (-d, -h * 0.35, 'r'),         # зүүн
+            (0, d, 'c'),                  # дээш
+            (0, -d - h, 'c'),             # доош
+            (d * 0.72, d * 0.72, 'l'),    # баруун-дээш
+            (-d * 0.72, d * 0.72, 'r'),   # зүүн-дээш
+            (d * 0.72, -d * 0.72 - h, 'l'),
+            (-d * 0.72, -d * 0.72 - h, 'r'),
+        ):
+            if align == 'l':
+                x0 = ax + dx
+            elif align == 'r':
+                x0 = ax + dx - w
+            else:
+                x0 = ax + dx - w / 2
+            out.append((x0, ay + dy, align, d))
+    return out
+
+
+def _polyline_len(pts):
+    return sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+               for i in range(len(pts) - 1))
+
+
+def _line_anchor(pts, frac):
+    """Полилинийн уртын frac хувь дахь цэг + тэр газрын чиглэлийн өнцөг (градус)."""
+    total = _polyline_len(pts)
+    if total <= 0:
+        return pts[0][0], pts[0][1], 0.0
+    target = total * frac
+    run = 0.0
+    for i in range(len(pts) - 1):
+        (x0, y0), (x1, y1) = pts[i], pts[i + 1]
+        seg = math.hypot(x1 - x0, y1 - y0)
+        if seg <= 0:
+            continue
+        if run + seg >= target:
+            t = (target - run) / seg
+            ang = math.degrees(math.atan2(y1 - y0, x1 - x0))
+            return x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, ang
+        run += seg
+    ang = math.degrees(math.atan2(pts[-1][1] - pts[-2][1], pts[-1][0] - pts[-2][0]))
+    return pts[-1][0], pts[-1][1], ang
+
+
+def _rot_rect_bbox(cx, cy, w, h, ang_deg):
+    """Эргүүлсэн тэгш өнцөгтийн (төв cx,cy) тэнхлэгт зэрэгцүү багтаах хүрээ."""
+    a = math.radians(ang_deg)
+    ca, sa = abs(math.cos(a)), abs(math.sin(a))
+    bw = w * ca + h * sa
+    bh = w * sa + h * ca
+    return (cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2)
+
+
+# ── Муруйг дагасан (text-on-path) шошго ──
+
+def _path_cum(pts):
+    """Полилинийн хуримтлагдсан урт."""
+    cum = [0.0]
+    for i in range(len(pts) - 1):
+        cum.append(cum[-1] + math.hypot(pts[i + 1][0] - pts[i][0],
+                                        pts[i + 1][1] - pts[i][1]))
+    return cum
+
+
+def _path_at(pts, cum, s):
+    """Полилиний s урт дахь цэг + чиглэлийн өнцөг (градус)."""
+    total = cum[-1]
+    if total <= 0:
+        return pts[0][0], pts[0][1], 0.0
+    s = max(0.0, min(s, total))
+    lo, hi = 0, len(cum) - 1
+    while lo < hi - 1:
+        mid = (lo + hi) // 2
+        if cum[mid] <= s:
+            lo = mid
+        else:
+            hi = mid
+    (x0, y0), (x1, y1) = pts[lo], pts[lo + 1]
+    seg = cum[lo + 1] - cum[lo]
+    t = 0.0 if seg <= 0 else (s - cum[lo]) / seg
+    ang = math.degrees(math.atan2(y1 - y0, x1 - x0))
+    return x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, ang
+
+
+def _path_offset_at(pts, cum, s, off):
+    """s урт дахь цэгийг перпендикуляр off-оор шилжүүлсэн байрлал + өнцөг."""
+    x, y, ang = _path_at(pts, cum, s)
+    a = math.radians(ang)
+    return x - math.sin(a) * off, y + math.cos(a) * off, ang
+
+
+def _curved_label_cells(pts, cum, text, font, fs, off, c):
+    """Тэмдэгт тус бүрийн (x, y, өнцөг, өргөн) — муруйн дагуу ТӨВЛӨРСӨН.
+    → (cells, rects) эсвэл (None, None) хэрэв багтахгүй бол."""
+    total = cum[-1]
+    w = c.stringWidth(text, font, fs)
+    if w > total:
+        return None, None
+    s = (total - w) / 2.0
+    cells, rects = [], []
+    half = fs * 0.62
+    for ch in text:
+        cw = c.stringWidth(ch, font, fs)
+        cx, cy, ang = _path_offset_at(pts, cum, s + cw / 2.0, off)
+        cells.append((cx, cy, ang, cw))
+        rects.append((cx - max(cw, half) / 2 - 1, cy - half - 1,
+                      cx + max(cw, half) / 2 + 1, cy + half + 1))
+        s += cw
+    return cells, rects
+
+
+def _draw_curved_text(c, cells, text, font, fs, halo_w=1.8):
+    """Тэмдэгт бүрийг өөрийн өнцгөөр — эхлээд цагаан халь, дараа нь хар дүүргэлт."""
+    for mode in (1, 0):
+        for (cx, cy, ang, cw), ch in zip(cells, text):
+            c.saveState()
+            c.translate(cx, cy)
+            c.rotate(ang)
+            t = c.beginText(-cw / 2.0, -fs * 0.34)
+            t.setFont(font, fs)
+            if mode == 1:
+                t.setTextRenderMode(1)
+                t.setStrokeColor(white)
+                c.setLineWidth(halo_w)
+            else:
+                t.setFillColor(black)
+            t.textLine(ch)
+            if mode == 1:
+                t.setTextRenderMode(0)
+            c.drawText(t)
+            c.restoreState()
+
+
+def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
+    """WFS-ээс ирсэн дүрсүүд: цэг=улаан од, шугам/талбай=улаан контур, нэр нь
+    ХЭЗЭЭ Ч ДАВХЦАХГҮЙ (өөр шошго, тэмдэг, таних тэмдэгтэй) байрлана.
+    Нэр бүрийн доор статусын өнгөт зураас (веб газрын зурагтай ижил) — ШУГАМАН
+    дүрсэд нэр ба зураас хоёул ГЕОМЕТРИЙН ДАГУУ эргэж бичигдэнэ."""
+    feats = layout.get('features') or []
+    if not feats or not bbox:
+        return
+    fs = float(layout.get('labelFontSize') or 11)
+    r_out, r_in = mm_to_pt(STAR_R_MM), mm_to_pt(STAR_R2_MM)
+    gap = mm_to_pt(LABEL_GAP_MM)
+    bar_len, bar_gap = mm_to_pt(BAR_LEN_MM), mm_to_pt(BAR_GAP_MM)
+    bar_h = mm_to_pt(BAR_H_MM)
+    red = HexColor('#d32f2f')
+
+    c.saveState()
+    p = c.beginPath()
+    p.rect(map_x, map_y, map_w, map_h)
+    c.clipPath(p, stroke=0)
+
+    idx = _RectIndex(cell=mm_to_pt(12))
+    for r in (obstacles or []):
+        idx.add(r)
+
+    def px(pt):
+        return (_lon_to_x(pt[0], bbox, map_x, map_w),
+                _lat_to_y_top_down(pt[1], bbox, map_y, map_h))
+
+    def draw_bars(cx, cy, colors_):
+        """Статусын өнгөт зураасууд — (cx,cy)-ээс баруун тийш дараалан."""
+        bx = cx
+        for col in colors_:
+            c.setStrokeColor(HexColor(col))
+            c.setLineWidth(mm_to_pt(BAR_W_MM))
+            c.line(bx, cy, bx + bar_len, cy)
+            bx += bar_len + bar_gap
+
+    # 1) Дүрсүүдийг зурж, тэмдэг/шугамын эзлэх талбайг индекст (шошго тойрно)
+    items, lines = [], []
+    for f in feats:
+        geom = f.get('geometry') or {}
+        gt = geom.get('type') or ''
+        coords = geom.get('coordinates')
+        if coords is None:
+            continue
+        props = f.get('properties') or {}
+        name = (props.get('name') or props.get('draft') or '').strip()
+        colors = f.get('_colors') or []
+
+        if gt in ('Point', 'MultiPoint'):
+            ax, ay = px(coords if gt == 'Point' else coords[0])
+            _draw_star(c, ax, ay, r_out, r_in, red, white)
+            idx.add((ax - r_out, ay - r_out, ax + r_out, ay + r_out))
+            if name:
+                items.append((ax, ay, name, colors))
+            continue
+
+        if gt not in ('LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'):
+            continue
+
+        # Шугам/талбайг улаанаар зурна
+        rings = []
+        if gt == 'LineString':
+            rings = [coords]
+        elif gt == 'MultiLineString':
+            rings = coords
+        elif gt == 'Polygon':
+            rings = coords
+        else:
+            for poly in coords:
+                rings.extend(poly)
+        closed = gt in ('Polygon', 'MultiPolygon')
+        c.setStrokeColor(red)
+        c.setLineWidth(mm_to_pt(0.7))
+        c.setFillColor(Color(0.83, 0.18, 0.18, 0.18))
+        best, blen = None, -1.0
+        for ring in rings:
+            if not ring or len(ring) < 2:
+                continue
+            pts = [px(pt) for pt in ring]
+            path = c.beginPath()
+            for i, (x, y) in enumerate(pts):
+                if i == 0:
+                    path.moveTo(x, y)
+                else:
+                    path.lineTo(x, y)
+            if closed:
+                path.close()
+            c.drawPath(path, stroke=1, fill=1 if closed else 0)
+            ln = _polyline_len(pts)
+            if ln > blen:
+                blen, best = ln, pts
+        if not best or not name:
+            continue
+        if closed:
+            # Талбай — нэрийг голд нь ХЭВТЭЭ (энгийн шошго)
+            ax = sum(p[0] for p in best) / len(best)
+            ay = sum(p[1] for p in best) / len(best)
+            items.append((ax, ay, name, colors))
+        else:
+            lines.append((best, name, colors))
+
+    # 2) ШУГАМАН дүрсийн нэр — МУРУЙГ ДАГАЖ (тэмдэгт тус бүр эргэнэ). Нэр нь
+    # шугамын уртаас хэтрэхгүй: багтахгүй бол фонт нь автоматаар жижгэрнэ.
+    min_fs = float(layout.get('minLabelFontSize') or 6.0)
+    for pts, name, colors in lines:
+        cum = _path_cum(pts)
+        total = cum[-1]
+        if total <= 1.0:
+            continue
+        # Зүүнээс баруун тийш уншигдахаар (эс бол урвуулна)
+        if pts[-1][0] < pts[0][0]:
+            pts = list(reversed(pts))
+            cum = _path_cum(pts)
+        # Фонтыг геометрийн уртад багтаана (95%), хамгийн бага min_fs
+        w0 = c.stringWidth(name, FONT, fs)
+        lfs0 = fs if w0 <= total * 0.95 else max(min_fs, fs * total * 0.95 / w0)
+        # Давхцвал — ХОЛ ЗАЙЛУУЛАХГҮЙ, харин фонтоо жижгэрүүлж багтаана
+        found = None
+        for lfs in [max(min_fs, lfs0 * k) for k in (1.0, 0.9, 0.8, 0.7, 0.6)]:
+            for off in (mm_to_pt(1.2), -mm_to_pt(2.2), mm_to_pt(3.0),
+                        -mm_to_pt(3.8)):
+                cells, rects = _curved_label_cells(pts, cum, name, FONT, lfs,
+                                                   off, c)
+                if cells is None:
+                    break                  # энэ фонтоор ч урт нь багтахгүй
+                if any(r[0] < map_x or r[2] > map_x + map_w or
+                       r[1] < map_y or r[3] > map_y + map_h for r in rects):
+                    continue
+                if any(idx.hits(r) for r in rects):
+                    continue
+                found = (lfs, off, cells, rects)
+                break
+            if found:
+                break
+        if found:
+            lfs, off, cells, rects = found
+            for r in rects:
+                idx.add(r)
+            _draw_curved_text(c, cells, name, FONT, lfs)
+            # Статусын зураас — мөн МУРУЙГ ДАГАЖ, текстийн яг доор
+            if colors:
+                s0 = (total - c.stringWidth(name, FONT, lfs)) / 2.0
+                boff = off - lfs * 0.42 - mm_to_pt(0.9)
+                s = s0
+                for col in colors:
+                    c.setStrokeColor(HexColor(col))
+                    c.setLineWidth(mm_to_pt(BAR_W_MM))
+                    path = c.beginPath()
+                    steps = 4
+                    for k in range(steps + 1):
+                        bxp, byp, _a = _path_offset_at(
+                            pts, cum, min(s + bar_len * k / steps, total), boff)
+                        if k == 0:
+                            path.moveTo(bxp, byp)
+                        else:
+                            path.lineTo(bxp, byp)
+                    c.drawPath(path, stroke=1, fill=0)
+                    s += bar_len + bar_gap
+
+    # 3) Цэгэн шошгууд — давхцлыг ЭХЛЭЭД ФОНТ ЖИЖГЭРҮҮЛЖ шийднэ (цэгээсээ хол
+    # шидэхгүй). Зөвхөн хамгийн жижиг фонтоор ч багтахгүй бол л илүү хол зайлж,
+    # тэр үед заагч шугам татна.
+    items.sort(key=lambda it: (-it[1], it[0]))
+    ladder = [max(min_fs, fs * k) for k in (1.0, 0.9, 0.8, 0.7, 0.6)]
+    for ax, ay, name, colors in items:
+        spot = None
+        for lfs in ladder:                 # ойрын зайнууд, фонт нь буурна
+            w = c.stringWidth(name, FONT, lfs)
+            h = lfs * 1.12 + (bar_h if colors else 0)
+            for x0, y0, align, dist in _label_candidates(
+                    ax, ay, w, h, gap + r_out, steps=3, step_mm=2.0):
+                rect = (x0 - 1.2, y0 - 1.2, x0 + w + 1.2, y0 + h + 1.2)
+                if x0 < map_x or x0 + w > map_x + map_w or \
+                   y0 < map_y or y0 + h > map_y + map_h:
+                    continue
+                if idx.hits(rect):
+                    continue
+                spot = (x0, y0, rect, dist, lfs, w, h)
+                break
+            if spot:
+                break
+        if spot is None:                   # нягт — хамгийн жижиг фонтоор хол зайлна
+            lfs = ladder[-1]
+            w = c.stringWidth(name, FONT, lfs)
+            h = lfs * 1.12 + (bar_h if colors else 0)
+            for x0, y0, align, dist in _label_candidates(
+                    ax, ay, w, h, gap + r_out, steps=12, step_mm=3.0):
+                rect = (x0 - 1.2, y0 - 1.2, x0 + w + 1.2, y0 + h + 1.2)
+                if x0 < map_x or x0 + w > map_x + map_w or \
+                   y0 < map_y or y0 + h > map_y + map_h:
+                    continue
+                if idx.hits(rect):
+                    continue
+                spot = (x0, y0, rect, dist, lfs, w, h)
+                break
+        if spot is None:
+            continue  # газар огт олдсонгүй — тэмдэг үлдэнэ, шошго алгасна
+        x0, y0, rect, dist, lfs, w, h = spot
+        idx.add(rect)
+        # Хол зайлсан бол цэгээс шошго руу нимгэн заагч
+        if dist > gap + r_out + mm_to_pt(5):
+            c.setStrokeColor(Color(0.2, 0.2, 0.2, 0.55))
+            c.setLineWidth(0.5)
+            c.line(ax, ay, x0 + w / 2, y0 + h / 2)
+        ty = y0 + (bar_h if colors else 0)
+        _halo_text(c, x0, ty, name, FONT, lfs, halo_w=1.4)
+        # Статусын өнгөт зураас (нэрийн доор, веб зурагтай ижил)
+        if colors:
+            draw_bars(x0, y0 + bar_h * 0.35, colors)
+    c.restoreState()
+
+
+# ── Таних тэмдэг (тооллого) — вебийн RecountLegend-тэй ижил харагдац ──
+
+def status_legend_rect(c, layout, bbox, map_x, map_y, map_w, map_h):
+    """Статусын таних тэмдгийн байрлал — дүрсэд хучигдаагүй буланг сонгоно."""
+    items = layout.get('statusLegend') or []
+    if not items:
+        return None
+    fs = float(layout.get('legendFontSize') or 11)
+    row_h = fs * 1.9
+    head_h = fs * 2.2
+    wmax = max(c.stringWidth(str(i.get('name') or ''), FONT, fs) for i in items)
+    lw = mm_to_pt(14) + wmax + mm_to_pt(20)
+    lw = max(lw, c.stringWidth('Таних тэмдэг (тооллого)', FONT_BOLD, fs)
+             + mm_to_pt(10))
+    lh = head_h + row_h * len(items) + mm_to_pt(3)
+    pad = mm_to_pt(5)
+    rings = layout.get('boundary') or []
+    corners = [
+        (map_x + map_w - pad - lw, map_y + pad),              # доод-баруун
+        (map_x + pad, map_y + pad),                            # доод-зүүн
+        (map_x + map_w - pad - lw, map_y + map_h - pad - lh),  # дээд-баруун
+        (map_x + pad, map_y + map_h - pad - lh),               # дээд-зүүн
+    ]
+
+    def covered(bx, by):
+        cx, cy = bx + lw / 2, by + lh / 2
+        lon = bbox[0] + (cx - map_x) / map_w * (bbox[2] - bbox[0])
+        lat = bbox[1] + (cy - map_y) / map_h * (bbox[3] - bbox[1])
+        return _point_in_rings(lon, lat, rings)
+
+    bx, by = next((p0 for p0 in corners if not covered(*p0)), corners[0])
+    return (bx, by, bx + lw, by + lh)
+
+
+def draw_status_legend(c, layout, rect):
+    """Цэнхэр толгойтой, статус бүрийн өнгөт зураас + тоо (badge) бүхий таних тэмдэг."""
+    items = layout.get('statusLegend') or []
+    if not items or not rect:
+        return
+    bx, by, bx1, by1 = rect
+    lw, lh = bx1 - bx, by1 - by
+    fs = float(layout.get('legendFontSize') or 11)
+    row_h = fs * 1.9
+    head_h = fs * 2.2
+    c.saveState()
+    # Хайрцаг
+    c.setFillColor(white)
+    c.setStrokeColor(Color(0.75, 0.78, 0.82))
+    c.setLineWidth(0.8)
+    c.roundRect(bx, by, lw, lh, mm_to_pt(1.6), stroke=1, fill=1)
+    # Толгой (цэнхэр)
+    c.setFillColor(HexColor('#0675c9'))
+    c.rect(bx, by + lh - head_h, lw, head_h, stroke=0, fill=1)
+    c.setFillColor(white)
+    c.setFont(FONT_BOLD, fs)
+    c.drawString(bx + mm_to_pt(3), by + lh - head_h + head_h * 0.32,
+                 'Таних тэмдэг (тооллого)')
+    # Мөрүүд
+    y = by + lh - head_h - row_h
+    for it in items:
+        col = HexColor(it.get('color') or '#64748b')
+        c.setStrokeColor(col)
+        c.setLineWidth(mm_to_pt(1.1))
+        c.line(bx + mm_to_pt(3), y + row_h * 0.42,
+               bx + mm_to_pt(11), y + row_h * 0.42)
+        c.setFillColor(black)
+        c.setFont(FONT, fs)
+        c.drawString(bx + mm_to_pt(14), y + row_h * 0.3, str(it.get('name') or ''))
+        cnt = str(it.get('count', 0))
+        cw = max(c.stringWidth(cnt, FONT_BOLD, fs) + mm_to_pt(4), mm_to_pt(8))
+        cx = bx + lw - mm_to_pt(3) - cw
+        c.setFillColor(col)
+        c.roundRect(cx, y + row_h * 0.12, cw, fs * 1.4, fs * 0.7, stroke=0, fill=1)
+        c.setFillColor(white)
+        c.setFont(FONT_BOLD, fs)
+        c.drawCentredString(cx + cw / 2, y + row_h * 0.3 + fs * 0.06, cnt)
+        y -= row_h
+    c.restoreState()
 
 
 def _point_in_rings(lon, lat, rings):

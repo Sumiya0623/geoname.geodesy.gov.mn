@@ -500,6 +500,38 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				obj.statuses.set(sids)
 		return Response({'created': len(created)}, status=201)
 
+	@action(detail=True, methods=['post'], url_path='reverse-geom')
+	def reverse_geom(self, request, pk=None):
+		"""Тухайн тооллогын ГЕОМЕТРИЙН чиглэлийг эргүүлнэ (LineString‑ийн
+		цэгүүдийн дараалал урвуу). Полигонд цагираг бүрийг, цэгэнд утгагүй."""
+		from django.contrib.gis.geos import (
+			LineString, MultiLineString, Polygon, MultiPolygon)
+		obj = self.get_object()
+		g = obj.loc
+		if g is None:
+			return Response({'detail': 'Геометр алга'}, status=400)
+		try:
+			if isinstance(g, LineString):
+				ng = LineString(list(g.coords)[::-1], srid=g.srid)
+			elif isinstance(g, MultiLineString):
+				ng = MultiLineString(
+					[LineString(list(ls.coords)[::-1], srid=g.srid) for ls in g],
+					srid=g.srid)
+			elif isinstance(g, Polygon):
+				ng = Polygon(*[list(r.coords)[::-1] for r in g], srid=g.srid)
+			elif isinstance(g, MultiPolygon):
+				ng = MultiPolygon(
+					[Polygon(*[list(r.coords)[::-1] for r in p], srid=g.srid)
+					 for p in g], srid=g.srid)
+			else:
+				return Response(
+					{'detail': 'Зөвхөн шугам/талбайн чиглэл эргүүлнэ'}, status=400)
+		except Exception as exc:
+			return Response({'detail': f'Алдаа: {exc}'}, status=400)
+		obj.loc = ng
+		obj.save(update_fields=['loc'])
+		return Response({'detail': 'ok'}, status=200)
+
 	SCALE_25K = 163
 	SCALE_100K = 165
 

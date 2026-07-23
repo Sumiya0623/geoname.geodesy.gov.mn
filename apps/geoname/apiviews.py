@@ -759,8 +759,12 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
             'orientation': fit['orientation'],
         }, status=200)
 
-    def _build_params(self, unit_ids, is_border, dpi):
-        """Сонгосон нэгжээс mapprint params + meta(scale/name_count/title) бүтээнэ."""
+    def _build_params(self, unit_ids, is_border, dpi, corner_left=None):
+        """Сонгосон нэгжээс mapprint params + meta(scale/name_count/title) бүтээнэ.
+        corner_left — заавал биш: зүүн доод булангийн мөрүүд (гэрээний нэр /
+        гүйцэтгэгч / гэрээний дугаар).
+        ЗӨВХӨН газар зүйн НЭРИЙН зураг. Хээрийн тодруулалтын ажлын зураг нь
+        тусдаа модульд: apps/geoname/workmap.py"""
         union = _union_geom(unit_ids)
         if union is None:
             return None
@@ -795,7 +799,7 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
         fit = mapprint.fit_layout([x0 - px, y0 - py, x1 + px, y1 + py])
         # Индексийн торны БҮТЭН нүд (10см) + шошго багтахаар bbox-г өргөтгөж
         # ДАХИН fit (зураг бага зэрэг жижгэрч, хүрээ "томрох" эффект).
-        margin_m = 0.09 * fit['scale']  # ~90мм цаас → газрын метр (тор+шошго багтах зай)
+        margin_m = 0.09 * fit['scale']  # ~90мм цаас → газрын метр
         clat = math.cos(math.radians((y0 + y1) / 2.0)) or 1.0
         dlat = margin_m / 111000.0
         dlon = margin_m / (111000.0 * clat)
@@ -869,6 +873,8 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
                 'buffer': buffer_rings,  # хилийн дагуу 500м ягаан зурвас (сэргээв)
                 'gridMinutes': grid_minutes,  # сум=5мин, аймаг=15мин
                 'indexClip': ubuf_clip_polys,  # индекс торыг DEM(улбар)-д л тайрна
+                # Зүүн доод булан — гэрээний мэдээлэл (эс бол default)
+                'cornerLeft': [ln for ln in (corner_left or []) if ln] or None,
             },
         }
         meta = {'scale': scale, 'name_count': name_count, 'title': title,
@@ -885,7 +891,9 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
         if not ids:
             return Response({'detail': 'units шаардлагатай'}, status=400)
         is_border = request.query_params.get('is_border') in ('1', 'true', 'True')
-        built = self._build_params(ids, is_border, dpi=45)  # preview хөнгөн (хурдан)
+        # cornerLeft мөрүүд '||'-ээр тусгаарлагдсан (ажлын зураг дээр гэрээний мэдээлэл)
+        cl = [s for s in (request.query_params.get('corner_left', '') or '').split('||') if s]
+        built = self._build_params(ids, is_border, dpi=45, corner_left=cl)  # preview хөнгөн
         if built is None:
             return Response({'detail': 'геометр алга'}, status=400)
         params, meta = built
@@ -917,7 +925,9 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
         if not unit_ids:
             return Response({'detail': 'units шаардлагатай'}, status=400)
         is_border = bool(d.get('is_border'))
-        built = self._build_params(unit_ids, is_border, int(d.get('dpi') or 200))
+        corner_left = [s for s in (d.get('corner_left') or []) if s]
+        built = self._build_params(unit_ids, is_border, int(d.get('dpi') or 200),
+                                   corner_left=corner_left)
         if built is None:
             return Response({'detail': 'Сонгосон нэгжид геометр алга'}, status=400)
         params, meta = built
@@ -940,3 +950,137 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
         fname = (meta['title'][:60] or 'print').replace(' ', '_').replace('/', '-') + '.pdf'
         pm.file.save(fname, ContentFile(pdf_bytes), save=True)
         return Response(PrintMapSerializer(pm, context={'request': request}).data, status=201)
+
+    # ---------- Ажлын зураг (хээрийн тодруулалт) — apps/geoname/workmap.py ----------
+
+    def _work_unit_ids(self, project_id, raw_units):
+        """Ажлын зургийн сумд — өгсөн бол түүнийг, эс бол recount-оос авто."""
+        from . import workmap
+        ids = [int(x) for x in (raw_units or []) if str(x).strip()]
+        if ids:
+            return ids
+        return [u['id'] for u in workmap.project_units(project_id)]
+
+    @action(detail=False, methods=['get'], url_path='work-units')
+    def work_units(self, request):
+        """?project=<id> → тухайн төслийн тооллого оногдох сумд (авто сонголт)."""
+        pid = request.query_params.get('project')
+        if not pid:
+            return Response({'detail': 'project шаардлагатай'}, status=400)
+        from . import workmap
+        units = workmap.project_units(pid)
+        count = ReCount.objects.filter(project_id=pid).count()
+        return Response({'results': units, 'recount_count': count}, status=200)
+
+    @action(detail=False, methods=['get'], url_path='work-preview')
+    def work_preview(self, request):
+        """Ажлын зургийн preview — НЭГ СУМЫН хуудас (PDF нь сум тус бүрээр
+        хуудаслана). ?unit=<id> өгвөл тэр сумыг, эс бол эхний сумыг харуулна."""
+        pid = request.query_params.get('project')
+        if not pid:
+            return Response({'detail': 'project шаардлагатай'}, status=400)
+        from . import workmap
+        raw = [x for x in (request.query_params.get('units', '') or '').split(',') if x]
+        ids = self._work_unit_ids(pid, raw)
+        if not ids:
+            return Response({'detail': 'Тухайн төсөлд байршилтай тооллого алга'},
+                            status=400)
+        one = request.query_params.get('unit')
+        page_id = int(one) if one and int(one) in ids else ids[0]
+        built = workmap.build_params([page_id], int(pid), dpi=45,
+                                     corner_left=workmap.project_corner(pid))
+        if built is None:
+            return Response({'detail': 'геометр алга'}, status=400)
+        params, meta = built
+        try:
+            pdf_bytes = mapprint.render(params)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception('work preview render failed')
+            return Response({'detail': f'Алдаа: {exc}'}, status=500)
+        from django.db import close_old_connections
+        close_old_connections()
+        import fitz
+        import base64
+        doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+        # Анхдагчаар ЭХ чанар (PNG, 70dpi). Сканердсан арын зурагтай тул ~15МБ
+        # болдог — сүлжээнд хүнд бол ?fmt=jpg (&pdpi=) -ээр хөнгөлж болно.
+        pdpi = int(request.query_params.get('pdpi') or 70)
+        pix = doc[0].get_pixmap(dpi=max(30, min(pdpi, 120)))
+        if (request.query_params.get('fmt') or '').lower() in ('jpg', 'jpeg'):
+            try:
+                img, mime = pix.tobytes('jpg', jpg_quality=80), 'jpeg'
+            except Exception:
+                img, mime = pix.tobytes('png'), 'png'
+        else:
+            img, mime = pix.tobytes('png'), 'png'
+        return Response({
+            'scale': meta['scale'], 'name_count': meta['name_count'],
+            'title': meta['title'], 'units': ids,
+            'unit': page_id, 'page_count': len(ids),
+            'widthMM': meta['widthMM'], 'heightMM': meta['heightMM'],
+            'orientation': meta['orientation'],
+            'gridMinutes': meta.get('gridMinutes'),
+            'status_legend': meta.get('status_legend'),
+            'image': (f'data:image/{mime};base64,'
+                      + base64.b64encode(img).decode()),
+        }, status=200)
+
+    @action(detail=False, methods=['post'], url_path='work-print')
+    def work_print(self, request):
+        """Ажлын зураг → PDF. ХУУДАС БҮР НЭГ СУМ: сонгосон сум бүрээр давтаж
+        зурж, нэг олон хуудастай PDF болгож нийлүүлнэ (2 сум → 2 хуудас)."""
+        from django.http import HttpResponse
+        from django.db import close_old_connections
+        from . import workmap
+        import logging
+        import fitz
+        d = request.data
+        pid = d.get('project')
+        if not pid:
+            return Response({'detail': 'project шаардлагатай'}, status=400)
+        ids = self._work_unit_ids(pid, d.get('units') or [])
+        if not ids:
+            return Response({'detail': 'Тухайн төсөлд байршилтай тооллого алга'},
+                            status=400)
+        dpi = int(d.get('dpi') or 170)
+        corner = workmap.project_corner(pid)
+        out = fitz.open()
+        first_title, total_names, scales = None, 0, []
+        for uid in ids:
+            built = workmap.build_params([uid], int(pid), dpi=dpi,
+                                         corner_left=corner)
+            if built is None:
+                continue
+            params, meta = built
+            # Тооллогогүй сум — хоосон хуудас үүсгэхгүй (олноос сонгосон үед)
+            if not meta['name_count'] and len(ids) > 1:
+                continue
+            try:
+                pdf_bytes = mapprint.render(params)
+            except Exception as exc:
+                logging.getLogger(__name__).exception('work print render failed')
+                return Response({'detail': f'PDF үүсгэхэд алдаа: {exc}'}, status=500)
+            close_old_connections()
+            with fitz.open(stream=pdf_bytes, filetype='pdf') as page_doc:
+                out.insert_pdf(page_doc)
+            first_title = first_title or meta['title']
+            total_names += meta['name_count']
+            scales.append(str(meta['scale']))
+        if not out.page_count:
+            return Response({'detail': 'Сонгосон нэгжид геометр алга'}, status=400)
+        pdf_bytes = out.tobytes()
+        out.close()
+
+        from urllib.parse import quote
+        fname = ((first_title or 'ajliin_zurag')[:60]
+                 .replace(' ', '_').replace('/', '-')) + '.pdf'
+        resp = HttpResponse(pdf_bytes, content_type='application/pdf')
+        # Кирилл нэр — ASCII fallback + RFC 5987 (filename*) хэлбэрээр
+        resp['Content-Disposition'] = (
+            'inline; filename="ajliin_zurag.pdf"; '
+            "filename*=UTF-8''" + quote(fname))
+        resp['X-Map-Scale'] = ','.join(scales)
+        resp['X-Name-Count'] = str(total_names)
+        resp['X-Page-Count'] = str(len(scales))
+        return resp

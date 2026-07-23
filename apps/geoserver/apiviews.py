@@ -399,6 +399,7 @@ RECOUNT_VIEW = 'recount_view'
 # ижил баганатай (type, type_l1/l2) тул ижил style (type symbol)‑оор зурагдана.
 # project_id баганаар CQL‑ээр тухайн төслөөр шүүнэ.
 _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.draft,
+    r.name_id AS name_id,
     COALESCE(r.loc, g.geoloc) AS geoloc,
     g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
     json_build_array(t.parent_id, g.type_id) AS type,
@@ -3346,6 +3347,50 @@ class BaseMapLayerViewSet(viewsets.ModelViewSet):
 			deduped.append(x)
 		deduped.sort(key=lambda x: (x['workspace'], x['name']))
 		return Response({'results': deduped}, status=200)
+
+	@action(detail=False, methods=['get'], url_path='layer-extent')
+	def layer_extent(self, request):
+		"""?layer=<ws:name> → тухайн GeoServer давхаргын хил (EPSG:4326).
+		Газрын зураг дээрх 'Zoom to Layer' цэсэнд ашиглана. featuretype →
+		coverage → layergroup дарааллаар хайна."""
+		full = (request.query_params.get('layer') or '').strip()
+		if ':' not in full:
+			return Response({'detail': 'layer=<ws:name> шаардлагатай'}, status=400)
+		ws, name = full.split(':', 1)
+		rest, auth = _gs_rest_auth()
+
+		def _bbox(d, key):
+			b = d.get(key) or {}
+			try:
+				return [float(b['minx']), float(b['miny']),
+						float(b['maxx']), float(b['maxy'])]
+			except (KeyError, TypeError, ValueError):
+				return None
+
+		for kind, node in (('featuretypes', 'featureType'),
+						   ('coverages', 'coverage')):
+			try:
+				r = requests.get(f"{rest}/workspaces/{ws}/{kind}/{name}.json",
+								 auth=auth, timeout=10)
+				if r.status_code != 200:
+					continue
+				d = (r.json() or {}).get(node) or {}
+				ext = _bbox(d, 'latLonBoundingBox') or _bbox(d, 'nativeBoundingBox')
+				if ext:
+					return Response({'extent': ext}, status=200)
+			except requests.RequestException:
+				continue
+		try:
+			r = requests.get(f"{rest}/workspaces/{ws}/layergroups/{name}.json",
+							 auth=auth, timeout=10)
+			if r.status_code == 200:
+				d = (r.json() or {}).get('layerGroup') or {}
+				ext = _bbox(d, 'bounds')
+				if ext:
+					return Response({'extent': ext}, status=200)
+		except requests.RequestException:
+			pass
+		return Response({'detail': 'Давхаргын хил олдсонгүй'}, status=404)
 
 	@action(detail=False, methods=['get'], url_path='for-map')
 	def for_map(self, request):
