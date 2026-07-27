@@ -8,8 +8,7 @@ import Iconify from "src/components/iconify";
 import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 
 import { AdminUnitListView } from "src/sections/adminunit/view";
-import WorkspaceListView from "src/sections/geoserver/workspace-list-view";
-import { BaseMapLayerListView } from "src/sections/basemap/view";
+import GeoserverManager from "src/sections/geoserver/geoserver-manager";
 
 // ----------------------------------------------------------------------
 // Тав бүр нь өөрийн SubMenu-ийн `content` түлхүүрээр харах (`list`) эрхээ шалгана.
@@ -18,7 +17,6 @@ import { BaseMapLayerListView } from "src/sections/basemap/view";
 export default function GisTabsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
   const auPerm = useMenuPermissions({ content: "au" });
   const geoserverPerm = useMenuPermissions({ content: "geoserver" });
   const basemapPerm = useMenuPermissions({ content: "basemap" });
@@ -26,26 +24,18 @@ export default function GisTabsView() {
   const TABS = useMemo(
     () => [
       {
+        value: "geoserver",
+        label: "Geoserver",
+        icon: <Iconify icon="solar:server-bold" width={24} />,
+        allowed: geoserverPerm.list,
+        render: () => <GeoserverManager />,
+      },
+      {
         value: "au",
         label: "Засаг захиргаа",
         icon: <Iconify icon="solar:map-point-bold" width={24} />,
         allowed: auPerm.list,
         render: () => <AdminUnitListView embedded />,
-      },
-      {
-        value: "geoserver",
-        label: "Geoserver",
-        icon: <Iconify icon="solar:server-bold" width={24} />,
-        allowed: geoserverPerm.list,
-        render: () => <WorkspaceListView embedded />,
-      },
-      {
-        value: "basemap",
-        label: "Газрын зургийн давхарга",
-        icon: <Iconify icon="solar:layers-bold" width={24} />,
-        // Тусдаа "basemap" эрх байвал түүгээр, эс бөгөөс geoserver эрхээр
-        allowed: basemapPerm.list || geoserverPerm.list,
-        render: () => <BaseMapLayerListView />,
       },
     ],
     [auPerm.list, geoserverPerm.list, basemapPerm.list],

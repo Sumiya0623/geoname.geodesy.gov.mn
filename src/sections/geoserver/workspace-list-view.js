@@ -9,11 +9,7 @@ import {
   Grid,
   Chip,
   Stack,
-  Button,
-  Tooltip,
-  Collapse,
   Container,
-  IconButton,
   Typography,
   CardActionArea,
   CircularProgress,
@@ -21,14 +17,10 @@ import {
 import { Icon } from "@iconify/react";
 
 import { paths } from "src/routes/paths";
-import { useBoolean } from "src/hooks/use-boolean";
-import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 import { useGetWorkspaceTree } from "src/api/workspace";
 
-import Iconify from "src/components/iconify";
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 
-import WorkspaceInlineForm from "./workspace-inline-form";
 import WorkspaceViewsTable from "./workspace-views-table";
 import WorkspaceLayersTable from "./workspace-layers-table";
 import WorkspaceLayerGroups from "./workspace-layergroups";
@@ -36,16 +28,12 @@ import WorkspaceLayerGroups from "./workspace-layergroups";
 // ----------------------------------------------------------------------
 
 export default function WorkspaceListView({ embedded = false }) {
-  const menuPermissions = useMenuPermissions({ content: "geoserver" });
-
-  const rootForm = useBoolean();
   const [selectedId, setSelectedId] = useState(null);
 
-  // Үндсэн workspace‑ууд (WORKSPACES, parent байхгүй) — картууд
+  // Үндсэн workspace‑ууд (WORKSPACES, parent байхгүй) — картууд (зөвхөн харах)
   const {
     workspaces: roots,
     workspacesLoading: rootsLoading,
-    workspacesMutation: rootsMutation,
   } = useGetWorkspaceTree({ key: "WORKSPACES" });
 
   const selectedRoot = useMemo(
@@ -63,62 +51,18 @@ export default function WorkspaceListView({ embedded = false }) {
       maxWidth={embedded ? false : "xxl"}
       disableGutters={embedded}
     >
-      {!embedded ? (
+      {!embedded && (
         <CustomBreadcrumbs
           heading="GeoServer"
           links={[
             { name: "Дашбоард", href: paths.dashboard.root },
             { name: "GeoServer" },
           ]}
-          action={
-            menuPermissions?.create && (
-              <Button
-                color="primary"
-                variant="contained"
-                onClick={rootForm.onToggle}
-                endIcon={
-                  <Iconify
-                    icon="mingcute:down-line"
-                    sx={{
-                      transition: (theme) => theme.transitions.create("all"),
-                      ...(rootForm.value && { transform: "rotate(-180deg)" }),
-                    }}
-                  />
-                }
-              >
-                Workspace нэмэх
-              </Button>
-            )
-          }
           sx={{ mb: { xs: 3, md: 3 } }}
         />
-      ) : (
-        menuPermissions?.create && (
-          <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
-            <Tooltip title="Workspace нэмэх">
-              <IconButton color="primary" onClick={rootForm.onToggle}>
-                <Iconify icon="mingcute:add-line" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        )
       )}
 
-      {/* Шинэ үндсэн workspace нэмэх */}
-      <Collapse in={rootForm.value} timeout="auto" unmountOnExit>
-        <Card sx={{ p: 2, mb: 3 }}>
-          <WorkspaceInlineForm
-            parentId={null}
-            onCancel={rootForm.onFalse}
-            onSaved={async () => {
-              rootForm.onFalse();
-              await rootsMutation();
-            }}
-          />
-        </Card>
-      </Collapse>
-
-      {/* Workspace картууд */}
+      {/* Workspace картууд (зөвхөн харах — нэмэх/засах/устгах байхгүй) */}
       {rootsLoading ? (
         <Box sx={{ py: 5, textAlign: "center" }}>
           <CircularProgress />

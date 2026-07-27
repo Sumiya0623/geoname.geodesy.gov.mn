@@ -245,10 +245,20 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
             </Button>
           </Stack>
 
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block", mb: 1 }}
+          >
+            Дээд мөр (№1) = газрын зураг дээр хамгийн дээр (foreground) харагдана.
+            Жишээ: нуурыг элснээс дээр байлгахын тулд нуурыг элсний мөрөөс дээр
+            зөөнө.
+          </Typography>
+
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell width={64}>Эрэмбэ</TableCell>
+                <TableCell width={64}>Эрэмбэ</TableCell>{/* 1 = хамгийн дээр (foreground) */}
                 <TableCell>Layer</TableCell>
                 <TableCell align="right" width={140}>
                   Зөөх / устгах

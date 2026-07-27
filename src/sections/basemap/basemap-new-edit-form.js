@@ -25,6 +25,7 @@ const LAYER_TYPES = [
   { value: "overlay", label: "Нэмэлт (overlay)" },
 ];
 const SOURCE_TYPES = [
+  { value: "blank", label: "Хоосон (blank)" },
   { value: "xyz", label: "XYZ (гадаад тайл)" },
   { value: "osm", label: "OpenStreetMap" },
   { value: "wms", label: "WMS (GeoServer/GWC)" },

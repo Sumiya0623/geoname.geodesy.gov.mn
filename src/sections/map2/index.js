@@ -365,6 +365,9 @@ const buildAdminWmsParams = (overrides = {}) => ({
 function buildOlBaseLayer(cfg) {
   const p = cfg?.params || {};
   const st = cfg?.source_type;
+  // Хоосон зураг (blank) — source‑гүй давхарга: юу ч зурахгүй, зөвхөн дэвсгэр
+  // (цагаан/тунгалаг) үлдэнэ. Хэрэглэгч зөвхөн өөрийн overlay датаг харах үед.
+  if (st === "blank") return new TileLayer({});
   if (st === "osm") return new TileLayer({ source: new OSM() });
   if (st === "xyz")
     return new TileLayer({

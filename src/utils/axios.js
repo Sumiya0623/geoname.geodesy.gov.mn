@@ -275,6 +275,19 @@ export const endpoints = {
       `/api/g/basemap/layer-extent/?layer=${encodeURIComponent(layer)}`,
   },
 
+  // Байр зүйн каталог (map_* хүснэгт) — Data tab CRUD (/api/m/)
+  mapcat: {
+    meta: `/api/m/catalog/`,
+    list: (layer, q = "") => `/api/m/catalog/${layer}/?${q}`,
+    create: (layer) => `/api/m/catalog/${layer}/`,
+    item: (layer, id) => `/api/m/catalog/${layer}/${id}/`,
+    bulkDelete: (layer) => `/api/m/catalog/${layer}/bulk-delete/`,
+    constant: (q = "") => `/api/m/map-constant/?${q}`,
+    constantItem: (id) => `/api/m/map-constant/${id}/`,
+    constantCreate: `/api/m/map-constant/`,
+    constantKeys: `/api/m/map-constant/keys/`,
+  },
+
   // GeoServer — backend нь /api/g/ дээр (ws/st/fs/rule/group/item).
   // api/map.js болон газрын зургийн давхаргын мод (fs/geoserver) үүнийг ашиглана.
   geoserver: {
