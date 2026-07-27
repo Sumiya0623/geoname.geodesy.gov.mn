@@ -168,6 +168,7 @@ export const endpoints = {
     details: (id) => `/api/n/geoname/${id}/`,
     types: `/api/n/geoname/types/`,
     addPhoto: (id) => `/api/n/geoname/${id}/add-photo/`,
+    delPhoto: (id) => `/api/n/geoname/${id}/del-photo/`,
     addAttach: (id) => `/api/n/geoname/${id}/add-attach/`,
     addOrder: (id) => `/api/n/geoname/${id}/add-order/`,
     addRequest: (id) => `/api/n/geoname/${id}/add-request/`,

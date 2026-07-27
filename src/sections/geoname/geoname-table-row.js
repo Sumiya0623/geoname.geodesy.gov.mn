@@ -4,7 +4,7 @@ import MenuItem from "@mui/material/MenuItem";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import IconButton from "@mui/material/IconButton";
-import { Chip, Button, Tooltip, Divider } from "@mui/material";
+import { Link, Chip, Button, Tooltip, Divider } from "@mui/material";
 
 import { fDate } from "src/utils/format-time";
 import { useBoolean } from "src/hooks/use-boolean";
@@ -24,7 +24,7 @@ export default function GeonameTableRow({
   onEdit,
   onDeleteRow,
 }) {
-  const { name, number, type, is_approved, created_date, needs_review, confidence, source, units } = row;
+  const { id, name, number, type, is_approved, created_date, needs_review, confidence, source, units } = row;
 
   const aimag = units?.find((u) => u.level && u.level.includes("Аймаг"));
   const sum = units?.find((u) => u.level && u.level.includes("Сум"));
@@ -38,7 +38,22 @@ export default function GeonameTableRow({
     <>
       <TableRow hover>
         <TableCell>{page * rowsPerPage + index + 1}</TableCell>
-        <TableCell sx={{ whiteSpace: "normal", maxWidth: 280 }}>{name || "-"}</TableCell>
+        <TableCell sx={{ whiteSpace: "normal", maxWidth: 280 }}>
+          {name ? (
+            <Link
+              href={`/dashboard/geoname/${id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              color="inherit"
+              underline="hover"
+              sx={{ fontWeight: 600, cursor: "pointer" }}
+            >
+              {name}
+            </Link>
+          ) : (
+            "-"
+          )}
+        </TableCell>
         <TableCell>{number || "-"}</TableCell>
         <TableCell>{type?.name || "-"}</TableCell>
         <TableCell>{aimag?.name || "-"}</TableCell>

@@ -3,12 +3,15 @@ import { useState, useEffect } from "react";
 
 import {
   Box,
+  Card,
   Stack,
   Button,
   Dialog,
   MenuItem,
   TextField,
   Typography,
+  IconButton,
+  CardContent,
   DialogTitle,
   DialogContent,
   DialogActions,
@@ -16,10 +19,14 @@ import {
 import { LoadingButton } from "@mui/lab";
 
 import axiosInstance, { endpoints } from "src/utils/axios";
+import { angleToDirection } from "src/utils/geoDirection";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
 import Iconify from "src/components/iconify";
 import { useSnackbar } from "src/components/snackbar";
+
+import RequestChangeForm from "src/sections/request/request-change-form";
+import PhotoDirectionPicker from "src/components/photo-direction-picker";
 
 // ----------------------------------------------------------------------
 // Дэлгэрэнгүй хуудасны "нэмэх" диалог — kind‑ээр салаалж нэг л компонент:
@@ -31,18 +38,26 @@ import { useSnackbar } from "src/components/snackbar";
 
 const TITLES = {
   order: "Эрх зүйн баримт бичиг нэмэх",
-  request: "Хүсэлт нэмэх",
+  request: "Өөрчлөх хүсэлт",
   attach: "Баримт материал нэмэх",
   photo: "Зураг нэмэх",
 };
 
-export default function GeonameAddDialog({ kind, geonameId, onClose, onDone }) {
+export default function GeonameAddDialog({
+  kind,
+  geonameId,
+  onClose,
+  onDone,
+  inline = false,
+}) {
   const { enqueueSnackbar } = useSnackbar();
   const open = !!kind;
 
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({});
   const [file, setFile] = useState(null);
+  const [photos, setPhotos] = useState([]); // [{file, deg}] — олон зураг + зовхис
+  const [photoIdx, setPhotoIdx] = useState(0);
 
   // Constant dropdown‑ууд (зөвхөн тухайн kind‑д шаардлагатайг л татна)
   const { constants: legalTypes } = useGetConstantsFordropdown(
@@ -65,6 +80,8 @@ export default function GeonameAddDialog({ kind, geonameId, onClose, onDone }) {
     if (open) {
       setForm({});
       setFile(null);
+      setPhotos([]);
+      setPhotoIdx(0);
     }
   }, [open, kind]);
 
@@ -72,20 +89,42 @@ export default function GeonameAddDialog({ kind, geonameId, onClose, onDone }) {
     setForm((p) => ({ ...p, [name]: e.target.value }));
 
   const handleSubmit = async () => {
+    // Зураг — олон файл, тус бүрд зовхис тааруулаад давталтаар POST‑лоно
+    if (kind === "photo") {
+      if (!photos.length) {
+        enqueueSnackbar("Зураг сонгоно уу", { variant: "warning" });
+        return;
+      }
+      setSaving(true);
+      try {
+        for (let k = 0; k < photos.length; k += 1) {
+          const pfd = new FormData();
+          pfd.append("file", photos[k].file);
+          pfd.append("desc", angleToDirection(photos[k].deg));
+          // eslint-disable-next-line no-await-in-loop
+          await axiosInstance.post(endpoints.geoname.addPhoto(geonameId), pfd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        }
+        enqueueSnackbar("Зургууд нэмэгдлээ");
+        onDone?.();
+        onClose?.();
+      } catch (err) {
+        enqueueSnackbar(err?.response?.data?.detail || "Нэмэхэд алдаа гарлаа", {
+          variant: "warning",
+        });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     setSaving(true);
     try {
       const fd = new FormData();
       let url;
 
-      if (kind === "photo") {
-        if (!file) {
-          enqueueSnackbar("Зураг сонгоно уу", { variant: "warning" });
-          setSaving(false);
-          return;
-        }
-        fd.append("file", file);
-        url = endpoints.geoname.addPhoto(geonameId);
-      } else if (kind === "attach") {
+      if (kind === "attach") {
         if (!file) {
           enqueueSnackbar("Файл сонгоно уу", { variant: "warning" });
           setSaving(false);
@@ -95,13 +134,21 @@ export default function GeonameAddDialog({ kind, geonameId, onClose, onDone }) {
         url = endpoints.geoname.addAttach(geonameId);
       } else if (kind === "order") {
         if (!form.name?.trim()) {
-          enqueueSnackbar("Баримт бичгийн нэр оруулна уу", { variant: "warning" });
+          enqueueSnackbar("Баримт бичгийн нэр оруулна уу", {
+            variant: "warning",
+          });
           setSaving(false);
           return;
         }
-        ["name", "order_number", "order_date", "org", "type", "signer", "description"].forEach(
-          (k) => form[k] && fd.append(k, form[k]),
-        );
+        [
+          "name",
+          "order_number",
+          "order_date",
+          "org",
+          "type",
+          "signer",
+          "description",
+        ].forEach((k) => form[k] && fd.append(k, form[k]));
         if (file) fd.append("document", file);
         url = endpoints.geoname.addOrder(geonameId);
       } else if (kind === "request") {
@@ -133,185 +180,187 @@ export default function GeonameAddDialog({ kind, geonameId, onClose, onDone }) {
   };
 
   const fileLabel =
-    kind === "photo" ? "Зураг сонгох" : kind === "attach" ? "Файл сонгох" : "Баримт бичиг (файл)";
+    kind === "photo"
+      ? "Зураг сонгох"
+      : kind === "attach"
+        ? "Файл сонгох"
+        : "Баримт бичиг (файл)";
+
+  const body = (
+    <Stack spacing={2.5}>
+      {/* ----- Эрх зүйн баримт бичиг ----- */}
+      {kind === "order" && (
+        <>
+          <TextField
+            label="Нэр *"
+            value={form.name || ""}
+            onChange={set("name")}
+            fullWidth
+          />
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField
+              label="Дугаар"
+              value={form.order_number || ""}
+              onChange={set("order_number")}
+              fullWidth
+            />
+            <TextField
+              label="Гарсан огноо"
+              type="date"
+              value={form.order_date || ""}
+              onChange={set("order_date")}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+          </Stack>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField
+              select
+              label="Байгууллага"
+              value={form.org || ""}
+              onChange={set("org")}
+              fullWidth
+            >
+              <MenuItem value="">—</MenuItem>
+              {legalTypes.map((c) => (
+                <MenuItem key={c.id} value={c.id}>
+                  {c.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Төрөл"
+              value={form.type || ""}
+              onChange={set("type")}
+              fullWidth
+            >
+              <MenuItem value="">—</MenuItem>
+              {orderTypes.map((c) => (
+                <MenuItem key={c.id} value={c.id}>
+                  {c.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+          <TextField
+            label="Гарын үсэг зурсан"
+            value={form.signer || ""}
+            onChange={set("signer")}
+            fullWidth
+          />
+          <TextField
+            label="Тайлбар"
+            value={form.description || ""}
+            onChange={set("description")}
+            multiline
+            minRows={2}
+            fullWidth
+          />
+        </>
+      )}
+
+      {/* ----- Хүсэлт — газрын зураг дээрхтэй ИЖИЛ форм (RequestChangeForm) ----- */}
+      {kind === "request" && (
+        <RequestChangeForm
+          geonameId={geonameId}
+          selectedStatus={
+            reqStatus.find((s) => (s?.name || "").includes("Өөрчл")) || null
+          }
+          onClose={() => {
+            onDone?.();
+            onClose?.();
+          }}
+        />
+      )}
+
+      {/* ----- Зураг — олон файл (jpg/png) + зовхис тааруулах компас ----- */}
+      {kind === "photo" && (
+        <PhotoDirectionPicker value={photos} onChange={setPhotos} />
+      )}
+
+      {/* ----- Файл (attach, мөн order‑ийн баримт) ----- */}
+      {(kind === "attach" || kind === "order") && (
+        <Box>
+          <Button
+            component="label"
+            variant="outlined"
+            startIcon={<Iconify icon="solar:upload-bold" />}
+          >
+            {fileLabel}
+            <input
+              hidden
+              type="file"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+            />
+          </Button>
+          {file && (
+            <Typography
+              variant="caption"
+              sx={{ ml: 1.5 }}
+              color="text.secondary"
+            >
+              {file.name}
+            </Typography>
+          )}
+        </Box>
+      )}
+    </Stack>
+  );
+
+  // Хүсэлт нь RequestChangeForm‑ийн өөрийн товчоор хадгална
+  const actions = kind !== "request" && (
+    <>
+      <Button color="inherit" onClick={onClose}>
+        Болих
+      </Button>
+      <LoadingButton
+        variant="contained"
+        loading={saving}
+        onClick={handleSubmit}
+      >
+        Хадгалах
+      </LoadingButton>
+    </>
+  );
+
+  // Inline — detail хуудасны баруун баганад (dialog биш).
+  if (inline) {
+    if (!open) return null;
+    return (
+      <Card>
+        <CardContent>
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Typography variant="h6">{TITLES[kind] || "Нэмэх"}</Typography>
+            <IconButton size="small" onClick={onClose}>
+              <Iconify icon="mingcute:close-line" width={20} />
+            </IconButton>
+          </Stack>
+          {body}
+          {actions && (
+            <Stack
+              direction="row"
+              justifyContent="flex-end"
+              spacing={1}
+              sx={{ mt: 2 }}
+            >
+              {actions}
+            </Stack>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>{TITLES[kind] || "Нэмэх"}</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2.5} sx={{ pt: 0.5 }}>
-          {/* ----- Эрх зүйн баримт бичиг ----- */}
-          {kind === "order" && (
-            <>
-              <TextField
-                label="Нэр *"
-                value={form.name || ""}
-                onChange={set("name")}
-                fullWidth
-              />
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField
-                  label="Дугаар"
-                  value={form.order_number || ""}
-                  onChange={set("order_number")}
-                  fullWidth
-                />
-                <TextField
-                  label="Гарсан огноо"
-                  type="date"
-                  value={form.order_date || ""}
-                  onChange={set("order_date")}
-                  InputLabelProps={{ shrink: true }}
-                  fullWidth
-                />
-              </Stack>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField
-                  select
-                  label="Байгууллага"
-                  value={form.org || ""}
-                  onChange={set("org")}
-                  fullWidth
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {legalTypes.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Төрөл"
-                  value={form.type || ""}
-                  onChange={set("type")}
-                  fullWidth
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {orderTypes.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Stack>
-              <TextField
-                label="Гарын үсэг зурсан"
-                value={form.signer || ""}
-                onChange={set("signer")}
-                fullWidth
-              />
-              <TextField
-                label="Тайлбар"
-                value={form.description || ""}
-                onChange={set("description")}
-                multiline
-                minRows={2}
-                fullWidth
-              />
-            </>
-          )}
-
-          {/* ----- Хүсэлт ----- */}
-          {kind === "request" && (
-            <>
-              <TextField
-                select
-                label="Төлөв *"
-                value={form.status || ""}
-                onChange={set("status")}
-                fullWidth
-              >
-                <MenuItem value="">—</MenuItem>
-                {reqStatus.map((c) => (
-                  <MenuItem key={c.id} value={c.id}>
-                    {c.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField
-                  select
-                  label="Нас"
-                  value={form.age || ""}
-                  onChange={set("age")}
-                  fullWidth
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {ages.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Зорилго"
-                  value={form.purpose || []}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, purpose: e.target.value }))
-                  }
-                  SelectProps={{
-                    multiple: true,
-                    renderValue: (sel) =>
-                      reqPurpose
-                        .filter((c) => sel.includes(c.id))
-                        .map((c) => c.name)
-                        .join(", "),
-                  }}
-                  fullWidth
-                >
-                  {reqPurpose.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {c.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Stack>
-              <TextField
-                label="Тайлбар"
-                value={form.description || ""}
-                onChange={set("description")}
-                multiline
-                minRows={2}
-                fullWidth
-              />
-            </>
-          )}
-
-          {/* ----- Файл/Зураг (attach, photo, мөн order‑ийн баримт) ----- */}
-          {(kind === "photo" || kind === "attach" || kind === "order") && (
-            <Box>
-              <Button
-                component="label"
-                variant="outlined"
-                startIcon={<Iconify icon="solar:upload-bold" />}
-              >
-                {fileLabel}
-                <input
-                  hidden
-                  type="file"
-                  accept={kind === "photo" ? "image/*" : undefined}
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                />
-              </Button>
-              {file && (
-                <Typography variant="caption" sx={{ ml: 1.5 }} color="text.secondary">
-                  {file.name}
-                </Typography>
-              )}
-            </Box>
-          )}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button color="inherit" onClick={onClose}>
-          Болих
-        </Button>
-        <LoadingButton variant="contained" loading={saving} onClick={handleSubmit}>
-          Хадгалах
-        </LoadingButton>
-      </DialogActions>
+      <DialogContent dividers>{body}</DialogContent>
+      {actions && <DialogActions>{actions}</DialogActions>}
     </Dialog>
   );
 }
@@ -321,4 +370,5 @@ GeonameAddDialog.propTypes = {
   geonameId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onClose: PropTypes.func,
   onDone: PropTypes.func,
+  inline: PropTypes.bool,
 };

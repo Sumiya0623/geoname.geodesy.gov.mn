@@ -53,7 +53,12 @@ import RequestChangeForm from "src/sections/request/request-change-form";
 // NameSidebar болон FeatureSelector (олон нэрийн пейжер) хоёулаа ашиглана.
 // ----------------------------------------------------------------------
 
-export default function NameDetailCard({ name, onSelect, onAfterAction }) {
+export default function NameDetailCard({
+  name,
+  onSelect,
+  onAfterAction,
+  onFormOpenChange,
+}) {
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [typePath, setTypePath] = useState([]);
   const [approved, setApproved] = useState(undefined);
@@ -84,9 +89,30 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   const [rcStatusIds, setRcStatusIds] = useState(() => new Set()); // сонгосон төлвүүд
   const [rcDraft, setRcDraft] = useState(""); // "алдаатай" үеийн засвар нэр
   const [editingGeom, setEditingGeom] = useState(false); // байрлал засах горим
+  const [photos, setPhotos] = useState([]); // нэрийн зургууд
 
   // geoname id — recount дээр name_id, эс бол name.id
   const geonameId = name?._isRecount ? name?.name_id : name?.id;
+
+  // Нэрийн зургуудыг татна (recount + жирийн geoname хоёуланд)
+  useEffect(() => {
+    let active = true;
+    if (!geonameId) {
+      setPhotos([]);
+      return undefined;
+    }
+    axiosInstance
+      .get(endpoints.geoname.details(geonameId))
+      .then((res) => {
+        if (active) setPhotos(res?.data?.photos || []);
+      })
+      .catch(() => {
+        if (active) setPhotos([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [geonameId]);
 
   // Байрлал засах — QGIS маягаар геометр засаад хадгална, дараа нь дахин дуудна.
   // Геометр аль хэдийн client дээр (name.geometry — WFS‑ээс ачаалагдсан) байгаа
@@ -284,10 +310,48 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
     });
   }
 
+  // Форм нээгдэхэд Popover‑г шинэ (өндөр) агуулгад тааруулж дахин байрлуулна —
+  // MUI resize дохион дээр байрлалаа хязгаарт (marginThreshold) багтаана → доод
+  // хэсэг (Бүртгэх) таслагдахгүй.
+  useEffect(() => {
+    if (!requestModalOpen) return undefined;
+    const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
+    return () => clearTimeout(t);
+  }, [requestModalOpen]);
+
+  // Формын нээлттэй төлвийг parent (толгой)‑д мэдэгдэнэ → толгойд "Буцах" харагдана
+  useEffect(() => {
+    onFormOpenChange?.(requestModalOpen);
+  }, [requestModalOpen, onFormOpenChange]);
+
+  // Толгойн "Буцах"/X товчноос ирэх буцах команд → Дэлгэрэнгүй рүү сэргээнэ
+  useEffect(() => {
+    const back = () => setRequestModalOpen(false);
+    window.addEventListener("geoname:formBack", back);
+    return () => window.removeEventListener("geoname:formBack", back);
+  }, []);
+
   if (!name) return null;
 
   return (
     <>
+      {requestModalOpen ? (
+        // Өөрчлөх хүсэлт — popup ДОТОР inline (dialog БИШ). Буцах товчтой.
+        <Box
+          sx={{
+            p: 2,
+            width: { xs: "86vw", sm: 720 },
+            maxWidth: "calc(100vw - 32px)",
+          }}
+        >
+          {/* Буцах товч толгой (header) дээр — parent NameSidebar/FeatureSelector дотор */}
+          <RequestChangeForm
+            onClose={() => setRequestModalOpen(false)}
+            selectedStatus={changeStatus}
+            geonameId={name?.id || null}
+          />
+        </Box>
+      ) : (
       <Box sx={{ p: 2 }}>
         {typePath.length > 0 && (
           <Box
@@ -342,6 +406,40 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
           >
             Дэлгэрэнгүй мэдээлэл
           </Button>
+        )}
+
+        {/* Нэрийн зургууд — хэвтээ зурвас (дарж томоор нээнэ) */}
+        {photos.length > 0 && (
+          <Box
+            sx={{
+              display: "flex",
+              gap: 1,
+              overflowX: "auto",
+              py: 1,
+              mt: 0.5,
+            }}
+          >
+            {photos.map((p) => (
+              <Box
+                key={p.id}
+                component="img"
+                src={p.url}
+                alt="зураг"
+                onClick={() => window.open(p.url, "_blank")}
+                sx={{
+                  height: 72,
+                  minWidth: 96,
+                  width: 96,
+                  objectFit: "cover",
+                  borderRadius: 1,
+                  flexShrink: 0,
+                  cursor: "pointer",
+                  border: "1px solid",
+                  borderColor: "divider",
+                }}
+              />
+            ))}
+          </Box>
         )}
 
         {/* Байрлал засах — QGIS маягаар геометр засах. ЗӨВХӨН төслийн газрын
@@ -585,6 +683,7 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
           </Stack>
         )}
       </Box>
+      )}
 
       {/* Зөрүүтэй / Алдаатай — draft (зөв/тэмдэглэх) бичих диалог */}
       <Dialog
@@ -629,27 +728,6 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Dialog
-        open={requestModalOpen}
-        onClose={() => setRequestModalOpen(false)}
-        fullWidth
-        maxWidth="md"
-        scroll="body"
-      >
-        <DialogTitle
-          sx={{ bgcolor: "primary.main", color: "common.white", py: 1.5 }}
-        >
-          Нэр өөрчлөх хүсэлт
-        </DialogTitle>
-        <DialogContent sx={{ p: 2 }}>
-          <RequestChangeForm
-            onClose={() => setRequestModalOpen(false)}
-            selectedStatus={changeStatus}
-            geonameId={name?.id || null}
-          />
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
@@ -658,4 +736,5 @@ NameDetailCard.propTypes = {
   name: PropTypes.object,
   onSelect: PropTypes.func,
   onAfterAction: PropTypes.func,
+  onFormOpenChange: PropTypes.func,
 };

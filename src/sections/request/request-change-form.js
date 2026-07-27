@@ -6,13 +6,39 @@ import LoadingButton from "@mui/lab/LoadingButton";
 
 import { useGetGeonames } from "src/api/request";
 import axiosInstance, { endpoints } from "src/utils/axios";
-import FormProvider, {
-  RHFAutocomplete,
-  RHFTextField,
-} from "src/components/hook-form";
+import FormProvider, { RHFAutocomplete } from "src/components/hook-form";
 
-import RequestLocate from "./request-locate";
 import { useRequestForm, RequestSharedFields } from "./request-form-core";
+
+// Засварлахгүй, зөвхөн харуулах талбар — гарчиг (caption) + утга
+function ReadonlyField({ label, value }) {
+  return (
+    <Box
+      sx={{
+        px: 1.5,
+        py: 1,
+        borderRadius: 1,
+        bgcolor: "background.neutral",
+        border: "1px solid",
+        borderColor: "divider",
+      }}
+    >
+      <Typography
+        variant="caption"
+        sx={{ color: "text.secondary", display: "block", lineHeight: 1.4 }}
+      >
+        {label}
+      </Typography>
+      <Typography variant="subtitle2" sx={{ fontWeight: 600, mt: 0.25 }}>
+        {value || "—"}
+      </Typography>
+    </Box>
+  );
+}
+ReadonlyField.propTypes = {
+  label: PropTypes.string,
+  value: PropTypes.node,
+};
 
 // ----------------------------------------------------------------------
 // "Өөрчлөх" хүсэлт — өөрчлөх газар зүйн нэр заавал. Inline (toolbar доор).
@@ -103,21 +129,26 @@ export default function RequestChangeForm({
   return (
     <Box sx={{ p: 0 }}>
       <FormProvider methods={f.methods} onSubmit={f.onSubmit}>
-        <Typography variant="subtitle1" sx={{ mb: 1.5 }}>
-          {f.isEdit ? "Хүсэлт засах" : "Нэр өөрчлөх хүсэлт"}
-          <Typography component="span" variant="body2" color="text.secondary">
-            {" · "}
-            {f.statusObj?.name || "Өөрчлөх"}
-          </Typography>
-        </Typography>
-
-        <Box
-          gap={2}
-          display="grid"
-          gridTemplateColumns={{ xs: "1fr", sm: "repeat(2, 1fr)" }}
-          sx={{ mb: 1 }}
-        >
-          <Box>
+        {watchedName?.id ? (
+          // Нэр мэдэгдэж байгаа үед — засварлахгүй, зөвхөн label‑аар харуулна
+          // (1 мөрөнд 2 багана)
+          <Box
+            gap={1.25}
+            display="grid"
+            gridTemplateColumns={{ xs: "1fr", sm: "repeat(2, 1fr)" }}
+            sx={{ mb: 1 }}
+          >
+            <ReadonlyField label="Газар зүйн нэр" value={watchedName?.name} />
+            {typePath.length > 0 && (
+              <ReadonlyField
+                label="Дэвсгэр нэр (төрөл)"
+                value={typePath.map((t) => t.name).join(" › ")}
+              />
+            )}
+          </Box>
+        ) : (
+          // Нэр сонгоогүй (бие даасан) үед — сонгох autocomplete
+          <Box sx={{ mb: 1 }}>
             <RHFAutocomplete
               name="name"
               label="Өөрчлөх газар зүйн нэр"
@@ -126,19 +157,13 @@ export default function RequestChangeForm({
               isOptionEqualToValue={(o, v) => o?.id === v?.id}
             />
           </Box>
-          <Box>
-            <Stack direction="row" spacing={1}>
-              <RHFTextField name="lat" label="Өргөрөг" type="number" />
-              <RHFTextField name="lon" label="Уртраг" type="number" />
-            </Stack>
-            <RequestLocate />
-          </Box>
-        </Box>
+        )}
 
         <RequestSharedFields
           currentItem={currentItem}
           photos={f.photos}
           setPhotos={f.setPhotos}
+          hideType={!!watchedName?.id}
         />
 
         <Divider sx={{ my: 2, borderStyle: "dashed" }} />

@@ -3,20 +3,14 @@ import { useMemo, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 
-import {
-  Box,
-  Stack,
-  Button,
-  Divider,
-  Typography,
-  IconButton,
-} from "@mui/material";
-import { Icon } from "@iconify/react";
+import { Box, Divider, Typography } from "@mui/material";
 
 import axiosInstance, { endpoints } from "src/utils/axios";
+import { angleToDirection } from "src/utils/geoDirection";
 import { useSnackbar } from "src/components/snackbar";
 import { useGetConstantsFordropdown } from "src/api/constant";
 import { RHFMultiChipAutocomplete } from "src/components/hook-form";
+import PhotoDirectionPicker from "src/components/photo-direction-picker";
 
 import RequestNameOption from "./request-name-option";
 import RequestTypeCascade from "./request-type-cascade";
@@ -159,15 +153,23 @@ export function useRequestForm({
         if (res.status === 200 || res.status === 201) {
           // Зураг хавсаргасан бол хүсэлт үүссэний дараа upload‑оор илгээнэ
           const reqId = isEdit ? currentItem.id : res?.data?.id;
-          if (reqId && photos.length) {
-            const fd = new FormData();
-            photos.forEach((p) => fd.append("photos", p));
-            try {
-              await axiosInstance.post(endpoints.request.upload(reqId), fd);
-            } catch (e) {
-              enqueueSnackbar("Зураг хадгалахад алдаа гарлаа", {
-                variant: "warning",
-              });
+          // Зургуудыг газар зүйн нэрэнд ЗОВХИС (desc)‑тэйгээр нэмнэ (нэгдсэн UI).
+          const gid = data.name?.id;
+          if (gid && photos.length) {
+            for (let k = 0; k < photos.length; k += 1) {
+              const pfd = new FormData();
+              pfd.append("file", photos[k].file);
+              pfd.append("desc", angleToDirection(photos[k].deg));
+              try {
+                // eslint-disable-next-line no-await-in-loop
+                await axiosInstance.post(endpoints.geoname.addPhoto(gid), pfd, {
+                  headers: { "Content-Type": "multipart/form-data" },
+                });
+              } catch (e) {
+                enqueueSnackbar("Зураг хадгалахад алдаа гарлаа", {
+                  variant: "warning",
+                });
+              }
             }
           }
           enqueueSnackbar(
@@ -209,30 +211,29 @@ export function useRequestForm({
 
 // Хоёр форм хоёулаа харуулах нийтлэг талбарууд (type cascade, зорилго,
 // тайлбар, координат, нэрлэвэр + холбоо барих, "ижил" toggle).
-export function RequestSharedFields({ currentItem, photos = [], setPhotos }) {
+export function RequestSharedFields({
+  currentItem,
+  photos = [],
+  setPhotos,
+  hideType = false,
+}) {
   const { constants: purposes } =
     useGetConstantsFordropdown("REQUEST_PURPOSES");
 
-  const handlePickPhotos = (e) => {
-    const files = Array.from(e.target.files || []).filter((f) =>
-      f.type.startsWith("image/"),
-    );
-    if (files.length && setPhotos) setPhotos((prev) => [...prev, ...files]);
-    e.target.value = ""; // дахин ижил файл сонгох боломжтой
-  };
-
-  const removePhoto = (idx) =>
-    setPhotos && setPhotos((prev) => prev.filter((_, i) => i !== idx));
-
   return (
     <>
+      <Divider sx={{ my: 1 }} />
+
       <Box
         gap={2}
         display="grid"
         gridTemplateColumns={{ xs: "1fr", sm: "repeat(1, 2fr)" }}
-        sx={{ pt: 1 }}
+        sx={{ mb: 1 }}
       >
-        <RequestTypeCascade currentName={currentItem?.type?.name} />
+        {/* Ангилал (төрөл) — нэр мэдэгдэж байгаа үед дээр label‑аар харагдана */}
+        {!hideType && (
+          <RequestTypeCascade currentName={currentItem?.type?.name} />
+        )}
 
         <RHFMultiChipAutocomplete
           name="purpose"
@@ -241,95 +242,15 @@ export function RequestSharedFields({ currentItem, photos = [], setPhotos }) {
           getOptionLabel={(o) => o?.name || ""}
         />
       </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      <Typography variant="subtitle1" sx={{ mb: 1.5 }}>
-        Санал болгож буй нэр
-      </Typography>
       <RequestNameOption />
 
-      {/* Зураг оруулах */}
-      <Box sx={{ mt: 2 }}>
-        <Divider sx={{ mb: 1.5 }} />
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ mb: 1 }}
-        >
-          <Typography variant="subtitle2">Зураг (гэрэл зураг)</Typography>
-          <Button
-            component="label"
-            size="small"
-            startIcon={<Icon icon="solar:gallery-add-bold" />}
-          >
-            Зураг сонгох
-            <input
-              hidden
-              multiple
-              type="file"
-              accept="image/*"
-              onChange={handlePickPhotos}
-            />
-          </Button>
-        </Stack>
-        {photos.length > 0 ? (
-          <Box
-            gap={1}
-            display="grid"
-            gridTemplateColumns={{
-              xs: "repeat(3, 1fr)",
-              sm: "repeat(5, 1fr)",
-            }}
-          >
-            {photos.map((file, idx) => (
-              // eslint-disable-next-line react/no-array-index-key
-              <Box
-                key={idx}
-                sx={{
-                  position: "relative",
-                  pt: "100%",
-                  borderRadius: 1,
-                  overflow: "hidden",
-                  border: "1px solid",
-                  borderColor: "divider",
-                }}
-              >
-                <Box
-                  component="img"
-                  alt={file.name}
-                  src={URL.createObjectURL(file)}
-                  sx={{
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                  }}
-                />
-                <IconButton
-                  size="small"
-                  onClick={() => removePhoto(idx)}
-                  sx={{
-                    position: "absolute",
-                    top: 2,
-                    right: 2,
-                    bgcolor: "rgba(0,0,0,0.5)",
-                    color: "#fff",
-                    "&:hover": { bgcolor: "rgba(0,0,0,0.7)" },
-                  }}
-                >
-                  <Icon icon="mdi:close" width={16} />
-                </IconButton>
-              </Box>
-            ))}
-          </Box>
-        ) : (
-          <Typography variant="caption" color="text.secondary">
-            1-8 ширхэг гэрэл зураг оруулах боломжтой.
-          </Typography>
-        )}
+      {/* Зураг + зовхис — газар зүйн нэрийн зурагтай НЭГДСЭН UI (компас, desc) */}
+      <Box>
+        <Divider sx={{ mb: 1 }} />
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          Зураг (гэрэл зураг) + зовхис
+        </Typography>
+        <PhotoDirectionPicker value={photos} onChange={setPhotos} />
       </Box>
     </>
   );
