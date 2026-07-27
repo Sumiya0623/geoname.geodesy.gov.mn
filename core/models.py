@@ -379,6 +379,7 @@ class RequestName(UserMixin):
 
 class Photo(models.Model):
 	file = models.ImageField(upload_to=photo_upload_path,blank=True, null=True,verbose_name='Зураг')
+	desc = models.CharField(max_length=50, blank=True, null=True, verbose_name='Зовхис')
 	content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True, related_name='photos')
 	object_id = models.PositiveIntegerField(null=True, blank=True)
 	content_object = GenericForeignKey('content_type', 'object_id')

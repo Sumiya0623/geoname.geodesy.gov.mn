@@ -16,7 +16,7 @@ from core.mixin import PublicListMixin
 from core.filters import GlobalFilter
 from portal.auth import function_permission
 
-from .serializers import GeoNameSerializer, GeoNameFullSerializer, GeoNameDropSerializer
+from .serializers import GeoNameSerializer, GeoNameDetailSerializer, GeoNameDropSerializer
 
 
 def descendant_type_ids(type_id):
@@ -261,7 +261,7 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 	def get_serializer_class(self):
 		# Дэлгэрэнгүй (retrieve) үед бүрэн serializer
 		if self.action == 'retrieve':
-			return GeoNameFullSerializer
+			return GeoNameDetailSerializer
 		return GeoNameSerializer
 
 	def perform_create(self, serializer):
@@ -339,13 +339,42 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 	@action(detail=True, methods=['post'], url_path='add-photo',
 			parser_classes=[MultiPartParser, FormParser])
 	def add_photo(self, request, pk=None):
-		"""Зураг нэмэх — multipart 'file'. Photo (generic FK)‑ээр холбоно."""
+		"""Зураг нэмэх — multipart 'file' (+ desc: зовхис). jpg/jpeg/png →
+		PNG болгож хадгална. Олон зургийг frontend давталтаар нэг нэгээр POST‑лоно."""
 		obj = self.get_object()
 		f = request.FILES.get('file')
 		if not f:
 			return Response({'detail': 'Зураг оруулна уу'}, status=400)
-		Photo.objects.create(file=f, content_type=self._ct(), object_id=obj.id)
+		# jpg/jpeg/png → PNG, БҮГДИЙГ 800×800 КВАДРАТ болгоно: зургийг пропорциональ
+		# багтаагаад (thumbnail), үлдсэн зайг ТУНГАЛАГ (transparent) padding‑аар дүүргэнэ.
+		import io
+		from PIL import Image
+		from django.core.files.base import ContentFile
+		TARGET = 800
+		try:
+			img = Image.open(f).convert('RGBA')
+			img.thumbnail((TARGET, TARGET), Image.LANCZOS)  # max тал = 800, пропорциональ
+			canvas = Image.new('RGBA', (TARGET, TARGET), (0, 0, 0, 0))  # тунгалаг квадрат
+			canvas.paste(img, ((TARGET - img.width) // 2, (TARGET - img.height) // 2))
+			buf = io.BytesIO()
+			canvas.save(buf, format='PNG')
+			base = (f.name.rsplit('.', 1)[0] if f.name else 'photo') or 'photo'
+			png = ContentFile(buf.getvalue(), name=f'{base}.png')
+		except Exception:
+			png = f  # хөрвүүлж чадахгүй бол эх файлаар
+		desc = (request.data.get('desc') or '').strip() or None
+		Photo.objects.create(
+			file=png, content_type=self._ct(), object_id=obj.id, desc=desc)
 		return Response({'detail': 'ok'}, status=201)
+
+	@action(detail=True, methods=['post'], url_path='del-photo')
+	def del_photo(self, request, pk=None):
+		"""Зураг устгах — body {photo_id}. Тухайн GeoName‑д хамаарахыг шалгана."""
+		obj = self.get_object()
+		pid = request.data.get('photo_id')
+		Photo.objects.filter(
+			id=pid, content_type=self._ct(), object_id=obj.id).delete()
+		return Response({'detail': 'ok'}, status=200)
 
 	@action(detail=True, methods=['post'], url_path='add-attach',
 			parser_classes=[MultiPartParser, FormParser])

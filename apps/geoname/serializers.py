@@ -1,9 +1,10 @@
 import json
+from collections import OrderedDict
 from rest_framework import serializers
 from django.contrib.gis.geos import Point, GEOSGeometry
 from django.contrib.contenttypes.models import ContentType
 
-from core.models import Constant, GeoName, LegalOrder, Photo, Attach, PrintMap
+from core.models import Constant, GeoName, LegalOrder, Photo, Attach, PrintMap, Nomek
 
 
 class PrintMapSerializer(serializers.ModelSerializer):
@@ -53,7 +54,7 @@ def _file_url(f):
         return None
 
 
-class GeoNameFullSerializer(serializers.ModelSerializer):
+class GeoNameDetailSerializer(serializers.ModelSerializer):
     """Дэлгэрэнгүй (retrieve) — ангилал(level1/2/3), солбицол, нэгж, нэрлэвэр,
     зураг, баримт материал, хүсэлт, эрх зүйн баримт бичиг."""
     type_path = serializers.SerializerMethodField()
@@ -95,7 +96,26 @@ class GeoNameFullSerializer(serializers.ModelSerializer):
         return [{'id': u.id, 'name': u.unit} for u in obj.unit.all()]
 
     def get_nomeks(self, obj):
-        return [{'id': n.id, 'code': n.nomek} for n in obj.nomek.all()]
+        # Нэрийн байрлалтай ДАВХЦАХ нэрлэвэрүүд, масштабаар нь бүлэглэв.
+        if not obj.geoloc:
+            return []
+        # Зөвхөн M1:25000 / M1:50000 / M1:100000 масштаб (25→50→100 дараалал)
+        qs = (Nomek.objects
+              .filter(geom__intersects=obj.geoloc,
+                      scale__name__in=['M1:25000', 'M1:50000', 'M1:100000'])
+              .select_related('scale')
+              .order_by('scale__id', 'nomek'))
+        groups = OrderedDict()
+        for n in qs:
+            key = n.scale_id or 0
+            if key not in groups:
+                groups[key] = {
+                    'scale_id': n.scale_id,
+                    'scale': n.scale.name if n.scale else 'Тодорхойгүй',
+                    'nomeks': [],
+                }
+            groups[key]['nomeks'].append({'id': n.id, 'code': n.nomek})
+        return list(groups.values())
 
     def get_orders(self, obj):
         return [{
@@ -109,7 +129,7 @@ class GeoNameFullSerializer(serializers.ModelSerializer):
         return model.objects.filter(content_type=ct, object_id=obj.id)
 
     def get_photos(self, obj):
-        return [{'id': p.id, 'url': _file_url(p.file)}
+        return [{'id': p.id, 'url': _file_url(p.file), 'desc': p.desc}
                 for p in self._generic_qs(Photo, obj)]
 
     def get_attaches(self, obj):
