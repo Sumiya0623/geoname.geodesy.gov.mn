@@ -462,6 +462,24 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			instance.loc = geom
 			instance.save(update_fields=['loc'])
 
+	def perform_update(self, serializer):
+		instance = serializer.save()
+		# Байрлал засах — PATCH {loc: GeoJSON/WKT} ирвэл recount.loc‑г шинэчилнэ
+		# (recount_view геометр = COALESCE(loc, name.geoloc) тул цэг хөдөлнө).
+		loc_raw = self.request.data.get('loc')
+		if loc_raw:
+			from django.contrib.gis.geos import GEOSGeometry
+			import json as _json
+			try:
+				val = loc_raw if isinstance(loc_raw, str) else _json.dumps(loc_raw)
+				geom = GEOSGeometry(val)
+				if not geom.srid:
+					geom.srid = 4326
+				instance.loc = geom
+				instance.save(update_fields=['loc'])
+			except Exception:
+				pass
+
 	@action(detail=False, methods=['post'], url_path='bulk')
 	def bulk(self, request):
 		"""Олон ReCount-г нэг дор үүсгэх (мөр мөрөөр сонгож бөөнөөр хадгалах).
