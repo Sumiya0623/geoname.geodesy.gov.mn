@@ -1,12 +1,8 @@
 import re
-import shutil,os
+import os
 import requests
 from requests.auth import HTTPBasicAuth
-from pathlib import Path
-from collections import defaultdict
-from notifications.signals import notify
 from django.db import transaction, connection
-from django.core.files.base import ContentFile
 from django.db import transaction
 from rest_framework import viewsets
 from core.filters import GlobalFilter
@@ -17,9 +13,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters,status
 from django.conf import settings
 from rest_framework.parsers import MultiPartParser, FormParser,JSONParser
-from django.db.models import Prefetch, Count
+from django.db.models import Count
 from portal.auth import function_permission
-from collections import OrderedDict
 from rest_framework.decorators import action
 from portal.utils.rulestyle import update_rule_in_sld_xml_safe,delete_rule_in_sld_xml, _strip_geometry_symbolizers
 
@@ -27,7 +22,7 @@ from geo.Geoserver import Geoserver
 geo = Geoserver(f'{settings.GEOSERVER_URL}', username=settings.GEOSERVER_USER, password=settings.GEOSERVER_PASSWORD)
 # from geoserver.catalog import Catalog
 # cat = Catalog(f'http://local.nextgis.mn:8080/geoserver/rest/', username=settings.GEOSERVER_USER, password=settings.GEOSERVER_PASSWORD)
-from .default_style import create_default_style_and_assign ,_safe_read_text,_normalize_filters_for_sld, _first_eq_field_value
+from .default_style import create_default_style_and_assign
 
 from core.models import (
 	Constant,
@@ -497,7 +492,6 @@ def _make_type_eq(tid):
 
 def _remove_type_eq(rule, tid):
     """rule‑ийн Filter‑ээс type_id==tid нөхцөлийг хасна (Or дотор 1 үлдвэл хялбарчилна)."""
-    import xml.etree.ElementTree as ET
     flt = rule.find(f'{{{_SLD_NS}}}Filter')
     if flt is None:
         return
@@ -573,10 +567,15 @@ def _sld11_to_sld10(sld_xml):
 			vo = ET.SubElement(ts, f'{{{SLD}}}VendorOption')
 			vo.set('name', 'repeat')
 			vo.text = gap_val
-		# LinePlacement‑тэй текст — шугам дагуулж (followLine) харагдана
-		fl = ET.SubElement(ts, f'{{{SLD}}}VendorOption')
-		fl.set('name', 'followLine')
-		fl.text = 'true'
+		# LinePlacement‑тэй текст (GeoStyler Placement=Line) — GeoServer дээр нэрийг
+		# шугам дагуулж мурийлгахын тулд followLine нэмнэ (GeoStyler өөрөө гаргадаггүй).
+		# Энэ нь ХИЛ ДАГУУ формын label БИШ: тэр нь maxDisplacement/maxAngleDelta/group
+		# зэрэг өөрийн тэмдэгтэй тул уншихад (_strip_boundary_fts) ялгагдана.
+		if not any(v.get('name') == 'followLine'
+				   for v in ts.findall(f'{{{SLD}}}VendorOption')):
+			fl = ET.SubElement(ts, f'{{{SLD}}}VendorOption')
+			fl.set('name', 'followLine')
+			fl.text = 'true'
 	if root.tag.split('}', 1)[-1] == 'StyledLayerDescriptor':
 		root.set('version', '1.0.0')
 	return ET.tostring(root, encoding='unicode')
@@ -638,9 +637,14 @@ def _fix_sld_dasharray(sld_xml):
 
 
 def _strip_boundary_fts(sld_xml):
-	"""SLD‑ээс ХИЛ ДАГУУ НЭР (followLine)‑ийн FeatureTypeStyle‑ийг хасна — GeoStyler‑т
-	зөвхөн GeoStyler‑ийн rule‑ийг (ogc:Function‑гүй) харуулахын тулд. FeatureTypeStyle
-	үлдэхгүй бол None (default рүү унана)."""
+	"""SLD‑ээс ЗӨВХӨН "ХИЛ ДАГУУ НЭР" формын RULE‑уудыг хасна — GeoStyler‑т зөвхөн
+	GeoStyler‑ийн rule‑ийг харуулахын тулд. Формын label нь `maxDisplacement`
+	VendorOption‑той (зөвхөн gs_boundary_label гаргадаг) тул үүгээр ялгана. АНХААР:
+	followLine‑аар ялгаж БОЛОХГҮЙ — GeoStyler‑ийн энгийн шугам дагасан (curve) label
+	ч followLine‑той тул тэдгээрийг андуурч хасаж болзошгүй. Формын label тусдаа
+	FeatureTypeStyle‑д ч, ерөнхий FTS доторх rule‑д ч байж болно — тиймээс бүхэл
+	FTS‑ийг биш, тэмдэгтэй RULE‑ыг тус тусад нь хасна. Хоосон FTS‑ийг устгана.
+	Rule нэг ч үлдэхгүй бол None."""
 	import xml.etree.ElementTree as ET
 	ET.register_namespace('sld', _SLD_NS)
 	ET.register_namespace('ogc', _OGC_NS)
@@ -651,9 +655,12 @@ def _strip_boundary_fts(sld_xml):
 		return sld_xml
 	for us in root.iter(f'{{{_SLD_NS}}}UserStyle'):
 		for fts in list(us.findall(f'{{{_SLD_NS}}}FeatureTypeStyle')):
-			if 'followLine' in ET.tostring(fts, encoding='unicode'):
+			for rule in list(fts.findall(f'{{{_SLD_NS}}}Rule')):
+				if 'maxDisplacement' in ET.tostring(rule, encoding='unicode'):
+					fts.remove(rule)
+			if not fts.findall(f'{{{_SLD_NS}}}Rule'):
 				us.remove(fts)
-	if not root.findall(f'.//{{{_SLD_NS}}}FeatureTypeStyle'):
+	if not root.findall(f'.//{{{_SLD_NS}}}Rule'):
 		return None
 	return ET.tostring(root, encoding='unicode')
 
@@ -1120,7 +1127,12 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if parent:
 			qs = qs.filter(parent_id=parent)
 		else:
+			# Зөвшөөрсөн workspace-уудыг settings.GEOSERVER_WORKSPACES-ээр шүүнэ
+			# (frontend-д hardcode хийхгүй). Хоосон/тохируулаагүй бол бүгдийг.
 			qs = qs.filter(key='WORKSPACES', parent__isnull=True)
+			allowed = getattr(settings, 'GEOSERVER_WORKSPACES', None)
+			if allowed:
+				qs = qs.filter(name__in=allowed)
 		qs = qs.order_by('code', 'id')
 		# Үндсэн картуудад GeoServer холболт + view тоог нэмнэ
 		gs_info = {}
@@ -1132,12 +1144,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 					rr = requests.get(f"{base}/workspaces/{c.name}.json", auth=auth, timeout=8)
 					exists = rr.status_code == 200
 					if exists:
-						fr = requests.get(
-							f"{base}/workspaces/{c.name}/datastores/{GEONAME_STORE}/featuretypes.json",
-							auth=auth, timeout=8)
-						if fr.status_code == 200:
-							vcount = len((fr.json().get('featureTypes') or {})
-										 .get('featureType') or [])
+						vcount = self._gs_workspace_layer_count(c.name)
 				except requests.RequestException:
 					pass
 				gs_info[c.id] = {'gs_exists': exists, 'view_count': vcount}
@@ -1366,6 +1373,40 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 			'port': int(d.get('PORT') or 5432),
 			'user': d['USER'], 'password': d.get('PASSWORD') or '',
 		}
+
+	def _gs_workspace_layer_count(self, ws_name):
+		"""Workspace доторх БҮХ store‑ийн нийтэлсэн layer тоо (vector featuretype,
+		raster coverage, WMS/WMTS cascade). Картын 'N view' тоог гаргахад ашиглана —
+		зөвхөн ганц store биш, workspace дахь бүх өгөгдлийн эх сурвалжийг хамруулна."""
+		base, auth = self._gs_rest(), self._gs_auth()
+		total = 0
+		for skind, lkind, _gtype in self._STORE_KINDS:
+			try:
+				sr = requests.get(f"{base}/workspaces/{ws_name}/{skind}.json",
+								  auth=auth, timeout=8)
+				if sr.status_code != 200:
+					continue
+				sroot = next(iter(sr.json().values()), None) or {}
+				stores = next(iter(sroot.values()), []) if isinstance(sroot, dict) else []
+				if isinstance(stores, dict):
+					stores = [stores]
+				for st in stores:
+					sname = st.get('name')
+					if not sname:
+						continue
+					lr = requests.get(
+						f"{base}/workspaces/{ws_name}/{skind}/{sname}/{lkind}.json",
+						auth=auth, timeout=8)
+					if lr.status_code != 200:
+						continue
+					lroot = next(iter(lr.json().values()), None) or {}
+					items = next(iter(lroot.values()), []) if isinstance(lroot, dict) else []
+					if isinstance(items, dict):
+						items = [items]
+					total += len(items)
+			except requests.RequestException:
+				continue
+		return total
 
 	@action(detail=True, methods=['get'], url_path='gs-stores')
 	def gs_stores(self, request, *args, **kwargs):
@@ -1689,7 +1730,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 			#    (GeoStyler rule + ХИЛ ДАГУУ НЭР) бол boundary FeatureTypeStyle‑ийг
 			#    хасаад GeoStyler‑ийн rule‑ийг л буцаана (boundary‑г форм тусдаа удирдана).
 			sld = self._gs_read_style_sld_any(ws.name, style_name)
-			if sld and 'followLine' in sld:
+			if sld and 'maxDisplacement' in sld:
 				sld = _strip_boundary_fts(sld)
 			if sld and ('<ogc:Function' in sld or '<Function' in sld):
 				sld = None
@@ -1848,13 +1889,16 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if request.method == 'GET':
 			import re as _re
 			full = self._gs_read_style_sld_any(ws.name, style_name) or ''
-			active = 'followLine' in full  # preset‑ийн найдвартай тэмдэг
+			# ХИЛ ДАГУУ формын label нь maxDisplacement‑тэй (зөвхөн энэ форм гаргадаг).
+			# followLine‑аар шалгаж БОЛОХГҮЙ — GeoStyler‑ийн энгийн curve label ч
+			# followLine‑той тул формыг андуурч "идэвхтэй" гэж уншина.
+			active = 'maxDisplacement' in full
 			# Combined style (GeoStyler rule + ХИЛ ДАГУУ НЭР) үед scale/offset‑ийг
-			# ЗӨВХӨН boundary (followLine) FeatureTypeStyle‑ээс уншина — эс бөгөөс
-			# GeoStyler rule‑ийн масштаб буруу уншигдана.
+			# ЗӨВХӨН формын FeatureTypeStyle‑ээс уншина — эс бөгөөс GeoStyler rule‑ийн
+			# масштаб буруу уншигдана.
 			blocks = _re.findall(
 				r'<(?:\w+:)?FeatureTypeStyle>.*?</(?:\w+:)?FeatureTypeStyle>', full, _re.S)
-			sld = next((b for b in blocks if 'followLine' in b), full)
+			sld = next((b for b in blocks if 'maxDisplacement' in b), full)
 			d = {'active': active, 'geom_type': self._gs_layer_geom_type(ws.name, layer),
 				 'label_field': 'name', 'offset': 9, 'font_size': 12,
 				 'font_family': 'Arial', 'fill': '#333333', 'stroke': '#888888',
@@ -1949,9 +1993,11 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				root = ET.fromstring(b)
 				us = root.find(f'.//{{{_SLD_NS}}}UserStyle')
 				if us is not None:
-					# өмнөх хил‑дагуу FTS байвал устгаад дахин нэмнэ (давхардал арилгах)
+					# өмнөх ХИЛ ДАГУУ формын FTS байвал устгаад дахин нэмнэ (давхардал
+					# арилгах). maxDisplacement‑аар ялгана — GeoStyler‑ийн энгийн curve
+					# label (followLine‑той ч maxDisplacement‑гүй) устгагдахгүй.
 					for fts in list(us.findall(f'{{{_SLD_NS}}}FeatureTypeStyle')):
-						if 'followLine' in ET.tostring(fts, encoding='unicode'):
+						if 'maxDisplacement' in ET.tostring(fts, encoding='unicode'):
 							us.remove(fts)
 					bfts = ET.fromstring(
 						f'<sld:FeatureTypeStyle xmlns:sld="{_SLD_NS}" '
@@ -2242,6 +2288,8 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 			st = styles[i] if i < len(styles) else ''
 			sname = (st.get('name') if isinstance(st, dict) else st) or None
 			layers.append({'name': p.get('name'), 'style': sname})
+		# GeoServer: эхний = доод давхарга. UI‑д эхний мөр = дээд болгохоор эргүүлнэ.
+		layers.reverse()
 		return Response({'name': lg.get('name'), 'mode': lg.get('mode') or 'SINGLE',
 						 'title': lg.get('title'), 'layers': layers}, status=200)
 
@@ -2268,6 +2316,10 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				lname = f"{ws.name}:{lname}"
 			published.append({'@type': 'layer', 'name': lname})
 			styles.append('')  # layer‑ийн default style ашиглана
+		# UI‑ийн эхний мөр = газрын зураг дээр ХАМГИЙН ДЭЭР (foreground) харагдана.
+		# GeoServer‑т publishables‑ийн эхний элемент = хамгийн ДООД давхарга тул эргүүлнэ.
+		published.reverse()
+		styles.reverse()
 		body = {'layerGroup': {
 			'name': name, 'mode': mode, 'title': title,
 			'workspace': {'name': ws.name},
@@ -2289,6 +2341,11 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if r.status_code not in (200, 201):
 			return Response({'detail': f'Хадгалахад алдаа ({r.status_code})',
 							 'body': r.text[:300]}, status=400)
+		# Group‑ийн бүрэлдэхүүн/дараалал өөрчлөгдсөн тул GWC‑д кэшлэгдсэн хуучин
+		# tile‑ууд хоцрогдоно — group болон доторх layer бүрийн кэшийг цэвэрлэнэ.
+		_gwc_masstruncate(f"{ws.name}:{name}")
+		for _p in published:
+			_gwc_masstruncate(_p['name'])
 		return Response({'saved': True, 'name': name}, status=200)
 
 	@action(detail=True, methods=['post'], url_path='gs-delete-layergroup')

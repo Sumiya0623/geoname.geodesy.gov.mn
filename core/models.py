@@ -701,6 +701,7 @@ class BaseMapLayer(models.Model):
 	frontend руу дамжуулна (roles ХООСОН бол бүх хэрэглэгчид харагдана)."""
 	LAYER_TYPES = [('base', 'Суурь давхарга'), ('overlay', 'Нэмэлт давхарга')]
 	SOURCE_TYPES = [
+		('blank', 'Хоосон (blank)'),
 		('xyz', 'XYZ (гадаад тайл)'),
 		('osm', 'OpenStreetMap'),
 		('wms', 'WMS (GeoServer/GWC)'),
