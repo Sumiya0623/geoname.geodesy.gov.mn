@@ -312,18 +312,26 @@ export default function FeatureTabPanel({
           </ListItemIcon>
           <ListItemText>Засах</ListItemText>
         </MenuItem>
-        <MenuItem
-          onClick={() => {
-            const r = rowMenu?.row;
-            setRowMenu(null);
-            onRowAction?.(r, "reverse");
-          }}
-        >
-          <ListItemIcon>
-            <ReverseIcon sx={{ fontSize: 18 }} />
-          </ListItemIcon>
-          <ListItemText>Геометр эргүүлэх</ListItemText>
-        </MenuItem>
+        {/* Геометр эргүүлэх зөвхөн LINE объектод утгатай (vertex дараалал урвуулах) */}
+        {/line/i.test(
+          rowMenu?.row?.geometry?.getType?.() ||
+            rowMenu?.row?.geometry?.type ||
+            rowMenu?.row?.props?.geom_type ||
+            "",
+        ) && (
+          <MenuItem
+            onClick={() => {
+              const r = rowMenu?.row;
+              setRowMenu(null);
+              onRowAction?.(r, "reverse");
+            }}
+          >
+            <ListItemIcon>
+              <ReverseIcon sx={{ fontSize: 18 }} />
+            </ListItemIcon>
+            <ListItemText>Геометр эргүүлэх</ListItemText>
+          </MenuItem>
+        )}
         <MenuItem
           sx={{ color: "error.main" }}
           onClick={() => {

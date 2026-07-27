@@ -28,6 +28,28 @@ export function getMapExtent() {
   return typeof _extentFn === "function" ? _extentFn() : null;
 }
 
+// ── Байрлал (геометр) засах гүүр ──
+// Map2 нь startEditGeom‑оо бүртгэнэ; popup (NameDetailCard) нь
+// requestMapEditGeom(geonameId) дуудаж, QGIS маягаар vertex/цэг засаад,
+// "Хадгалах" (commitMapEdit) эсвэл "Болих"/ESC (cancelMapEdit) хийнэ.
+// Promise нь засагдсан геометрийг (GeoJSON, EPSG:4326) эсвэл null (болих) буцаана.
+let _editGeomFn = null;
+export function registerMapEditGeom(fn) {
+  _editGeomFn = fn;
+}
+export function requestMapEditGeom(geonameId) {
+  if (typeof _editGeomFn !== "function") return Promise.resolve(null);
+  return _editGeomFn(geonameId);
+}
+export function commitMapEdit() {
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event("geoname:editCommit"));
+}
+export function cancelMapEdit() {
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event("geoname:editCancel"));
+}
+
 // Recount давхаргыг (WFS vector) дахин ачаалах гүүр — popup дээр recount засах/
 // устгасны дараа газрын зургийг шинэчлэхэд.
 let _recountReloadFn = null;

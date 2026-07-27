@@ -69,11 +69,15 @@ import Text from "ol/style/Text";
 import { getDistance, getLength } from "ol/sphere";
 import Draw, { createBox } from "ol/interaction/Draw";
 import Snap from "ol/interaction/Snap";
+import Modify from "ol/interaction/Modify";
 import GeoJSON from "ol/format/GeoJSON";
 import { boundingExtent } from "ol/extent";
 import {
   registerMapDraw,
   registerMapExtent,
+  commitMapEdit,
+  cancelMapEdit,
+  registerMapEditGeom,
   registerRecountReload,
 } from "../../components/map/mapDraw";
 import NameSidebar from "../../components/map/NameSidebar";
@@ -645,6 +649,7 @@ function Map2() {
     DEM: 0.85,
   });
   const [selectedName, setSelectedName] = useState(null);
+  const [geomEditing, setGeomEditing] = useState(false); // байрлал засах горим
   const [isMeasuring, setIsMeasuring] = useState(false);
   const [measureResult, setMeasureResult] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2024,6 +2029,92 @@ function Map2() {
     registerMapDraw(startTypedDraw);
     return () => registerMapDraw(null);
   }, [startTypedDraw]);
+
+  // Байрлал засах (QGIS маягаар) — дамжуулсан GeoJSON геометрийг (EPSG:4326,
+  // geoname detail‑ийн `geom`) засах давхаргад оруулж, Modify+Snap‑аар vertex/цэг
+  // зөөдөг болгоно. "Хадгалах" (editCommit) → засагдсан GeoJSON (4326),
+  // ESC/Болих (editCancel) → null.
+  // inputGeom: аль хэдийн client дээр (backend/WFS‑ээс) ачаалагдсан геометр —
+  // OL Geometry (map projection 3857) ЭСВЭЛ GeoJSON geometry (EPSG:4326). Дахин
+  // татахгүй. Modify+Snap‑аар засаад, "Хадгалах" → GeoJSON (4326), ESC/Болих → null.
+  const startEditGeom = useCallback((inputGeom) => {
+    return new Promise((resolve) => {
+      const map = mapObjRef.current;
+      const source = radiusCircleSourceRef.current;
+      if (!map || !source || !inputGeom) {
+        resolve(null);
+        return;
+      }
+      source.clear();
+      let olGeom = null;
+      try {
+        if (typeof inputGeom.getType === "function") {
+          // OL Geometry — газрын зургийн projection (3857)‑д байгаа гэж үзнэ
+          olGeom = inputGeom.clone();
+        } else {
+          // GeoJSON geometry (EPSG:4326) → 3857
+          olGeom = new GeoJSON().readGeometry(inputGeom, {
+            dataProjection: "EPSG:4326",
+            featureProjection: "EPSG:3857",
+          });
+        }
+      } catch (e) {
+        resolve(null);
+        return;
+      }
+      const feat = new Feature(olGeom);
+      source.addFeature(feat);
+      try {
+        map.getView().fit(feat.getGeometry().getExtent(), {
+          padding: [80, 80, 80, 80],
+          maxZoom: 18,
+          duration: 300,
+        });
+      } catch (e) {
+        /* fit алдаа үл хайхарна */
+      }
+      const modify = new Modify({ source });
+      const snap = new Snap({ source });
+      const cleanup = () => {
+        map.removeInteraction(modify);
+        map.removeInteraction(snap);
+        document.removeEventListener("keydown", keyHandler);
+        window.removeEventListener("geoname:editCommit", onCommit);
+        window.removeEventListener("geoname:editCancel", onCancel);
+        source.clear();
+        setGeomEditing(false);
+      };
+      const onCancel = () => {
+        cleanup();
+        resolve(null);
+      };
+      const keyHandler = (e) => {
+        if (e.key === "Escape") onCancel();
+      };
+      const onCommit = () => {
+        const geom = feat
+          .getGeometry()
+          .clone()
+          .transform("EPSG:3857", "EPSG:4326");
+        const out = new GeoJSON().writeGeometryObject(geom);
+        cleanup();
+        resolve(out);
+      };
+      map.addInteraction(modify);
+      map.addInteraction(snap);
+      document.addEventListener("keydown", keyHandler);
+      window.addEventListener("geoname:editCommit", onCommit);
+      window.addEventListener("geoname:editCancel", onCancel);
+      setGeomEditing(true);
+      // Popup‑г шууд нууна — зөвхөн газрын зургийн toolbar‑аар засна (давхардлыг арилгах)
+      setSidebarOpen(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    registerMapEditGeom(startEditGeom);
+    return () => registerMapEditGeom(null);
+  }, [startEditGeom]);
 
   // Харагдах хүрээ (EPSG:4326) авах гүүр — батлагдсан нэрийг сумын нутгаар хайхад
   useEffect(() => {
@@ -3409,6 +3500,41 @@ function Map2() {
           WebkitOverflowScrolling: "touch",
         }}
       >
+        {/* Байрлал засах — газрын зураг дээрх floating toolbar (popup хаагдсан ч
+            харагдана). Хадгалах/Болих нь mapDraw‑ийн commit/cancel‑г дуудна. */}
+        {geomEditing && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: 12,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 1300,
+              bgcolor: "background.paper",
+              boxShadow: 4,
+              borderRadius: 1.5,
+              px: 1.5,
+              py: 0.75,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+            }}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Байрлал засаж байна — цэг/vertex зөөнө үү
+            </Typography>
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => commitMapEdit()}
+            >
+              Хадгалах
+            </Button>
+            <Button size="small" color="inherit" onClick={() => cancelMapEdit()}>
+              Болих (ESC)
+            </Button>
+          </Box>
+        )}
         <Box
           ref={mapRef}
           sx={{

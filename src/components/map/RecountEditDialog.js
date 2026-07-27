@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 
 import {
   Stack,
@@ -54,6 +54,10 @@ export default function RecountEditDialog({ open, row, onClose, onSaved }) {
   const [t3, setT3] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  // Засах үед дүүргэх зорилтот ангиллын ID-ууд (view: type_l1=Үндсэн, type_l2=Дэд,
+  // type_id=Төрөл). Options ачаалагдахад тааруулж set хийнэ; хэрэглэгч гар аргаар
+  // сонговол цэвэрлэнэ.
+  const targetRef = useRef({ l1: null, l2: null, l3: null });
 
   const ty1 = useTypes(null, open);
   const ty2 = useTypes(t1?.id, open && !!t1?.id);
@@ -69,11 +73,43 @@ export default function RecountEditDialog({ open, row, onClose, onSaved }) {
       .map(Number);
     setChecked(new Set(ids));
     setDraft(row.props?.draft || "");
+    const num = (v) => (v != null && v !== "" ? Number(v) : null);
+    targetRef.current = {
+      l1: num(row.props?.type_l1),
+      l2: num(row.props?.type_l2),
+      l3: num(row.props?.type_id),
+    };
     setT1(null);
     setT2(null);
     setT3(null);
     setErr("");
   }, [open, row]);
+
+  // Options ачаалагдахад зорилтот ангиллыг тааруулж дүүргэнэ (Үндсэн→Дэд→Төрөл)
+  useEffect(() => {
+    const tl = targetRef.current.l1;
+    if (tl && !t1 && ty1.length) {
+      const m = ty1.find((o) => o.id === tl);
+      if (m) setT1(m);
+    }
+  }, [ty1, t1]);
+  useEffect(() => {
+    const tl = targetRef.current.l2;
+    if (tl && !t2 && ty2.length) {
+      const m = ty2.find((o) => o.id === tl);
+      if (m) setT2(m);
+    }
+  }, [ty2, t2]);
+  useEffect(() => {
+    const tl = targetRef.current.l3;
+    if (tl && !t3 && ty3.length) {
+      const m = ty3.find((o) => o.id === tl);
+      if (m) {
+        setT3(m);
+        targetRef.current = { l1: null, l2: null, l3: null };
+      }
+    }
+  }, [ty3, t3]);
 
   const toggle = (id) =>
     setChecked((prev) => {
@@ -152,6 +188,7 @@ export default function RecountEditDialog({ open, row, onClose, onSaved }) {
                 value={t1}
                 disabled={!row?.props?.name_id}
                 onChange={(e, v) => {
+                  targetRef.current = { l1: null, l2: null, l3: null };
                   setT1(v);
                   setT2(null);
                   setT3(null);

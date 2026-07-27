@@ -27,7 +27,13 @@ import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetRequestStatuses } from "src/api/request";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
-import { requestMapDraw, requestRecountReload } from "./mapDraw";
+import {
+  requestMapDraw,
+  commitMapEdit,
+  cancelMapEdit,
+  requestMapEditGeom,
+  requestRecountReload,
+} from "./mapDraw";
 import { statusColorByName } from "./recountStatus";
 
 // Нэрийн геометрийн төрлийг OpenLayers Draw төрөл рүү буулгана
@@ -77,6 +83,51 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
   const [rcConfirm, setRcConfirm] = useState(false); // recount устгах баталгаа
   const [rcStatusIds, setRcStatusIds] = useState(() => new Set()); // сонгосон төлвүүд
   const [rcDraft, setRcDraft] = useState(""); // "алдаатай" үеийн засвар нэр
+  const [editingGeom, setEditingGeom] = useState(false); // байрлал засах горим
+
+  // geoname id — recount дээр name_id, эс бол name.id
+  const geonameId = name?._isRecount ? name?.name_id : name?.id;
+
+  // Байрлал засах — QGIS маягаар геометр засаад хадгална, дараа нь дахин дуудна.
+  // Геометр аль хэдийн client дээр (name.geometry — WFS‑ээс ачаалагдсан) байгаа
+  // тул дахин ТАТАХГҮЙ, шууд түүнийг засна.
+  const handleEditGeom = async () => {
+    if (!geonameId) return;
+    // Click үед геометрийг _geom (GeoJSON 4326)‑д хадгалдаг (map-init.js). Дахин татахгүй.
+    const geom = name?._geom || name?.geometry || null;
+    if (!geom) {
+      enqueueSnackbar("Геометр олдсонгүй", { variant: "warning" });
+      return;
+    }
+    setEditingGeom(true);
+    const geojson = await requestMapEditGeom(geom);
+    setEditingGeom(false);
+    if (!geojson) return; // Болих/ESC
+    try {
+      // recount_view геометр = COALESCE(recount.loc, geoname.geoloc). Тиймээс
+      // recount дээр байгаа бол recount.loc‑г засна (тэгж байж цэг хөдөлнө);
+      // жирийн geoname бол geoname.geoloc‑г засна.
+      if (name?._isRecount) {
+        await axiosInstance.patch(endpoints.recount.edit(name.id), {
+          loc: geojson,
+        });
+      } else {
+        await axiosInstance.patch(endpoints.geoname.edit(geonameId), {
+          geom: geojson,
+        });
+      }
+      enqueueSnackbar("Байрлал хадгалагдлаа");
+      // Засагдсан байрлалыг газрын зурагт дахин дуудна
+      if (typeof window !== "undefined")
+        window.dispatchEvent(new Event("geoname:changed"));
+      requestRecountReload();
+      onAfterAction?.();
+    } catch (e) {
+      enqueueSnackbar(e?.response?.data?.detail || "Байрлал хадгалахад алдаа гарлаа", {
+        variant: "warning",
+      });
+    }
+  };
 
   // ' 1219 1220 ' → [1219,1220]
   const parseStatusIds = (s) =>
@@ -291,6 +342,47 @@ export default function NameDetailCard({ name, onSelect, onAfterAction }) {
           >
             Дэлгэрэнгүй мэдээлэл
           </Button>
+        )}
+
+        {/* Байрлал засах — QGIS маягаар геометр засах. ЗӨВХӨН төслийн газрын
+            зураг (champaign/<id>/map) дээр — бусад газар харагдахгүй. */}
+        {geonameId && recountProjectId && (
+          <Box sx={{ mt: 0.5 }}>
+            {editingGeom ? (
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <Typography
+                  variant="caption"
+                  color="info.main"
+                  sx={{ mr: 0.5 }}
+                >
+                  Газрын зураг дээр засаж байна…
+                </Typography>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => commitMapEdit()}
+                >
+                  Хадгалах
+                </Button>
+                <Button
+                  size="small"
+                  color="inherit"
+                  onClick={() => cancelMapEdit()}
+                >
+                  Болих
+                </Button>
+              </Stack>
+            ) : (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={handleEditGeom}
+                sx={{ textTransform: "none" }}
+              >
+                Байрлал засах
+              </Button>
+            )}
+          </Box>
         )}
 
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
