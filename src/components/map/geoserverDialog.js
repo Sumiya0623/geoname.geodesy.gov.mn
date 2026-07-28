@@ -425,11 +425,13 @@ function GeoserverDialog({
                   },
                 }}
               >
-                <Tab
-                  value="layers"
-                  id="geoserver-network"
-                  icon={<LayersIcon sx={{ color: "#0675c9" }} />}
-                />
+                <Tooltip title="Газар зүйн нэрийн сан" placement="right">
+                  <Tab
+                    value="layers"
+                    id="geoserver-network"
+                    icon={<LayersIcon sx={{ color: "#0675c9" }} />}
+                  />
+                </Tooltip>
                 <Tooltip title="Тодруулалтын сан" placement="right">
                   <Tab
                     value="recount"
@@ -792,7 +794,12 @@ function GeoserverDialog({
                   >
                     <Typography
                       variant="subtitle2"
-                      sx={{ color: "#7c3aed", display: "flex", alignItems: "center", gap: 0.75 }}
+                      sx={{
+                        color: "#7c3aed",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                      }}
                     >
                       <UnitTreeIcon sx={{ fontSize: 18 }} />
                       Тодруулалтын сан
