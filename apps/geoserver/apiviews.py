@@ -518,12 +518,36 @@ _SE_NS = 'http://www.opengis.net/se'  # SLD 1.1 Symbology Encoding namespace
 def _normalize_rule_to_sld10(rule):
 	"""SLD 1.1 (se:) rule‑ийг SLD 1.0 (sld:) болгож хөрвүүлнэ — geoname_types нь 1.0
 	тул нэгтгэхэд таарна. se:→sld:, SvgParameter→CssParameter. ogc: (filter) хэвээр."""
+	import xml.etree.ElementTree as ET
 	for el in rule.iter():
 		if el.tag.startswith(f'{{{_SE_NS}}}'):
 			local = el.tag.split('}', 1)[1]
 			if local == 'SvgParameter':
 				local = 'CssParameter'
 			el.tag = f'{{{_SLD_NS}}}{local}'
+	# LinePlacement (GeoStyler Placement=Line)‑тэй текстэд followLine нэмнэ — эс бөгөөс
+	# GeoServer шошгыг шугам ДАГУУЛЖ мурийлгадаггүй (шулуун зурна). Gap → repeat VendorOption.
+	# _sld11_to_sld10‑той ижил зарчим (nameclass editor энэ функцийг ашигладаг тул энд ч хэрэгтэй).
+	SLD = _SLD_NS
+	for ts in rule.iter(f'{{{SLD}}}TextSymbolizer'):
+		lp = next(iter(ts.iter(f'{{{SLD}}}LinePlacement')), None)
+		if lp is None:
+			continue
+		gap = lp.find(f'{{{SLD}}}Gap')
+		gap_val = gap.text.strip() if (gap is not None and gap.text) else None
+		for extra in ('Gap', 'IsRepeated', 'InitialGap', 'GeneralizeLine'):
+			e = lp.find(f'{{{SLD}}}{extra}')
+			if e is not None:
+				lp.remove(e)
+		if gap_val is not None and not any(
+				v.get('name') == 'repeat' for v in ts.findall(f'{{{SLD}}}VendorOption')):
+			vo = ET.SubElement(ts, f'{{{SLD}}}VendorOption')
+			vo.set('name', 'repeat')
+			vo.text = gap_val
+		if not any(v.get('name') == 'followLine' for v in ts.findall(f'{{{SLD}}}VendorOption')):
+			fl = ET.SubElement(ts, f'{{{SLD}}}VendorOption')
+			fl.set('name', 'followLine')
+			fl.text = 'true'
 	return rule
 
 
