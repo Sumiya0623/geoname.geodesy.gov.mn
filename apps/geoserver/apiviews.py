@@ -491,8 +491,9 @@ def _make_type_eq(tid):
 
 
 def _remove_type_eq(rule, tid):
-    """rule‑ийн Filter‑ээс type_id==tid нөхцөлийг хасна (Or дотор 1 үлдвэл хялбарчилна)."""
-    flt = rule.find(f'{{{_SLD_NS}}}Filter')
+    """rule‑ийн Filter‑ээс type_id==tid нөхцөлийг хасна (Or дотор 1 үлдвэл хялбарчилна).
+    SLD 1.0‑д Filter нь OGC namespace (ogc:Filter) — _SLD_NS БИШ."""
+    flt = rule.find(f'{{{_OGC_NS}}}Filter')
     if flt is None:
         return
     for parent in list(flt.iter()):
@@ -694,9 +695,12 @@ def _sanitize_sld_marks(sld_xml):
 
 
 def _set_type_filter(rule, tid):
-    """rule‑д type_id==tid filter‑ийг тавина. Байгаа (type‑бус) filter‑г AND‑лэнэ."""
+    """rule‑д type_id==tid filter‑ийг тавина. Байгаа (type‑бус) filter‑г AND‑лэнэ.
+    ЧУХАЛ: SLD 1.0‑д Filter нь OGC namespace (ogc:Filter) — SLD биш. Өмнө _SLD_NS‑ээр
+    хайж байсан тул байгаа filter олдохгүй → давхар Filter нэмэгдэж, дараагийн
+    хадгалалт дээр устгах логик буруу ажиллаж rule давхардаж байсан."""
     import xml.etree.ElementTree as ET
-    existing = rule.find(f'{{{_SLD_NS}}}Filter')
+    existing = rule.find(f'{{{_OGC_NS}}}Filter')
     new_flt = ET.Element(f'{{{_OGC_NS}}}Filter')
     if existing is not None and list(existing):
         # байгаа filter‑ийн доторхийг And(type_id, ...) болгоно
@@ -2469,7 +2473,7 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 				for r in root.iter(f'{{{_SLD_NS}}}Rule'):
 					if tid in _rule_type_ids(r):
 						rc = copy.deepcopy(r)
-						flt = rc.find(f'{{{_SLD_NS}}}Filter')
+						flt = rc.find(f'{{{_OGC_NS}}}Filter')
 						if flt is not None:
 							rc.remove(flt)  # type_id filter‑ийг нуух (backend удирдана)
 						fts.append(rc)

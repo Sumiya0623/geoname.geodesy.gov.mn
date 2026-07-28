@@ -908,6 +908,72 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 						 key=lambda x: x['name'])
 		return Response({'results': results, 'draft_count': draft_count})
 
+	@action(detail=False, methods=['get'], url_path='unit-tree')
+	def unit_tree(self, request):
+		"""Тодруулалтын сан — БҮХ recount‑ыг Засаг захиргааны нэгжээр
+		(Аймаг → Сум → recount нэр) модлон бүлэглэнэ. Навч бүр нэг recount
+		(id, name). project дамжуулбал зөвхөн тухайн төслөөр шүүнэ.
+		Батлагдсан нэрсийн газрын зураг дээр 2‑р таб (project‑гүй) ашиглана."""
+		from django.db import connection
+		# recount_view WMS‑ийг GeoServer‑т нийтэлсэн байлгана (тодруулах давхаргад)
+		try:
+			from apps.geoserver.apiviews import ensure_recount_view
+			ensure_recount_view()
+		except Exception:
+			pass
+		pid = request.query_params.get('project')
+		name_q = (request.query_params.get('name') or '').strip()
+		conds = ["lvl.name = 'Сум/Дүүрэг'"]
+		params = []
+		if pid:
+			conds.append('r.project_id = %s')
+			params.append(pid)
+		if name_q:
+			conds.append('COALESCE(g.name, r.draft) ILIKE %s')
+			params.append('%' + name_q + '%')
+		where = ' AND '.join(conds)
+		sql = (
+			'SELECT r.id AS rid, COALESCE(g.name, r.draft) AS rname, '
+			's.id AS sum_id, s.unit AS sum_name, '
+			'a.id AS aimag_id, a.unit AS aimag_name '
+			'FROM core_recount r '
+			'JOIN core_geoname g ON g.id = r.name_id '
+			'JOIN core_geoname_unit gu ON gu.geoname_id = g.id '
+			'JOIN core_adminunit s ON s.id = gu.adminunit_id '
+			'JOIN core_constant lvl ON lvl.id = s.level_id '
+			'LEFT JOIN core_adminunit a ON a.id = s.parent_id '
+			'WHERE ' + where + ' '
+			'ORDER BY a.unit, s.unit, rname'
+		)
+		with connection.cursor() as c:
+			c.execute(sql, params)
+			rows = c.fetchall()
+		# Аймаг → Сум → recount навч
+		roots = {}
+		for rid, rname, sum_id, sum_name, aimag_id, aimag_name in rows:
+			a_key = aimag_id if aimag_id is not None else 0
+			a_name = aimag_name or 'Аймаг тодорхойгүй'
+			root = roots.setdefault(a_key, {
+				'id': 'a%s' % a_key, 'name': a_name, 'count': 0, 'children': {},
+			})
+			root['count'] += 1
+			sm = root['children'].setdefault(sum_id, {
+				'id': 's%s' % sum_id, 'name': sum_name or '—',
+				'count': 0, 'children': [], 'child_count': 0,
+			})
+			sm['count'] += 1
+			# recount навчийг буцаахгүй (сум дараад unit_ids‑ээр шүүдэг тул зөвхөн тоо)
+
+		def finalize(n):
+			kids = list(n['children'].values()) if isinstance(n['children'], dict) else n['children']
+			n['children'] = sorted(kids, key=lambda x: x['name'])
+			n['child_count'] = len(n['children'])
+			return n
+
+		results = sorted((finalize(r) for r in roots.values()),
+						 key=lambda x: x['name'])
+		return Response({'results': results})
+
 
 class ReCountMapViewSet(PublicListMixin, viewsets.ModelViewSet):
 	serializer_class = ReCountMapSerializer

@@ -251,7 +251,13 @@ class ReCountSerializer(serializers.ModelSerializer):
 		queryset=Project.objects.all(),
 		source='project', write_only=True, required=False, allow_null=True,
 	)
+	# Төслийн нэр/дугаар (тодруулалт дээр дарахад popup‑д харуулна)
+	project = serializers.SerializerMethodField()
 	loc = serializers.SerializerMethodField()
+
+	def get_project(self, obj):
+		p = obj.project
+		return {'id': p.id, 'name': p.name, 'dugaar': p.dugaar} if p else None
 
 	class Meta:
 		model = ReCount
