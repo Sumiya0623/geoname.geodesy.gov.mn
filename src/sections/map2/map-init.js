@@ -1,9 +1,11 @@
 import VectorLayer from "ol/layer/Vector";
 import TileLayer from "ol/layer/Tile";
 import TileWMS from "ol/source/TileWMS";
+import OSM from "ol/source/OSM";
 import GeoJSON from "ol/format/GeoJSON";
 import Map from "ol/Map";
 import View from "ol/View";
+import { OverviewMap } from "ol/control";
 import { fromLonLat } from "ol/proj";
 import { boundingExtent } from "ol/extent";
 import Style from "ol/style/Style";
@@ -169,6 +171,20 @@ export function initMap(opts) {
 
   baseLayerRef.current = baseLayer;
   mapObjRef.current = map;
+
+  // Тойм зураг (OverviewMap) — баруун доод буланд одоогийн харагдах хүрээг (улаан
+  // хайрцаг) харуулна. Default ХУМИГДСАН (icon switcher): 🗺 icon дараад л задарна.
+  map.addControl(
+    new OverviewMap({
+      className: "ol-overviewmap ol-custom-overviewmap",
+      layers: [new TileLayer({ source: new OSM() })],
+      collapsed: true,
+      collapsible: true,
+      label: "🗺", // хумигдсан үеийн icon (дарж задлах)
+      collapseLabel: "«", // задарсан үеийн товч (дарж хумих)
+      tipLabel: "Тойм зураг (харагдах хүрээ)",
+    }),
+  );
 
   // Солбицлыг зургийн ДООД status bar дээр (map2/index.js) харуулдаг болсон тул
   // OL‑ийн MousePosition контролыг нэмэхгүй (давхардахгүй).

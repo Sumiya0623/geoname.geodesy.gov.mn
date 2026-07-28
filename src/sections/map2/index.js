@@ -1258,11 +1258,9 @@ function Map2() {
       const layerKey = `geoserver_${filterId}`;
 
       if (!geoserverLayerMap.current.has(layerKey)) {
-        // Нэрийн ангилал — ГАНЦ geoname_view.
-        // zoom <11: default style geoname_types — ерөнхийлсөн, давхцах label
-        //           нуугдана, цэвэрхэн.
-        // zoom ≥11: geoname_types_full style — ЕРӨНХИЙЛӨЛГҮЙ (бүх нэр, давхцал
-        //           арилгахгүй: conflictResolution=false).
+        // Нэрийн ангилал — ГАНЦ geoname_view, БҮХ zoom‑д default style geoname_types
+        // (бүрэн, style editor‑оор шинэчлэгддэг). z<11/z≥11 гэж 2 давхаргад хуваасан
+        // нь зөвхөн техникийн (ratio) шалтгаантай; хоёул ижил style ашиглана.
         // CQL‑ээр төрөл (+ сонгосон нэгж) шүүнэ.
         // ЧУХАЛ: geoname_view‑ийн GWC давхаргад parameterFilters ХООСОН тул
         // gwc/service/wms нь CQL_FILTER‑ийг ҮЛ ТООМСОРЛОН кэшлэсэн (шүүлтгүй)
@@ -1331,18 +1329,21 @@ function Map2() {
           cachedLayer.set("filterId", filterId);
           geoserverLayerMap.current.set(`${layerKey}__wmts`, cachedLayer);
           map.addLayer(cachedLayer);
-          // zoom ≥11 — ЕРӨНХИЙЛӨЛГҮЙ style (бүх нэр)
+          // zoom ≥11 — ижил geoname_types style (бүх төрлийн нэр).
+          // ЧУХАЛ: өмнө "geoname_types_full" ашигладаг байсан нь ХУУЧИРСАН (12 төрөл
+          // дутуу: Гол г.м.) + backend‑д синк хийгддэггүй тул z>11‑д тэдгээр нэр алга
+          // болдог байсан. geoname_types нь бүрэн бөгөөд style editor‑оор шинэчлэгддэг.
           const liveLayer = new ImageLayer({
             source: new ImageWMS({
               url: `${gsBase}/geoname/wms`,
-              params: { ...wmsParams, STYLES: "geoname_types_full" },
+              params: wmsParams,
               serverType: "geoserver",
               crossOrigin: "anonymous",
               ratio: 1,
             }),
             opacity: 0.9,
             visible: true,
-            minZoom: 11, // z≥11 — ерөнхийлөлгүй
+            minZoom: 11, // z≥11
             zIndex: 100 + (Number(filterId) || 0),
           });
           liveLayer.set("filterId", filterId);
@@ -3584,6 +3585,54 @@ function Map2() {
               borderRadius: "8px",
               padding: "4px 8px",
               fontSize: "11px",
+            },
+            // Тойм зураг (OverviewMap) — баруун доод булан
+            "& .ol-custom-overviewmap": {
+              bottom: "10px",
+              right: "10px",
+              left: "auto",
+              top: "auto",
+            },
+            "& .ol-custom-overviewmap:not(.ol-collapsed)": {
+              border: "1px solid rgba(0,0,0,0.2)",
+              borderRadius: "8px",
+              overflow: "hidden",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+            },
+            "& .ol-custom-overviewmap .ol-overviewmap-map": {
+              border: "none",
+              width: "190px",
+              height: "130px",
+            },
+            "& .ol-custom-overviewmap .ol-overviewmap-box": {
+              border: "2px solid red",
+            },
+            "& .ol-custom-overviewmap:not(.ol-collapsed) button": {
+              position: "absolute",
+              top: "2px",
+              right: "2px",
+              bottom: "auto",
+              left: "auto",
+            },
+            // Хумигдсан (default) — зөвхөн цэвэрхэн icon товч (switcher)
+            "& .ol-custom-overviewmap.ol-collapsed": {
+              border: "none",
+              background: "transparent",
+            },
+            "& .ol-custom-overviewmap.ol-collapsed button": {
+              position: "static",
+              width: "32px",
+              height: "32px",
+              margin: 0,
+              fontSize: "16px",
+              lineHeight: 1,
+              borderRadius: "8px",
+              background: "#fff",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+              cursor: "pointer",
+            },
+            "& .ol-custom-overviewmap.ol-collapsed button:hover": {
+              background: "#f2f4f7",
             },
           }}
         />
