@@ -2504,6 +2504,12 @@ class NameClassViewSet(PublicListMixin, viewsets.ModelViewSet):
 				out = ET.tostring(new, encoding='unicode')
 			except Exception:
 				out = raw  # задлаж чадаагүй бол бүтэн style
+			# GeoStyler‑ийн parser‑т тохируулах (gs_layer_sld‑тэй ижил): dasharray‑ийн
+			# ганц тоог зайтай хос болгоно (эс бол XML NUMBER болж geostyler .split() дээр
+			# "h.split is not a function" алдаа өгдөг), Mark‑уудыг цэвэрлэж, SE 1.1 хэлбэрт.
+			out = _sanitize_sld_marks(out)
+			out = _fix_sld_dasharray(out)
+			out = _sld_for_geostyler_read(out)
 			out = _absolutize_sld_symbols(out, request)
 			return Response({'sld': out, 'style_name': style_name, 'ws': ws,
 							 'type_id': leaf.id}, status=200)
