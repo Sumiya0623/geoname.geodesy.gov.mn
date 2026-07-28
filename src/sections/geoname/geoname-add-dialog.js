@@ -10,7 +10,6 @@ import {
   MenuItem,
   TextField,
   Typography,
-  IconButton,
   CardContent,
   DialogTitle,
   DialogContent,
@@ -66,14 +65,10 @@ export default function GeonameAddDialog({
   const { constants: orderTypes } = useGetConstantsFordropdown(
     kind === "order" ? "ORDER_TYPES" : null,
   );
+  // Хүсэлт (Өөрчлөх) — бүх бүртгэлийг RequestChangeForm өөрөө хийнэ.
+  // Энд зөвхөн эхний "Өөрчлөх" төлвийг олж дамжуулахад л reqStatus хэрэгтэй.
   const { constants: reqStatus } = useGetConstantsFordropdown(
     kind === "request" ? "REQUEST_STATUS" : null,
-  );
-  const { constants: reqPurpose } = useGetConstantsFordropdown(
-    kind === "request" ? "REQUEST_PURPOSES" : null,
-  );
-  const { constants: ages } = useGetConstantsFordropdown(
-    kind === "request" ? "GEONAME_AGES" : null,
   );
 
   useEffect(() => {
@@ -151,18 +146,8 @@ export default function GeonameAddDialog({
         ].forEach((k) => form[k] && fd.append(k, form[k]));
         if (file) fd.append("document", file);
         url = endpoints.geoname.addOrder(geonameId);
-      } else if (kind === "request") {
-        if (!form.status) {
-          enqueueSnackbar("Төлөв сонгоно уу", { variant: "warning" });
-          setSaving(false);
-          return;
-        }
-        ["status", "type", "age", "description", "lat", "lon"].forEach(
-          (k) => form[k] && fd.append(k, form[k]),
-        );
-        (form.purpose || []).forEach((p) => fd.append("purpose", p));
-        url = endpoints.geoname.addRequest(geonameId);
       }
+      // kind === "request" энд БАЙХГҮЙ — RequestChangeForm өөрөө хадгална.
 
       await axiosInstance.post(url, fd, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -330,16 +315,7 @@ export default function GeonameAddDialog({
     return (
       <Card>
         <CardContent>
-          <Stack
-            direction="row"
-            alignItems="center"
-            justifyContent="space-between"
-          >
-            <Typography variant="h6">{TITLES[kind] || "Нэмэх"}</Typography>
-            <IconButton size="small" onClick={onClose}>
-              <Iconify icon="mingcute:close-line" width={20} />
-            </IconButton>
-          </Stack>
+          <Typography variant="h6">{TITLES[kind] || "Нэмэх"}</Typography>
           {body}
           {actions && (
             <Stack

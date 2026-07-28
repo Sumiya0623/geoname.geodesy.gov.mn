@@ -246,6 +246,9 @@ export function initMap(opts) {
           });
 
           const pixel = map.getEventPixel(event.originalEvent);
+          // Олон нэрийн сонголт нээхдээ ганц нэрийн popup‑г хаана (давхар нээгдэхгүй)
+          setSidebarOpen(false);
+          setSelectedName(null);
           setFeatureSelector({
             show: true,
             features: features,
@@ -271,6 +274,8 @@ export function initMap(opts) {
         pointData["final_z"] = f.get("final_z");
         pointData["network_id"] = f.get("network_id") || "";
         if (pointData) {
+          // Ганц нэрийн popup нээхдээ олон нэрийн сонголтыг хаана
+          setFeatureSelector({ show: false, features: [], position: { x: 0, y: 0 } });
           setSelectedName(pointData);
           const mapElement = map.getTargetElement();
           const rect = mapElement.getBoundingClientRect();
@@ -408,6 +413,12 @@ export function initMap(opts) {
                   // Улаан highlight-д зориулж бүтэн геометрийг хадгална
                   props._geom = feat.geometry || null;
                   props.isFromStaticLayer = isFromStaticLayer;
+                  // Тодруулалтын сан (recount_view) — recount гэж таглана →
+                  // popup нь төсөл/төлөв харуулж, geoname товчнуудыг нуух.
+                  if (layerFilterData.recountView) {
+                    props._isRecount = true;
+                    props._fromRecountBank = true;
+                  }
                   props.layerInfo = {
                     layerKey,
                     filterId: fid,
@@ -457,6 +468,8 @@ export function initMap(opts) {
 
       if (allFeatures.length === 0) {
       } else if (allFeatures.length === 1) {
+        // Ганц нэр — олон нэрийн сонголтыг хааж, зөвхөн popup нээнэ
+        setFeatureSelector({ show: false, features: [], position: { x: 0, y: 0 } });
         setSelectedName(allFeatures[0]);
 
         const mapElement = map.getTargetElement();
@@ -470,6 +483,9 @@ export function initMap(opts) {
         return;
       } else {
         const pixel = map.getEventPixel(event.originalEvent);
+        // Олон нэр — ганц нэрийн popup‑г хаана (давхар нээгдэхгүй)
+        setSidebarOpen(false);
+        setSelectedName(null);
         setFeatureSelector({
           show: true,
           features: allFeatures,

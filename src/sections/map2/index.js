@@ -1269,6 +1269,40 @@ function Map2() {
         // тайлыг буцаадаг → ямар ч ангилал сонгосон БҮХ нэр харагдана. Иймд
         // амьд /geoname/wms‑ээр дуудна: GeoServer‑ийн direct WMS integration
         // CQL байвал кэшийг алгасаж, зөв шүүсэн тайл рендерлэнэ.
+        // Тодруулалтын сан — recount_view‑г ӨӨРИЙН default style (geoname төрлийн
+        // тэмдэг)‑ээр рендерлэнэ. CQL (id IN ...)‑ээр сонгосон тодруулалтыг л
+        // харуулна. GWC/WMTS нь CQL‑ийг үл тоомсорлодог тул амьд ImageWMS ашиглана.
+        if (filterData.recountView) {
+          const gsBase = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+          const wmsParams = buildWmsParams({
+            LAYERS: "geoname:recount_view",
+            // geoname‑ийн ТӨРЛИЙН танигдах тэмдэг (type SLD)‑ээр зурна — recount_view нь
+            // geoname_view‑тэй ижил баганатай (type_id/type_l1/l2/name) тул тохирно.
+            // geoname_types (geoname_types_full БИШ) — учир нь бүх төрлийн жинхэнэ
+            // icon (уул г.м.) энд бий; "_full" нь синкгүй тул icon дутуу (ногоон дугуй).
+            STYLES: "geoname_types",
+            ...(filterData.cql_filter
+              ? { CQL_FILTER: filterData.cql_filter }
+              : {}),
+          });
+          const rcLayer = new ImageLayer({
+            source: new ImageWMS({
+              url: `${gsBase}/geoname/wms`,
+              params: wmsParams, // STYLES="" → recount_view default (type) style
+              serverType: "geoserver",
+              crossOrigin: "anonymous",
+              ratio: 1,
+            }),
+            opacity: 1,
+            visible: true,
+            zIndex: 600 + (Number(filterId) || 0), // нэрсийн дээр тод харагдана
+          });
+          rcLayer.set("filterId", filterId);
+          rcLayer.set("filterData", filterData);
+          geoserverLayerMap.current.set(layerKey, rcLayer);
+          map.addLayer(rcLayer);
+          return;
+        }
         if (filterData.nameCached) {
           const gsBase = process.env.NEXT_PUBLIC_GEOSERVER_URL;
           // UNTILED ImageWMS — харагдах хэсгийг НЭГ зураг болгон рендерлэнэ.

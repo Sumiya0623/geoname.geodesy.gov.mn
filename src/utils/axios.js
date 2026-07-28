@@ -197,6 +197,7 @@ export const endpoints = {
     details: (id) => `/api/r/legal/${id}/`,
     attachProject: (id) => `/api/r/legal/${id}/attach-project/`,
     detachProject: (id) => `/api/r/legal/${id}/detach-project/`,
+    unitExtent: (id) => `/api/r/legal-unit/${id}/extent/`,
     // Газрын зургийн overlay — ЗЗ нэгжийн тогтоол/шийдвэрийн тоо (GeoJSON)
     mapCounts: (request_body) => `/api/r/legal/map-counts/?${request_body}`,
     units: (request_body) =>
@@ -223,6 +224,7 @@ export const endpoints = {
     delete: (id) => `/api/r/recount/${id}/`,
     wms: (request_body) => `/api/r/recount/wms/?${request_body}`,
     typeTree: (request_body) => `/api/r/recount/type-tree/?${request_body}`,
+    unitTree: (request_body) => `/api/r/recount/unit-tree/?${request_body}`,
     reverseGeom: (id) => `/api/r/recount/${id}/reverse-geom/`,
   },
 

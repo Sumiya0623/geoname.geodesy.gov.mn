@@ -1,9 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Box,
   IconButton,
@@ -49,23 +44,30 @@ import {
   RadioButtonChecked as CircleSelIcon,
   CropFree as RectSelIcon,
   Pentagon as PolySelIcon,
+  AccountTree as UnitTreeIcon,
 } from "@mui/icons-material";
 
 import MapAddName from "./MapAddName";
 import RasterPrintPanel from "../../sections/raster/print-map-panel";
 import NameCategoryTree from "./NameCategoryTree";
 import RecountPanel from "./RecountPanel";
+import RecountUnitTree from "./RecountUnitTree";
 import AdvancedSearch from "./AdvancedSearch";
 
 // geoname:geoname_view (бүх геонэр) WMS суурь URL — Нэрийн ангилал филтерт
 const GEONAME_VIEW_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:geoname_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
+// geoname:recount_view (бүх тодруулалт) WMS суурь URL — Тодруулалтын сан табд
+const RECOUNT_VIEW_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:recount_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
 
 // Идэвхтэй давхаргын геометрийн дүрс (Цэг/Шугам/Талбай)
 function ActiveGeomIcon({ desc }) {
   const d = (desc || "").trim();
-  if (d === "Цэг") return <GeomPointIcon sx={{ fontSize: 16, color: "#16a34a" }} />;
-  if (d === "Шугам") return <GeomLineIcon sx={{ fontSize: 16, color: "#2563eb" }} />;
-  if (d === "Талбай") return <GeomPolyIcon sx={{ fontSize: 16, color: "#d97706" }} />;
+  if (d === "Цэг")
+    return <GeomPointIcon sx={{ fontSize: 16, color: "#16a34a" }} />;
+  if (d === "Шугам")
+    return <GeomLineIcon sx={{ fontSize: 16, color: "#2563eb" }} />;
+  if (d === "Талбай")
+    return <GeomPolyIcon sx={{ fontSize: 16, color: "#d97706" }} />;
   return <GeomOtherIcon sx={{ fontSize: 16, color: "#0675c9" }} />;
 }
 
@@ -112,9 +114,7 @@ function GeoserverDialog({
     const h = (e) => {
       setHasActive(!!e?.detail?.id);
       setActiveLayer(
-        e?.detail?.id
-          ? { name: e.detail.name, desc: e.detail.desc }
-          : null,
+        e?.detail?.id ? { name: e.detail.name, desc: e.detail.desc } : null,
       );
       setRecountChecked(e?.detail?.checkedCount ?? 0);
     };
@@ -256,6 +256,26 @@ function GeoserverDialog({
       onFilterChange("geoname_search", false, { id: "geoname_search" });
     }
   }, [onFilterChange]);
+
+  // Тодруулалтын сан — сонгосон recount‑уудыг recount_view WMS‑ээр газрын
+  // зурагт тодруулна (onFilterChange overlay pipeline — ямар ч map дээр ажиллана).
+  const handleRecountHighlight = useCallback(
+    (cql) => {
+      if (!onFilterChange) return;
+      onFilterChange("recount_highlight", false, { id: "recount_highlight" });
+      if (!cql) return;
+      onFilterChange("recount_highlight", true, {
+        id: "recount_highlight",
+        name: "Тодруулалт",
+        layer: "geoname:recount_view",
+        cql_filter: cql,
+        recountView: true, // recount_view‑г өөрийн (geoname төрлийн) style‑аар рендерлэ
+        groupUrl: RECOUNT_VIEW_URL,
+        isFromStaticLayer: false,
+      });
+    },
+    [onFilterChange],
+  );
 
   const isLeaf = useCallback(
     (node) => !node?.children || node.children.length === 0,
@@ -410,6 +430,13 @@ function GeoserverDialog({
                   id="geoserver-network"
                   icon={<LayersIcon sx={{ color: "#0675c9" }} />}
                 />
+                <Tooltip title="Тодруулалтын сан" placement="right">
+                  <Tab
+                    value="recount"
+                    id="geoserver-recount"
+                    icon={<UnitTreeIcon sx={{ color: "#7c3aed" }} />}
+                  />
+                </Tooltip>
                 {isSmall && (
                   <Tab
                     value="basemap"
@@ -468,7 +495,12 @@ function GeoserverDialog({
                     }}
                   >
                     <Box
-                      sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        minWidth: 0,
+                      }}
                     >
                       <Typography
                         variant="subtitle2"
@@ -496,7 +528,9 @@ function GeoserverDialog({
                               <NoLayerIcon sx={{ fontSize: 16 }} />
                             )
                           }
-                          label={activeLayer ? activeLayer.name : "Давхарга алга"}
+                          label={
+                            activeLayer ? activeLayer.name : "Давхарга алга"
+                          }
                           sx={{
                             height: 22,
                             maxWidth: 160,
@@ -738,6 +772,44 @@ function GeoserverDialog({
                   </Box>
                 </Box>
               )}
+
+              {tab === "recount" && (
+                <Box
+                  sx={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      px: 1.5,
+                      py: 1,
+                      borderBottom: "1px solid #f0f0f0",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Typography
+                      variant="subtitle2"
+                      sx={{ color: "#7c3aed", display: "flex", alignItems: "center", gap: 0.75 }}
+                    >
+                      <UnitTreeIcon sx={{ fontSize: 18 }} />
+                      Тодруулалтын сан
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Аймаг → Сум → тодруулалтыг сонгож газрын зурагт харна
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, minHeight: 0 }}>
+                    <RecountUnitTree
+                      onCql={handleRecountHighlight}
+                      onFlyTo={onFlyTo}
+                    />
+                  </Box>
+                </Box>
+              )}
+
               {tab === "basemap" && (
                 <Box sx={{ minHeight: 300, p: 1, overflowY: "auto" }}>
                   <Typography variant="h6">Суурь зураг сонгох</Typography>

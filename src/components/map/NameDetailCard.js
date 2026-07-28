@@ -94,6 +94,27 @@ export default function NameDetailCard({
   // geoname id — recount дээр name_id, эс бол name.id
   const geonameId = name?._isRecount ? name?.name_id : name?.id;
 
+  // Тодруулалт (recount) дээр дарсан бол — төсөл/төлвийн дэлгэрэнгүйг татна
+  const [rcDetail, setRcDetail] = useState(null);
+  useEffect(() => {
+    if (!name?._isRecount || !name?.id) {
+      setRcDetail(null);
+      return undefined;
+    }
+    let active = true;
+    axiosInstance
+      .get(endpoints.recount.edit(name.id))
+      .then((res) => {
+        if (active) setRcDetail(res?.data || null);
+      })
+      .catch(() => {
+        if (active) setRcDetail(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [name?._isRecount, name?.id]);
+
   // Нэрийн зургуудыг татна (recount + жирийн geoname хоёуланд)
   useEffect(() => {
     let active = true;
@@ -532,6 +553,41 @@ export default function NameDetailCard({
                 );
               })}
             </Stack>
+
+            {/* Холбогдох ТӨСЛИЙН мэдээлэл */}
+            {rcDetail?.project?.name && (
+              <Stack
+                direction="row"
+                spacing={0.5}
+                alignItems="center"
+                sx={{
+                  px: 1,
+                  py: 0.75,
+                  borderRadius: 1,
+                  bgcolor: "background.neutral",
+                }}
+              >
+                <Typography variant="caption" color="text.secondary">
+                  Төсөл:
+                </Typography>
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  {rcDetail.project.name}
+                  {rcDetail.project.dugaar &&
+                  rcDetail.project.dugaar !== "un"
+                    ? ` · №${rcDetail.project.dugaar}`
+                    : ""}
+                </Typography>
+                {rcDetail.step?.name && (
+                  <Chip
+                    size="small"
+                    variant="soft"
+                    color="default"
+                    label={rcDetail.step.name}
+                    sx={{ height: 18, fontSize: 10 }}
+                  />
+                )}
+              </Stack>
+            )}
 
             {rcConfirm ? (
               <Stack direction="row" spacing={0.5} alignItems="center">
