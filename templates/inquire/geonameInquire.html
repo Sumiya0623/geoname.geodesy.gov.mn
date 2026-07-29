@@ -415,8 +415,7 @@
               </div>
               <div class="si">
                 <!-- Django template тагийг мөр таслах хориотой (tag_re нь newline‑ийг таньдаггүй) -->
-                <div class="sl">{% if measure.kind == 'point' %}Солбицол{% elif measure.kind == 'line' %}Урт{% elif
-                  measure.kind == 'area' %}Талбай{% else %}Байрлал{% endif %}</div>
+                <div class="sl">{{ measure.label }}</div>
                 <div>{{ measure.text }}</div>
                 <div>{{ coord_system }}</div>
               </div>

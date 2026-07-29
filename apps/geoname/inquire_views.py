@@ -49,16 +49,26 @@ def _mn_date(d):
     return f'{d.year}.{d.month:02d}.{d.day:02d}' if d else ''
 
 
+# Геометрийн төрөл → баруун баганын гарчиг. Template дотор {% if %}{% elif %}
+# бичихээс зайлсхийв — HTML форматтер уг мөрийг таслахад Django таг эвдэрдэг.
+_MEASURE_LABELS = {'point': 'Солбицол', 'line': 'Урт', 'area': 'Талбай'}
+
+
 def _measure(geom):
     """Геометрийн төрлөөр хэмжээ: цэг→солбицол(DMS), шугам→урт, талбай→км².
-    Урт/талбайг геометрийн центроидын UTM бүс рүү хувиргаж тооцно."""
+    Урт/талбайг геометрийн центроидын UTM бүс рүү хувиргаж тооцно.
+    Буцаах dict‑д template‑д шууд хэвлэх `label` талбар багтана."""
+
+    def out(kind, text, **extra):
+        return {'kind': kind, 'text': text,
+                'label': _MEASURE_LABELS.get(kind, 'Байрлал'), **extra}
+
     if not geom:
-        return {'kind': None, 'text': '—'}
+        return out(None, '—')
     gt = geom.geom_type
     if gt == 'Point':
-        return {'kind': 'point',
-                'text': f'{_dms(geom.y, True)}, {_dms(geom.x, False)}',
-                'lat': geom.y, 'lon': geom.x}
+        return out('point', f'{_dms(geom.y, True)}, {_dms(geom.x, False)}',
+                   lat=geom.y, lon=geom.x)
     try:
         c = geom.centroid
         epsg = _utm_epsg(c.x)
@@ -67,13 +77,13 @@ def _measure(geom):
         if 'Line' in gt:
             m = g2.length
             txt = f'{m/1000:.3f} км' if m >= 1000 else f'{m:.1f} м'
-            return {'kind': 'line', 'text': txt}
+            return out('line', txt)
         if 'Polygon' in gt:
             km2 = g2.area / 1_000_000.0
-            return {'kind': 'area', 'text': f'{km2:.1f} км²'}
+            return out('area', f'{km2:.1f} км²')
     except Exception:
         pass
-    return {'kind': gt, 'text': '—'}
+    return out(gt, '—')
 
 
 def _admin_overlaps(geom):
