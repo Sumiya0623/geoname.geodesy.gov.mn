@@ -172,6 +172,8 @@ export const endpoints = {
     addAttach: (id) => `/api/n/geoname/${id}/add-attach/`,
     addOrder: (id) => `/api/n/geoname/${id}/add-order/`,
     addRequest: (id) => `/api/n/geoname/${id}/add-request/`,
+    inquire: (id) => `/api/n/geoname/${id}/inquire/`,
+    inquireVerify: (code) => `/api/n/geoname/inquire-verify/?code=${code}`,
   },
 
   raster: {

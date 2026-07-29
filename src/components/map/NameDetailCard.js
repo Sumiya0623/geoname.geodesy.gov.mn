@@ -18,11 +18,12 @@ import {
 } from "@mui/material";
 import {
   CheckOutlined,
-  AddShoppingCart,
+  DescriptionRounded,
   OpenInNewRounded as OpenInNewIcon,
 } from "@mui/icons-material";
 import { enqueueSnackbar } from "notistack";
 
+import { HOST_API } from "src/config-global";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetRequestStatuses } from "src/api/request";
 import { useGetConstantsFordropdown } from "src/api/constant";
@@ -90,6 +91,7 @@ export default function NameDetailCard({
   const [rcDraft, setRcDraft] = useState(""); // "алдаатай" үеийн засвар нэр
   const [editingGeom, setEditingGeom] = useState(false); // байрлал засах горим
   const [photos, setPhotos] = useState([]); // нэрийн зургууд
+  const [inquireLoading, setInquireLoading] = useState(false); // лавлагаа гаргах
 
   // geoname id — recount дээр name_id, эс бол name.id
   const geonameId = name?._isRecount ? name?.name_id : name?.id;
@@ -324,13 +326,6 @@ export default function NameDetailCard({
     };
   }, [name?.id]);
 
-  // Худалдан авалтын дэд систем устсан тул "Сагсанд нэмэх" одоохондоо идэвхгүй.
-  function addToCart() {
-    enqueueSnackbar("Сагсны үйлдэл одоохондоо идэвхгүй байна", {
-      variant: "info",
-    });
-  }
-
   // Форм нээгдэхэд Popover‑г шинэ (өндөр) агуулгад тааруулж дахин байрлуулна —
   // MUI resize дохион дээр байрлалаа хязгаарт (marginThreshold) багтаана → доод
   // хэсэг (Бүртгэх) таслагдахгүй.
@@ -351,6 +346,24 @@ export default function NameDetailCard({
     window.addEventListener("geoname:formBack", back);
     return () => window.removeEventListener("geoname:formBack", back);
   }, []);
+
+  // Лавлагаа авах — батлагдсан нэрд лавлагаа (GeoNameInquire) үүсгээд, HTML баримтыг
+  // шинэ табд нээнэ. QR нь /inquire/<code> (нийтийн шалгах хуудас) руу заана.
+  const handleInquire = async () => {
+    if (!geonameId || inquireLoading) return;
+    setInquireLoading(true);
+    try {
+      const res = await axiosInstance.post(endpoints.geoname.inquire(geonameId), {});
+      const code = res?.data?.code;
+      if (code) window.open(`${HOST_API}/inquire/${code}/`, "_blank");
+    } catch (e) {
+      enqueueSnackbar(e?.response?.data?.detail || "Лавлагаа гаргахад алдаа гарлаа", {
+        variant: "warning",
+      });
+    } finally {
+      setInquireLoading(false);
+    }
+  };
 
   if (!name) return null;
 
@@ -709,20 +722,18 @@ export default function NameDetailCard({
           </Stack>
         ) : (
           <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-            {name?.id && (
+            {name?.id && approved === true && (
               <Button
                 variant="contained"
                 fullWidth
                 size="small"
                 color="primary"
-                startIcon={<AddShoppingCart fontSize="small" />}
-                onClick={() => {
-                  onSelect?.(name);
-                  addToCart();
-                }}
+                disabled={inquireLoading}
+                startIcon={<DescriptionRounded fontSize="small" />}
+                onClick={handleInquire}
                 sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
               >
-                Сагсанд нэмэх
+                Лавлагаа авах
               </Button>
             )}
             <Button
