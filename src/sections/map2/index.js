@@ -10,18 +10,21 @@ import {
   Box,
   Fab,
   Tab,
+  Menu,
   Tabs,
   Stack,
   Table,
   Paper,
   Button,
   Dialog,
+  Divider,
+  Collapse,
+  MenuItem,
   Tooltip,
   TableRow,
   TextField,
   TableBody,
   TableCell,
-  TableHead,
   Typography,
   IconButton,
   DialogTitle,
@@ -29,10 +32,8 @@ import {
   DialogActions,
   TableContainer,
   InputAdornment,
-  TablePagination,
   CircularProgress,
 } from "@mui/material";
-import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import {
   Fullscreen as FullscreenIcon,
   Close as CloseIcon,
@@ -93,6 +94,17 @@ import {
 import { createLegalOverlay } from "./legal-overlay";
 import { useGetGeoserver, useGetBaseLayers } from "src/api/map";
 import Iconify from "src/components/iconify";
+import Scrollbar from "src/components/scrollbar";
+import { useSnackbar } from "src/components/snackbar";
+import { useMenuPermissions } from "src/hooks/use-menu-permissions";
+import LegalNewEditForm from "src/sections/legal/legal-new-edit-form";
+import {
+  useTable,
+  TableNoData,
+  TableSkeleton,
+  TableHeadCustom,
+  TablePaginationCustom,
+} from "src/components/table";
 import GeoserverDialog from "src/components/map/geoserverDialog";
 import FeatureTabPanel from "src/components/map/FeatureTabPanel";
 import RecountEditDialog from "src/components/map/RecountEditDialog";
@@ -127,6 +139,18 @@ const ADMIN_WMS_PARAMS = {
 const WMS_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/point/wms`;
 // Газар зүйн нэр (geoname_view) WMS суурь URL — толгойн хайлтад
 const GEONAME_WMS_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:geoname_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
+// Шийдвэрийн панелийн хүснэгт — бусад жагсаалттай ижил бүтэц (TableHeadCustom)
+const LEGAL_TABLE_HEAD = [
+  { id: "", label: "Nº", width: 44 },
+  { id: "name", label: "Нэр" },
+  { id: "type", label: "Төрөл", width: 130 },
+  { id: "unit", label: "Нэгж", width: 110 },
+  { id: "order_date", label: "Огноо", width: 130 },
+  { id: "order_number", label: "Дугаар", width: 80 },
+  { id: "names_count", label: "Нэрс", width: 70, align: "right" },
+  { id: "", label: "", width: 84, align: "right" },
+];
+
 const RADIUS_FILL_COLOR = "rgba(33, 150, 243, 0.1)";
 const RADIUS_STROKE_COLOR = "#2196f3";
 const RADIUS_CENTER_STROKE_COLOR = "white";
@@ -637,11 +661,45 @@ function Map2() {
   const [legalDocsUnit, setLegalDocsUnit] = useState(null); // {id,name,level,count}
   const [legalDocs, setLegalDocs] = useState([]);
   const [legalDocsCount, setLegalDocsCount] = useState(0);
-  const [legalDocsPage, setLegalDocsPage] = useState(1); // 1‑based
   const [legalDocsSearch, setLegalDocsSearch] = useState("");
   const [legalDocsLoading, setLegalDocsLoading] = useState(false);
   const [legalNational, setLegalNational] = useState(null);
-  const LEGAL_PAGE_SIZE = 10;
+  // Хүснэгт — бусад жагсаалттай ижил (useTable + TableHeadCustom + пагинаци)
+  const legalTable = useTable({
+    defaultDense: true,
+    defaultOrder: "desc",
+    defaultOrderBy: "order_date",
+    defaultRowsPerPage: 10,
+  });
+  // Панелийн хэмжээ — зүүн/доод ирмэг, буланг чирж өөрчилнө
+  // Шийдвэрийн CRUD — эрхээр нь товчнуудыг харуулна
+  const legalPerms = useMenuPermissions({ content: "legal" });
+  const [legalForm, setLegalForm] = useState(null); // {mode:'create'|'edit', row}
+  const [legalDelRow, setLegalDelRow] = useState(null);
+  // Мөрийн 3 цэгийн цэс — бусад хүснэгттэй ижил (Засах / Устгах)
+  const [legalMenu, setLegalMenu] = useState(null);
+  const { enqueueSnackbar: legalSnack } = useSnackbar();
+  const [legalDocsRefresh, setLegalDocsRefresh] = useState(0);
+  const refetchLegalDocs = useCallback(() => setLegalDocsRefresh((n) => n + 1), []);
+  // Модны хүснэгтийн дүрснээс — доод attribute хүснэгтэд ТАБ болгож нээнэ
+  const openLegalTab = useCallback(
+    (f) => {
+      setLegalDocs([]);
+      setLegalDocsSearch("");
+      legalTable.onResetPage();
+      setLegalDocsUnit(f);
+      setActiveTabKey("legal");
+      setFeatureTabs((prev) => {
+        const rest = prev.filter((t) => t.key !== "legal");
+        return [...rest, { key: "legal", kind: "legal", label: f.name || "Шийдвэр" }];
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  // Газрын зургийн badge‑аас дуудахад ашиглана (init effect нь нэг л удаа ажилладаг)
+  const openLegalTabRef = useRef(null);
+  openLegalTabRef.current = openLegalTab;
   // Overlay давхаргуудын ил тод байдал (key→0..1)
   const [overlayOpacity, setOverlayOpacity] = useState({
     BASEMAP: 1,
@@ -733,7 +791,6 @@ function Map2() {
   const [nameResultsLoading, setNameResultsLoading] = useState(false);
   const NAME_PAGE_SIZE = 50;
   // Илэрцийн хүснэгтийг чирж хэмжээ өөрчлөх (resizable)
-  const [resTableSize, setResTableSize] = useState(null); // {w,h} px | null=default
   const resDragRef = useRef(null);
   const [featureSelector, setFeatureSelector] = useState({
     show: false,
@@ -1614,11 +1671,9 @@ function Map2() {
       legalOverlayRef.current = createLegalOverlay(mapObjRef.current, {
         onNational: setLegalNational,
         onSelectUnit: (props) => {
-          // Зөвхөн state тавина — доорх effect нь хайлт/хуудаслалтаар татна
-          setLegalDocsSearch("");
-          setLegalDocsPage(1);
-          setLegalDocsUnit({
-            id: props.id,
+          // Доод attribute хүснэгтэд «Шийдвэр» таб болгож нээнэ
+          openLegalTabRef.current?.({
+            unitId: props.id,
             name: props.name,
             level: props.level,
             count: props.count,
@@ -1663,12 +1718,17 @@ function Map2() {
     const run = async () => {
       setLegalDocsLoading(true);
       try {
+        // Эх сурвалж: газрын зургийн badge ({id}) эсвэл модны зангилаа
+        // ({unitId, typeId, noUnit})
+        const unitId = legalDocsUnit.unitId ?? legalDocsUnit.id;
         const qs = new URLSearchParams({
-          map_unit: String(legalDocsUnit.id),
-          page: String(legalDocsPage),
-          page_size: String(LEGAL_PAGE_SIZE),
-          ordering: "-order_date",
+          page: String(legalTable.page + 1),
+          page_size: String(legalTable.rowsPerPage),
+          ordering: `${legalTable.order === "desc" ? "-" : ""}${legalTable.orderBy}`,
         });
+        if (legalDocsUnit.noUnit) qs.set("no_unit", "1");
+        else if (unitId != null) qs.set("map_unit", String(unitId));
+        if (legalDocsUnit.typeId) qs.set("type", String(legalDocsUnit.typeId));
         if (legalDocsSearch.trim()) qs.set("search", legalDocsSearch.trim());
         const res = await axiosInstance.get(
           endpoints.legal.list(qs.toString()),
@@ -1685,7 +1745,32 @@ function Map2() {
     const t = setTimeout(run, legalDocsSearch ? 300 : 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [legalDocsUnit, legalDocsPage, legalDocsSearch]);
+  }, [
+    legalDocsUnit,
+    legalDocsSearch,
+    legalTable.page,
+    legalTable.rowsPerPage,
+    legalTable.order,
+    legalTable.orderBy,
+    legalDocsRefresh,
+  ]);
+
+  // Шийдвэр устгах (доод жагсаалтаас)
+  const handleLegalDelete = useCallback(async () => {
+    if (!legalDelRow) return;
+    try {
+      await axiosInstance.delete(endpoints.legal.delete(legalDelRow.id));
+      legalSnack("Шийдвэр устгагдлаа");
+      setLegalDelRow(null);
+      refetchLegalDocs();
+    } catch (err) {
+      legalSnack(
+        err?.response?.data?.detail || "Устгах үед алдаа гарлаа",
+        { variant: "warning" },
+      );
+    }
+  }, [legalDelRow, legalSnack, refetchLegalDocs]);
+
 
   // Дэлгэрэнгүй хайлтаас илэрц ирэхэд ({params, count}) — хуудаслалттай хүснэгт
   const handleNameSearchResults = useCallback((meta) => {
@@ -1693,10 +1778,20 @@ function Map2() {
       setSearchQuery(null);
       setSearchPage(0);
       setNameResults([]);
+      setFeatureTabs((prev) => prev.filter((t) => t.key !== "search"));
       return;
     }
     setSearchQuery(meta);
     setSearchPage(0);
+    // Доод attribute хүснэгтэд ТАБ болгож харуулна
+    setActiveTabKey("search");
+    setFeatureTabs((prev) => {
+      const rest = prev.filter((t) => t.key !== "search");
+      return [
+        ...rest,
+        { key: "search", kind: "search", label: "Хайлтын илэрц" },
+      ];
+    });
   }, []);
 
   // Идэвхтэй хайлтын одоогийн хуудсыг серверээс татна
@@ -1726,33 +1821,6 @@ function Map2() {
   }, [searchQuery, searchPage]);
 
   // Илэрцийн хүснэгтийн баруун‑доод булангаас чирж хэмжээ өөрчлөх
-  const startResTableResize = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const paper = e.currentTarget.parentElement;
-    const rect = paper.getBoundingClientRect();
-    resDragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      w: rect.width,
-      h: rect.height,
-    };
-    const onMove = (ev) => {
-      const d = resDragRef.current;
-      if (!d) return;
-      setResTableSize({
-        w: Math.max(320, d.w + (ev.clientX - d.startX)),
-        h: Math.max(160, d.h + (ev.clientY - d.startY)),
-      });
-    };
-    const onUp = () => {
-      resDragRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, []);
 
   // === Switch basemap when baseMap or wmsGroup changes ===
   useEffect(() => {
@@ -2605,6 +2673,17 @@ function Map2() {
   }, []);
 
   const closeFeatureTab = useCallback((key) => {
+    // Шийдвэр / хайлтын таб хаагдвал татсан дата‑г нь цэвэрлэнэ
+    if (key === "legal") {
+      setLegalDocsUnit(null);
+      setLegalDocs([]);
+      setLegalDocsSearch("");
+    }
+    if (key === "search") {
+      setSearchQuery(null);
+      setSearchPage(0);
+      setNameResults([]);
+    }
     setFeatureTabs((prev) => {
       const next = prev.filter((t) => t.key !== key);
       setActiveTabKey((cur) =>
@@ -3497,6 +3576,280 @@ function Map2() {
     };
   }, [handleShowMultiplePointsWithCql]);
 
+  // ── Хайлтын илэрц — доод attribute хүснэгтийн ТАБ ──
+  const SEARCH_TABLE_HEAD = [
+    { id: "", label: "Nº", width: 44 },
+    { id: "", label: "Нэр" },
+    { id: "", label: "Дугаар", width: 150 },
+    { id: "", label: "Солбицол", width: 200 },
+  ];
+  const renderSearchTab = (
+    <Box
+      sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+    >
+      <TableContainer sx={{ flex: 1, position: "relative", overflow: "auto" }}>
+        <Scrollbar>
+          <Table size="small" sx={{ minWidth: 640 }} stickyHeader>
+            <TableHeadCustom headLabel={SEARCH_TABLE_HEAD} />
+            <TableBody>
+              {nameResultsLoading &&
+                Array.from({ length: 8 }).map((_, i) => (
+                  <TableSkeleton
+                    key={i}
+                    headLength={SEARCH_TABLE_HEAD.length}
+                  />
+                ))}
+
+              {!nameResultsLoading &&
+                nameResults.map((it, i) => {
+                  const bbox = it.lat == null ? geoJsonBbox(it.geom) : null;
+                  const canFly = it.lat != null || bbox != null;
+                  return (
+                    <TableRow
+                      key={it.id}
+                      hover
+                      onClick={() => {
+                        if (it.lat != null) {
+                          handleFlyTo({ center: [it.lon, it.lat], zoom: 14 });
+                        } else if (bbox) {
+                          handleFlyTo({ bbox });
+                        }
+                      }}
+                      sx={{ cursor: canFly ? "pointer" : "default" }}
+                    >
+                      <TableCell>
+                        {searchPage * NAME_PAGE_SIZE + i + 1}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>
+                        {it.name || "—"}
+                      </TableCell>
+                      <TableCell>{it.number}</TableCell>
+                      <TableCell>
+                        {it.lat != null
+                          ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}`
+                          : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+
+              <TableNoData
+                notFound={!nameResultsLoading && !nameResults.length}
+              />
+            </TableBody>
+          </Table>
+        </Scrollbar>
+      </TableContainer>
+
+      <TablePaginationCustom
+        count={searchQuery?.count || 0}
+        //
+        page={searchPage}
+        onPageChange={(e, p) => setSearchPage(p)}
+        //
+        rowsPerPage={NAME_PAGE_SIZE}
+        rowsPerPageOptions={[NAME_PAGE_SIZE]}
+      />
+    </Box>
+  );
+
+  // ── Шийдвэрийн жагсаалт — доод attribute хүснэгтийн ТАБ болж харагдана ──
+  const renderLegalTab = (
+    <Box
+      sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+    >
+      {/* Toolbar — хайлт (нэр, дугаар, төрөл, огноо) + нэмэх */}
+      <Box
+        sx={{ px: 1.5, py: 1, display: "flex", alignItems: "center", gap: 1 }}
+      >
+        <TextField
+          fullWidth
+          size="small"
+          placeholder="Нэр, дугаар, төрөл, огноогоор хайх…"
+          value={legalDocsSearch}
+          onChange={(e) => {
+            setLegalDocsSearch(e.target.value);
+            legalTable.onResetPage();
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" sx={{ color: "text.disabled" }} />
+              </InputAdornment>
+            ),
+          }}
+        />
+        {legalPerms.create && (
+          <Tooltip title="Шинэ шийдвэр нэмэх">
+            <IconButton
+              color="primary"
+              onClick={() => setLegalForm({ mode: "create", row: null })}
+            >
+              <Iconify icon="mingcute:add-line" width={20} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Box>
+
+      {/* НЭМЭХ форм — toolbar‑ын ЯГ доор (засах нь мөрийнхөө доор гарна) */}
+      {legalForm?.mode === "create" && (
+        <Box
+          sx={{
+            px: 1.5,
+            pb: 1.5,
+            maxHeight: "70%",
+            overflowY: "auto",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.neutral",
+          }}
+        >
+          <LegalNewEditForm
+            currentItem={legalForm.row}
+            onClose={() => setLegalForm(null)}
+            refetch={refetchLegalDocs}
+          />
+        </Box>
+      )}
+
+      <TableContainer sx={{ flex: 1, position: "relative", overflow: "auto" }}>
+        <Scrollbar>
+          <Table
+            size={legalTable.dense ? "small" : "medium"}
+            sx={{ minWidth: 720 }}
+            stickyHeader
+          >
+            <TableHeadCustom
+              headLabel={LEGAL_TABLE_HEAD}
+              //
+              order={legalTable.order}
+              onSort={legalTable.onSort}
+              orderBy={legalTable.orderBy}
+            />
+
+            <TableBody>
+              {legalDocsLoading &&
+                Array.from({ length: legalTable.rowsPerPage }).map((_, i) => (
+                  <TableSkeleton key={i} headLength={LEGAL_TABLE_HEAD.length} />
+                ))}
+
+              {!legalDocsLoading &&
+                legalDocs.map((d, i) => (
+                  <React.Fragment key={d.id}>
+                    <TableRow hover>
+                    <TableCell>
+                      {legalTable.page * legalTable.rowsPerPage + i + 1}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
+                    <TableCell>{d.type?.name || "—"}</TableCell>
+                    <TableCell>{d.unit?.unit || "—"}</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      {d.order_date || "—"}
+                    </TableCell>
+                    <TableCell>{d.order_number || "—"}</TableCell>
+                    <TableCell align="right">{d.names_count ?? 0}</TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                      {(legalPerms.update || legalPerms.delete) && (
+                        <IconButton
+                          size="small"
+                          color={legalMenu?.row?.id === d.id ? "inherit" : "default"}
+                          onClick={(e) =>
+                            setLegalMenu({ anchor: e.currentTarget, row: d })
+                          }
+                        >
+                          <Iconify icon="eva:more-vertical-fill" width={18} />
+                        </IconButton>
+                      )}
+                    </TableCell>
+                  </TableRow>
+
+                    {/* ЗАСАХ форм — тухайн мөрийнхөө ЯГ доор задарна */}
+                    {legalForm?.mode === "edit" &&
+                      legalForm.row?.id === d.id && (
+                        <TableRow>
+                          <TableCell
+                            colSpan={LEGAL_TABLE_HEAD.length}
+                            sx={{ p: 0, borderBottom: "none" }}
+                          >
+                            <Collapse in unmountOnExit>
+                              <Box
+                                sx={{
+                                  px: 1.5,
+                                  py: 1.5,
+                                  bgcolor: "background.neutral",
+                                }}
+                              >
+                                <LegalNewEditForm
+                                  currentItem={legalForm.row}
+                                  onClose={() => setLegalForm(null)}
+                                  refetch={refetchLegalDocs}
+                                />
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                  </React.Fragment>
+                ))}
+
+              <TableNoData notFound={!legalDocsLoading && !legalDocs.length} />
+            </TableBody>
+          </Table>
+        </Scrollbar>
+      </TableContainer>
+
+      {/* Мөрийн үйлдлийн цэс — төслийн нэгдсэн загвар (MenuItem) */}
+      <Menu
+        open={!!legalMenu}
+        anchorEl={legalMenu?.anchor}
+        onClose={() => setLegalMenu(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { width: 160 } } }}
+      >
+        {legalPerms.update && (
+          <MenuItem
+            onClick={() => {
+              setLegalForm({ mode: "edit", row: legalMenu.row });
+              setLegalMenu(null);
+            }}
+          >
+            <Iconify icon="solar:pen-bold" sx={{ mr: 1 }} />
+            Засах
+          </MenuItem>
+        )}
+        {legalPerms.delete && (
+          <>
+            <Divider sx={{ borderStyle: "dashed" }} />
+            <MenuItem
+              sx={{ color: "error.main" }}
+              onClick={() => {
+                setLegalDelRow(legalMenu.row);
+                setLegalMenu(null);
+              }}
+            >
+              <Iconify icon="solar:trash-bin-trash-bold" sx={{ mr: 1 }} />
+              Устгах
+            </MenuItem>
+          </>
+        )}
+      </Menu>
+
+      <TablePaginationCustom
+        count={legalDocsCount}
+        //
+        page={legalTable.page}
+        onPageChange={legalTable.onChangePage}
+        //
+        rowsPerPage={legalTable.rowsPerPage}
+        onRowsPerPageChange={legalTable.onChangeRowsPerPage}
+        //
+        dense={legalTable.dense}
+        onChangeDense={legalTable.onChangeDense}
+      />
+    </Box>
+  );
+
   return (
     <Box
       sx={{
@@ -3744,146 +4097,6 @@ function Map2() {
           />
         )}
 
-        {/* Их хэмжээний хайлтын илэрц — газрын зургийн дээд талд тусдаа хүснэгт,
-            формын ард (z-index формоос бага) */}
-        {searchQuery && searchQuery.count > 0 && (
-          <Paper
-            elevation={6}
-            sx={{
-              position: "absolute",
-              top: 8,
-              left: { xs: 8, sm: 452 }, // формын (440) ард талаас эхлэх
-              right: resTableSize?.w ? "auto" : 8,
-              width: resTableSize?.w ?? undefined,
-              height: resTableSize?.h ?? undefined,
-              zIndex: 1200, // формоос (1201) бага
-              maxHeight: resTableSize?.h ? "none" : "45%",
-              minWidth: 320,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              borderRadius: 1.5,
-            }}
-          >
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                px: 1.5,
-                py: 0.75,
-                bgcolor: "#0675c9",
-                color: "#fff",
-              }}
-            >
-              <Typography variant="subtitle2">
-                Хайлтын илэрц — {searchQuery.count}
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={() => {
-                  setSearchQuery(null);
-                  setNameResults([]);
-                }}
-                sx={{ color: "#fff" }}
-              >
-                <CloseRoundedIcon fontSize="small" />
-              </IconButton>
-            </Box>
-            <TableContainer sx={{ flex: 1, overflowY: "auto" }}>
-              <Table size="small" stickyHeader>
-                <TableHead>
-                  <TableRow>
-                    <TableCell width={48}>№</TableCell>
-                    <TableCell>Нэр</TableCell>
-                    <TableCell>Дугаар</TableCell>
-                    <TableCell>Солбицол</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {nameResults.map((it, i) => {
-                    const bbox = it.lat == null ? geoJsonBbox(it.geom) : null;
-                    const canFly = it.lat != null || bbox != null;
-                    return (
-                      <TableRow
-                        key={it.id}
-                        hover
-                        onClick={() => {
-                          if (it.lat != null) {
-                            handleFlyTo({ center: [it.lon, it.lat], zoom: 14 });
-                          } else if (bbox) {
-                            handleFlyTo({ bbox });
-                          }
-                        }}
-                        sx={{ cursor: canFly ? "pointer" : "default" }}
-                      >
-                        <TableCell>
-                          {searchPage * NAME_PAGE_SIZE + i + 1}
-                        </TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>
-                          {it.name || "—"}
-                        </TableCell>
-                        <TableCell>{it.number}</TableCell>
-                        <TableCell>
-                          {it.lat != null
-                            ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}`
-                            : "—"}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {!nameResultsLoading && nameResults.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} align="center">
-                        Ачаалж байна…
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            {searchQuery.count > NAME_PAGE_SIZE && (
-              <TablePagination
-                component="div"
-                count={searchQuery.count}
-                page={searchPage}
-                onPageChange={(e, p) => setSearchPage(p)}
-                rowsPerPage={NAME_PAGE_SIZE}
-                rowsPerPageOptions={[]}
-                labelDisplayedRows={({ from, to, count }) =>
-                  `${from}–${to} / ${count}`
-                }
-                sx={{
-                  borderTop: (t) => `1px solid ${t.palette.divider}`,
-                  "& .MuiTablePagination-toolbar": { minHeight: 40 },
-                }}
-              />
-            )}
-            {/* Хэмжээ өөрчлөх бариул (баруун‑доод булан) */}
-            <Box
-              onMouseDown={startResTableResize}
-              sx={{
-                position: "absolute",
-                right: 0,
-                bottom: 0,
-                width: 18,
-                height: 18,
-                cursor: "nwse-resize",
-                zIndex: 3,
-                "&::after": {
-                  content: '""',
-                  position: "absolute",
-                  right: 3,
-                  bottom: 3,
-                  width: 8,
-                  height: 8,
-                  borderRight: "2px solid #94a3b8",
-                  borderBottom: "2px solid #94a3b8",
-                },
-              }}
-            />
-          </Paper>
-        )}
 
         {/* Улсын хэмжээ (ЗЗ нэгжгүй) шийдвэрийн тоо — zoom 2‑5 дээр */}
         {overlayLegal && legalNational != null && (
@@ -3907,136 +4120,28 @@ function Map2() {
           </Paper>
         )}
 
-        {/* Badge дээр дарахад — тухайн нэгжийн шийдвэрүүд */}
-        {legalDocsUnit && (
-          <Paper
-            elevation={8}
-            sx={{
-              position: "absolute",
-              top: 8,
-              right: 8,
-              bottom: 8,
-              width: { xs: "calc(100% - 16px)", sm: 460 },
-              maxHeight: "calc(100% - 16px)",
-              zIndex: 1300,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              borderRadius: 1.5,
-            }}
-          >
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                px: 1.5,
-                py: 0.75,
-                bgcolor: "#1d4ed8",
-                color: "#fff",
-              }}
+
+        {/* Устгах баталгаажуулалт */}
+        <Dialog open={!!legalDelRow} onClose={() => setLegalDelRow(null)}>
+          <DialogTitle>Шийдвэр устгах</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2">
+              «{legalDelRow?.name}» шийдвэрийг устгах уу?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button color="inherit" onClick={() => setLegalDelRow(null)}>
+              Болих
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={handleLegalDelete}
             >
-              <Typography variant="subtitle2" noWrap>
-                {legalDocsUnit.name} — {legalDocsUnit.count} шийдвэр
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={() => {
-                  setLegalDocsUnit(null);
-                  setLegalDocs([]);
-                  setLegalDocsSearch("");
-                  setLegalDocsPage(1);
-                }}
-                sx={{ color: "#fff" }}
-              >
-                <CloseRoundedIcon fontSize="small" />
-              </IconButton>
-            </Box>
-
-            {/* Хайлт */}
-            <Box sx={{ px: 1.5, py: 1 }}>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="Нэр, дугаараар хайх…"
-                value={legalDocsSearch}
-                onChange={(e) => {
-                  setLegalDocsSearch(e.target.value);
-                  setLegalDocsPage(1);
-                }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon
-                        fontSize="small"
-                        sx={{ color: "text.disabled" }}
-                      />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Box>
-
-            <TableContainer sx={{ flex: 1, overflowY: "auto" }}>
-              {legalDocsLoading ? (
-                <Box
-                  sx={{ py: 3, textAlign: "center", color: "text.secondary" }}
-                >
-                  <Typography variant="body2">Ачаалж байна…</Typography>
-                </Box>
-              ) : (
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell width={32}>Nº</TableCell>
-                      <TableCell>Нэр</TableCell>
-                      <TableCell width={96}>Огноо</TableCell>
-                      <TableCell width={64}>Дугаар</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {legalDocs.map((d, i) => (
-                      <TableRow key={d.id} hover>
-                        <TableCell>
-                          {(legalDocsPage - 1) * LEGAL_PAGE_SIZE + i + 1}
-                        </TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
-                        <TableCell>{d.order_date || "—"}</TableCell>
-                        <TableCell>{d.order_number || "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                    {!legalDocs.length && (
-                      <TableRow>
-                        <TableCell colSpan={4} align="center">
-                          Шийдвэр алга
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-            </TableContainer>
-
-            {/* Хуудаслалт */}
-            {legalDocsCount > LEGAL_PAGE_SIZE && (
-              <TablePagination
-                component="div"
-                count={legalDocsCount}
-                page={legalDocsPage - 1}
-                onPageChange={(e, p) => setLegalDocsPage(p + 1)}
-                rowsPerPage={LEGAL_PAGE_SIZE}
-                rowsPerPageOptions={[]}
-                labelDisplayedRows={({ from, to, count }) =>
-                  `${from}–${to} / ${count}`
-                }
-                sx={{
-                  borderTop: (t) => `1px solid ${t.palette.divider}`,
-                  "& .MuiTablePagination-toolbar": { minHeight: 44 },
-                }}
-              />
-            )}
-          </Paper>
-        )}
+              Устгах
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         <GeoserverDialog
           onNodeAction={handleRecountNodeAction}
@@ -4055,8 +4160,6 @@ function Map2() {
           systems={systems}
           aimags={aimags}
           soums={soums}
-          baseMap={baseMap}
-          setBaseMap={setBaseMap}
           onMeasurementSearchResults={handleSearchResults}
           onClearMeasurementResults={handleClearSearchResults}
           onStartDrawing={() =>
@@ -4094,6 +4197,10 @@ function Map2() {
           setSearchPointState={setSearchPointState}
           scaleDenom={scaleDenom}
           onRecountCql={setRecountCql}
+          // «Шийдвэрийн сан» таб нээхэд ЗЗ нэгжийн хил + тооны overlay асна
+          onTabChange={(t) => setOverlayLegal(t === "legal")}
+          // Модны хүснэгтийн дүрс → доод хүснэгтэд ТАБ болгож нээнэ
+          onLegalOpenList={openLegalTab}
         />
         <Box
           sx={{
@@ -4362,6 +4469,7 @@ function Map2() {
           </Box>
         </Box>
 
+
       {/* ─── Доод ATTRIBUTE хүснэгт — нээсэн ангилал бүрд таб, чирж өндөр солино ─── */}
       {featureTabs.length > 0 && (
         <>
@@ -4384,6 +4492,7 @@ function Map2() {
               height: splitH,
               flexShrink: 0,
               ml: `${managePanelW}px`,
+              pl: 1.5,
               display: "flex",
               flexDirection: "column",
               bgcolor: "background.paper",
@@ -4429,7 +4538,12 @@ function Map2() {
             </Tabs>
             {featureTabs
               .filter((t) => t.key === activeTabKey)
-              .map((t) => (
+              .map((t) =>
+                t.kind === "legal" ? (
+                  <React.Fragment key={t.key}>{renderLegalTab}</React.Fragment>
+                ) : t.kind === "search" ? (
+                  <React.Fragment key={t.key}>{renderSearchTab}</React.Fragment>
+                ) : (
                 <FeatureTabPanel
                   key={t.key}
                   tab={t}
@@ -4457,7 +4571,8 @@ function Map2() {
                     }
                   }}
                 />
-              ))}
+                ),
+              )}
           </Box>
         </>
       )}

@@ -21,6 +21,8 @@ import axiosInstance, { endpoints } from "src/utils/axios";
 
 const LEVEL_COLOR = { aimag: "#1d4ed8", sum: "#0891b2", bag: "#059669" };
 const HOVER = "#f59e0b";
+// Шийдвэргүй нэгжийн хил — зөвхөн байршлын хүрээ болгож саарлаар
+const EMPTY_STROKE = "#b0b7c3";
 
 function levelForZoom(zoom) {
   if (zoom < 7) return "aimag";
@@ -49,10 +51,18 @@ export function createLegalOverlay(map, opts = {}) {
     style: (f) => {
       const color = LEVEL_COLOR[f.get("level")] || "#1d4ed8";
       const hov = f.get("id") === hoveredId;
+      const has = (f.get("count") || 0) > 0;
+      // Шийдвэргүй — зөвхөн саарал хил (дэвсгэргүй), шийдвэртэй — цэнхэр тодруулга
+      if (!has && !hov) {
+        return new Style({
+          stroke: new Stroke({ color: EMPTY_STROKE, width: 1 }),
+          fill: new Fill({ color: "rgba(0,0,0,0)" }),
+        });
+      }
       return new Style({
-        stroke: new Stroke({ color: hov ? HOVER : color, width: hov ? 3 : 1.5 }),
+        stroke: new Stroke({ color: hov ? HOVER : color, width: hov ? 3 : 2 }),
         fill: new Fill({
-          color: hov ? "rgba(245,158,11,0.18)" : "rgba(29,78,216,0.05)",
+          color: hov ? "rgba(245,158,11,0.18)" : "rgba(29,78,216,0.10)",
         }),
       });
     },
@@ -104,7 +114,8 @@ export function createLegalOverlay(map, opts = {}) {
     }
 
     const level = levelForZoom(zoom);
-    let q = `level=${level}`;
+    // empty=1 → шийдвэргүй нэгжийн хил ч ирнэ (саарал контекст хүрээ)
+    let q = `level=${level}&empty=1`;
     if (level !== "aimag") {
       const ext4326 = transformExtent(
         view.calculateExtent(size),
@@ -138,6 +149,7 @@ export function createLegalOverlay(map, opts = {}) {
         if (loadedIds.has(id)) return;
         loadedIds.add(id);
         newB.push(f);
+        if (!(f.get("count") > 0)) return; // шийдвэргүй бол badge гаргахгүй
         const p = new Feature({
           geometry: new Point(fromLonLat([f.get("cx"), f.get("cy")])),
         });

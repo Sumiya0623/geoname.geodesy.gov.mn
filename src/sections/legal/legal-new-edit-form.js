@@ -10,7 +10,6 @@ import {
   Stack,
   Button,
   MenuItem,
-  Typography,
   Divider,
 } from "@mui/material";
 import LoadingButton from "@mui/lab/LoadingButton";
@@ -281,16 +280,20 @@ export default function LegalNewEditForm({
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <RHFTextField name="name" label="Нэр" />
-            <RHFSelect name="type" label="Төрөл" sx={{ minWidth: { sm: 100 } }}>
+          </Stack>
+
+          <Stack flexDirection={{ xs: "column", sm: "row" }} spacing={2}>
+            <RHFSelect
+              name="type"
+              label="Шийдвэрийн төрөл"
+              sx={{ minWidth: { sm: 100 } }}
+            >
               {orderTypes.map((t) => (
                 <MenuItem key={t.id} value={t.id}>
                   {t.name}
                 </MenuItem>
               ))}
             </RHFSelect>
-          </Stack>
-
-          <Stack flexDirection={{ xs: "column", sm: "row" }} spacing={2}>
             <RHFTextField name="order_number" label="Дугаар" />
             <RHFDatePicker
               name="order_date"
@@ -298,7 +301,6 @@ export default function LegalNewEditForm({
               variant="outlined"
               format="yyyy-MM-dd"
             />
-            <RHFTextField name="signer" label="Гарын үсэг (батлагч)" />
           </Stack>
 
           {needAimag && (
@@ -324,15 +326,13 @@ export default function LegalNewEditForm({
           <Box sx={{ gridColumn: "1 / -1" }}>
             <RHFTextField
               name="description"
-              label="Тайлбар"
+              label="Товч агуулга"
               multiline
               rows={3}
             />
           </Box>
-
+          <RHFTextField name="signer" label="Гарын үсэг (батлагч)" />
           <Box sx={{ gridColumn: "1 / -1" }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}></Typography>
-
             <UploadPDFField
               name="document"
               label="Файл"

@@ -5,18 +5,15 @@ import {
   Typography,
   Tooltip,
   Paper,
-  Avatar,
   Divider,
   Chip,
   Collapse,
-  List,
-  ListItemButton,
   ListItemIcon,
   ListItemText,
   Menu,
   MenuItem,
-  Tabs,
-  Tab,
+  ToggleButton,
+  ToggleButtonGroup,
   useMediaQuery,
 } from "@mui/material";
 import { usePathname } from "next/navigation";
@@ -27,10 +24,6 @@ import {
   FilterList as FilterIcon,
   Layers as LayersIcon,
   Close as CloseIcon,
-  Satellite as SatelliteIcon,
-  Map as MapIcon,
-  Terrain as TerrainIcon,
-  Public as PublicIcon,
   LayersClearRounded as ClearLayersIcon,
   Place as GeomPointIcon,
   Timeline as GeomLineIcon,
@@ -45,6 +38,7 @@ import {
   CropFree as RectSelIcon,
   Pentagon as PolySelIcon,
   AccountTree as UnitTreeIcon,
+  GavelRounded as LegalIcon,
 } from "@mui/icons-material";
 
 import MapAddName from "./MapAddName";
@@ -52,6 +46,7 @@ import RasterPrintPanel from "../../sections/raster/print-map-panel";
 import NameCategoryTree from "./NameCategoryTree";
 import RecountPanel from "./RecountPanel";
 import RecountUnitTree from "./RecountUnitTree";
+import LegalUnitTree from "./LegalUnitTree";
 import AdvancedSearch from "./AdvancedSearch";
 
 // geoname:geoname_view (бүх геонэр) WMS суурь URL — Нэрийн ангилал филтерт
@@ -71,14 +66,37 @@ function ActiveGeomIcon({ desc }) {
   return <GeomOtherIcon sx={{ fontSize: 16, color: "#0675c9" }} />;
 }
 
+// Панелийн табууд — толгойн доор хэвтээ toggle товчлуураар харагдана
+const PANEL_TABS = [
+  {
+    value: "layers",
+    label: "Нэрийн сан",
+    Icon: LayersIcon,
+    color: "#0675c9",
+    id: "geoserver-network",
+  },
+  {
+    value: "recount",
+    label: "Тодруулалт",
+    Icon: UnitTreeIcon,
+    color: "#7c3aed",
+    id: "geoserver-recount",
+  },
+  {
+    value: "legal",
+    label: "Шийдвэр",
+    Icon: LegalIcon,
+    color: "#b45309",
+    id: "geoserver-legal",
+  },
+];
+
 function GeoserverDialog({
   enabledFilters = new Set(),
   onFilterChange,
   onSearchChange,
   searchValue = "",
   title = "Удирдлага",
-  baseMap,
-  setBaseMap,
   onStartDrawing,
   onDrawCircle,
   onStartPickPoint,
@@ -97,6 +115,10 @@ function GeoserverDialog({
   onNodeAction,
   // Панелийн өргөн өөрчлөгдөхөд эцэгт мэдэгдэнэ (доод хүснэгт мөрөө тааруулна)
   onWidthChange,
+  // Идэвхтэй таб солигдоход эцэгт мэдэгдэнэ (ж: Шийдвэрийн сан → хилийн overlay)
+  onTabChange,
+  // Шийдвэрийн модны хүснэгтийн дүрс дарахад доод жагсаалтыг нээнэ
+  onLegalOpenList,
 }) {
   const theme = useTheme();
   const isSmall = useMediaQuery(theme.breakpoints.down("sm"));
@@ -159,6 +181,13 @@ function GeoserverDialog({
   );
   const [tab, setTab] = useState("layers");
   const [addOpen, setAddOpen] = useState(false);
+
+  // Идэвхтэй табыг эцэгт мэдэгдэнэ (панель нээлттэй үед л)
+  const onTabChangeRef = useRef(onTabChange);
+  onTabChangeRef.current = onTabChange;
+  useEffect(() => {
+    onTabChangeRef.current?.(open ? tab : null);
+  }, [tab, open]);
 
   // Зөвхөн төслийн газрын зураг (/dashboard/champaign/<id>/map) — шинэ нэр нэмэх
   const pathname = usePathname();
@@ -390,81 +419,63 @@ function GeoserverDialog({
               <CloseIcon fontSize="small" />
             </IconButton>
           </Box>
+          {/* Табууд — толгойн доор хэвтээ toggle товчлууруудаар */}
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={tab}
+            onChange={(e, v) => v && handleTabChange(e, v)}
+            sx={{
+              px: 1,
+              py: 0.75,
+              gap: 0.75,
+              flexWrap: "wrap",
+              bgcolor: "#fff",
+              borderBottom: "1px solid #f0f0f0",
+              flexShrink: 0,
+              "& .MuiToggleButtonGroup-grouped": {
+                border: "1px solid #e5e7eb !important",
+                borderRadius: "8px !important",
+                px: 1,
+                py: 0.5,
+                gap: 0.5,
+                textTransform: "none",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "text.secondary",
+                whiteSpace: "nowrap",
+              },
+            }}
+          >
+            {PANEL_TABS.map(({ value, label, Icon, color, id }) => (
+              <ToggleButton
+                key={value}
+                value={value}
+                id={id}
+                sx={{
+                  "&.Mui-selected": {
+                    color,
+                    bgcolor: `${color}14`,
+                    borderColor: `${color}66 !important`,
+                    "&:hover": { bgcolor: `${color}1f` },
+                  },
+                }}
+              >
+                <Icon sx={{ fontSize: 18, color }} />
+                {!isSmall && label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+
           <Box
             sx={{
               display: "flex",
               flex: 1,
               minHeight: 0,
-              flexDirection: isSmall ? "column" : "row",
+              flexDirection: "column",
               height: "100%",
             }}
           >
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                borderRight: isSmall ? "none" : "1px solid #f0f0f0",
-                borderBottom: isSmall ? "1px solid #f0f0f0" : "none",
-                width: isSmall ? "100%" : 56,
-                bgcolor: "#fff",
-                flexShrink: 0,
-              }}
-            >
-              {/* Дээд талын tabs */}
-              <Tabs
-                orientation={isSmall ? "horizontal" : "vertical"}
-                value={tab}
-                onChange={handleTabChange}
-                variant={isSmall ? "fullWidth" : "standard"}
-                sx={{
-                  flexGrow: 1,
-                  "& .MuiTab-root": {
-                    justifyContent: "center",
-                    minHeight: 48,
-                    margin: "0!important",
-                  },
-                }}
-              >
-                <Tooltip title="Газар зүйн нэрийн сан" placement="right">
-                  <Tab
-                    value="layers"
-                    id="geoserver-network"
-                    icon={<LayersIcon sx={{ color: "#0675c9" }} />}
-                  />
-                </Tooltip>
-                <Tooltip title="Тодруулалтын сан" placement="right">
-                  <Tab
-                    value="recount"
-                    id="geoserver-recount"
-                    icon={<UnitTreeIcon sx={{ color: "#7c3aed" }} />}
-                  />
-                </Tooltip>
-                {isSmall && (
-                  <Tab
-                    value="basemap"
-                    id="geoserver-basemap-mobile"
-                    icon={<MapIcon />}
-                    aria-label="basemap"
-                  />
-                )}
-              </Tabs>
-
-              {!isSmall && (
-                <Tab
-                  value="basemap"
-                  id="geoserver-basemap-desktop"
-                  icon={<MapIcon />}
-                  onClick={(e) => handleTabChange(e, "basemap")}
-                  selected={tab === "basemap"}
-                  sx={{
-                    justifyContent: "center",
-                    minHeight: 48,
-                    borderTop: "1px solid #f0f0f0",
-                    bgcolor: "#fff",
-                  }}
-                />
-              )}
-            </Box>
             <Box
               sx={{
                 flex: 1,
@@ -804,9 +815,6 @@ function GeoserverDialog({
                       <UnitTreeIcon sx={{ fontSize: 18 }} />
                       Тодруулалтын сан
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Аймаг → Сум → тодруулалтыг сонгож газрын зурагт харна
-                    </Typography>
                   </Box>
                   <Box sx={{ flex: 1, minHeight: 0 }}>
                     <RecountUnitTree
@@ -817,82 +825,42 @@ function GeoserverDialog({
                 </Box>
               )}
 
-              {tab === "basemap" && (
-                <Box sx={{ minHeight: 300, p: 1, overflowY: "auto" }}>
-                  <Typography variant="h6">Суурь зураг сонгох</Typography>
-                  <List dense>
-                    {[
-                      "CRV",
-                      "OSM",
-                      "GMS",
-                      "ESRI",
-                      "TOPO",
-                      "M100k",
-                      "M100kGeoName",
-                    ].map((key) => {
-                      const colorMap = {
-                        CRV: "#1976d2",
-                        OSM: "#4caf50",
-                        GMS: "#ff9800",
-                        ESRI: "#9c27b0",
-                        TOPO: "#795548",
-                        M100k: "#607d8b",
-                        M100kGeoName: "#f44336",
-                      };
-                      const iconFor = (k) => {
-                        if (k === "GMS" || k === "ESRI")
-                          return <SatelliteIcon />;
-                        if (k === "TOPO") return <TerrainIcon />;
-                        if (k === "OSM") return <PublicIcon />;
-                        return <MapIcon />;
-                      };
-                      const labelMap = {
-                        CRV: "Voyager",
-                        OSM: "OpenStreetMap",
-                        GMS: "Google Satellite",
-                        ESRI: "Esri Imagery",
-                        TOPO: "Topographic",
-                        M100kGeoName: "Нэрийн зураг",
-                        M100k: "Байр зүй",
-                      };
-                      const selected = baseMap === key;
-                      const color = colorMap[key] || "#607d8b";
-                      return (
-                        <ListItemButton
-                          key={key}
-                          selected={selected}
-                          onClick={() => setBaseMap && setBaseMap(key)}
-                          sx={{
-                            borderLeft: selected
-                              ? `3px solid ${color}`
-                              : "3px solid transparent",
-                            "&.Mui-selected": {
-                              backgroundColor: `${color}12`,
-                            },
-                            "&:hover": { backgroundColor: `${color}08` },
-                          }}
-                        >
-                          <ListItemIcon sx={{ minWidth: 40 }}>
-                            <Avatar
-                              variant="rounded"
-                              sx={{
-                                width: 32,
-                                height: 32,
-                                backgroundColor: `${color}18`,
-                                color,
-                              }}
-                            >
-                              {iconFor(key)}
-                            </Avatar>
-                          </ListItemIcon>
-                          <ListItemText
-                            primary={labelMap[key] || key}
-                            secondary={key}
-                          />
-                        </ListItemButton>
-                      );
-                    })}
-                  </List>
+              {tab === "legal" && (
+                <Box
+                  sx={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      px: 1.5,
+                      py: 1,
+                      borderBottom: "1px solid #f0f0f0",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Typography
+                      variant="subtitle2"
+                      sx={{
+                        color: "#b45309",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                      }}
+                    >
+                      <LegalIcon sx={{ fontSize: 18 }} />
+                      Шийдвэрийн сан
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, minHeight: 0 }}>
+                    <LegalUnitTree
+                      onFlyTo={onFlyTo}
+                      onOpenList={onLegalOpenList}
+                    />
+                  </Box>
                 </Box>
               )}
             </Box>

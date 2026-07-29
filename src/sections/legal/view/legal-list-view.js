@@ -47,7 +47,7 @@ import LegalNewEditForm from "../legal-new-edit-form";
 const TABLE_HEAD = [
   { id: "", label: "Nº", width: 48 },
   { id: "name", label: "Нэр" },
-  { id: "", label: "Нэгж" },
+  { id: "unit", label: "Нэгж" },
   { id: "order_date", label: "Огноо", width: 130 },
   { id: "order_number", label: "Дугаар" },
   { id: "", label: "Гарын үсэг", width: 150 },

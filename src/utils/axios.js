@@ -202,6 +202,8 @@ export const endpoints = {
     unitExtent: (id) => `/api/r/legal-unit/${id}/extent/`,
     // Газрын зургийн overlay — ЗЗ нэгжийн тогтоол/шийдвэрийн тоо (GeoJSON)
     mapCounts: (request_body) => `/api/r/legal/map-counts/?${request_body}`,
+    // Шийдвэрийн сангийн мод: Нийт / Аймаг → Сум → Төрөл
+    unitTree: (request_body) => `/api/r/legal/unit-tree/?${request_body}`,
     units: (request_body) =>
       `/api/r/legal-unit/?pagination=false&${request_body}`,
     unitExtent: (id) => `/api/r/legal-unit/${id}/extent/`,
