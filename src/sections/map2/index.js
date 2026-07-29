@@ -98,6 +98,7 @@ import Scrollbar from "src/components/scrollbar";
 import { useSnackbar } from "src/components/snackbar";
 import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 import LegalNewEditForm from "src/sections/legal/legal-new-edit-form";
+import { useGetLegalUnits } from "src/api/legal";
 import {
   useTable,
   TableNoData,
@@ -680,7 +681,10 @@ function Map2() {
   const [legalMenu, setLegalMenu] = useState(null);
   const { enqueueSnackbar: legalSnack } = useSnackbar();
   const [legalDocsRefresh, setLegalDocsRefresh] = useState(0);
-  const refetchLegalDocs = useCallback(() => setLegalDocsRefresh((n) => n + 1), []);
+  const refetchLegalDocs = useCallback(
+    () => setLegalDocsRefresh((n) => n + 1),
+    [],
+  );
   // Модны хүснэгтийн дүрснээс — доод attribute хүснэгтэд ТАБ болгож нээнэ
   const openLegalTab = useCallback(
     (f) => {
@@ -691,7 +695,10 @@ function Map2() {
       setActiveTabKey("legal");
       setFeatureTabs((prev) => {
         const rest = prev.filter((t) => t.key !== "legal");
-        return [...rest, { key: "legal", kind: "legal", label: f.name || "Шийдвэр" }];
+        return [
+          ...rest,
+          { key: "legal", kind: "legal", label: f.name || "Шийдвэр" },
+        ];
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -789,7 +796,61 @@ function Map2() {
   const [searchQuery, setSearchQuery] = useState(null);
   const [searchPage, setSearchPage] = useState(0); // 0‑based
   const [nameResultsLoading, setNameResultsLoading] = useState(false);
-  const NAME_PAGE_SIZE = 50;
+  // Хуудасны хэмжээ + серверээс ирсэн БОДИТ нийт тоо (searchQuery.count хуучирч болно)
+  const [searchPageSize, setSearchPageSize] = useState(50);
+  const [searchCount, setSearchCount] = useState(0);
+  // Илэрцийн хүснэгтийн доторх шүүлт/эрэмбэ
+  const [resTerm, setResTerm] = useState(""); // нэр, дугаар
+  const [resType, setResType] = useState(["", "", ""]); // Төрөл→Дэд→Ангилал
+  const [resAimag, setResAimag] = useState(""); // AdminUnit id
+  const [resSum, setResSum] = useState(""); // AdminUnit id
+  const [resGeom, setResGeom] = useState(""); // point | line | polygon | ""
+  const [resOrder, setResOrder] = useState({ by: "name", desc: false });
+  // Илэрцийн шүүлтийн сонголтууд — Төрөл → Дэд төрөл → Ангилал (parent‑аар)
+  const [resTypeOpts, setResTypeOpts] = useState([[], [], []]);
+  const fetchCats = useCallback(async (parent) => {
+    try {
+      const q = parent ? new URLSearchParams({ parent }).toString() : "";
+      const res = await axiosInstance.get(endpoints.nameCategory.list(q));
+      return res?.data?.results || res?.data || [];
+    } catch (e) {
+      return [];
+    }
+  }, []);
+  useEffect(() => {
+    fetchCats(null).then((r) => setResTypeOpts([r, [], []]));
+  }, [fetchCats]);
+  // Түвшин сонгоход дараагийн түвшнийг татаж, доошхийг цэвэрлэнэ
+  const pickResType = useCallback(
+    async (level, id) => {
+      setSearchPage(0);
+      const next = [...resType];
+      next[level] = id;
+      for (let i = level + 1; i < 3; i += 1) next[i] = "";
+      setResType(next);
+      if (level < 2) {
+        const kids = id ? await fetchCats(id) : [];
+        setResTypeOpts((prev) => {
+          const o = [...prev];
+          o[level + 1] = kids;
+          for (let i = level + 2; i < 3; i += 1) o[i] = [];
+          return o;
+        });
+      }
+    },
+    [resType, fetchCats],
+  );
+  // UNITLEVEL Constant‑ийн нэр ЯГ таарах ёстой ("Аймаг" гэвэл хоосон буцна)
+  const { units: resAimagOptions } = useGetLegalUnits(
+    "Аймаг/Нийслэл",
+    null,
+    true,
+  );
+  const { units: resSumOptions } = useGetLegalUnits(
+    "Сум/Дүүрэг",
+    resAimag || null,
+    !!resAimag,
+  );
   // Илэрцийн хүснэгтийг чирж хэмжээ өөрчлөх (resizable)
   const resDragRef = useRef(null);
   const [featureSelector, setFeatureSelector] = useState({
@@ -1764,13 +1825,11 @@ function Map2() {
       setLegalDelRow(null);
       refetchLegalDocs();
     } catch (err) {
-      legalSnack(
-        err?.response?.data?.detail || "Устгах үед алдаа гарлаа",
-        { variant: "warning" },
-      );
+      legalSnack(err?.response?.data?.detail || "Устгах үед алдаа гарлаа", {
+        variant: "warning",
+      });
     }
   }, [legalDelRow, legalSnack, refetchLegalDocs]);
-
 
   // Дэлгэрэнгүй хайлтаас илэрц ирэхэд ({params, count}) — хуудаслалттай хүснэгт
   const handleNameSearchResults = useCallback((meta) => {
@@ -1799,26 +1858,52 @@ function Map2() {
     if (!searchQuery) return undefined;
     let active = true;
     setNameResultsLoading(true);
-    (async () => {
+    const run = async () => {
       try {
-        const q = new URLSearchParams({
+        const qp = {
           ...searchQuery.params,
           page: searchPage + 1,
-          page_size: NAME_PAGE_SIZE,
-        }).toString();
+          page_size: searchPageSize,
+          ordering: `${resOrder.desc ? "-" : ""}${resOrder.by}`,
+        };
+        if (resTerm.trim()) qp.search = resTerm.trim();
+        // Хамгийн гүн сонгосон ангилал (backend нь удмыг нь хамруулна)
+        const deepType = [...resType].reverse().find(Boolean);
+        if (deepType) qp.type = deepType;
+        // Сум сонгосон бол сумаар, эс бөгөөс аймгаар (удам багтана)
+        if (resSum) qp.unit_tree = resSum;
+        else if (resAimag) qp.unit_tree = resAimag;
+        if (resGeom) qp.geom_type = resGeom;
+        const q = new URLSearchParams(qp).toString();
         const res = await axiosInstance.get(endpoints.geoname.list(q));
-        if (active) setNameResults(res?.data?.results || []);
+        if (active) {
+          setNameResults(res?.data?.results || []);
+          setSearchCount(res?.data?.count ?? searchQuery.count ?? 0);
+        }
       } catch (e) {
         if (active) setNameResults([]);
       } finally {
         if (active) setNameResultsLoading(false);
       }
-    })();
+    };
+    // Бичиж байхад бүр товчлуур бүрд хүсэлт явуулахгүй (debounce)
+    const t = setTimeout(run, resTerm ? 350 : 0);
     return () => {
       active = false;
+      clearTimeout(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, searchPage]);
+  }, [
+    searchQuery,
+    searchPage,
+    searchPageSize,
+    resTerm,
+    resType,
+    resAimag,
+    resSum,
+    resGeom,
+    resOrder,
+  ]);
 
   // Илэрцийн хүснэгтийн баруун‑доод булангаас чирж хэмжээ өөрчлөх
 
@@ -2640,7 +2725,8 @@ function Map2() {
                     props: f.properties || {},
                     geometry: f.geometry,
                   })),
-                  total: data.totalFeatures ?? data.numberMatched ?? feats.length,
+                  total:
+                    data.totalFeatures ?? data.numberMatched ?? feats.length,
                 }
               : t,
           ),
@@ -2667,7 +2753,9 @@ function Map2() {
   const patchTab = useCallback((key, patch) => {
     setFeatureTabs((prev) =>
       prev.map((t) =>
-        t.key === key ? { ...t, ...(typeof patch === "function" ? patch(t) : patch) } : t,
+        t.key === key
+          ? { ...t, ...(typeof patch === "function" ? patch(t) : patch) }
+          : t,
       ),
     );
   }, []);
@@ -3579,26 +3667,153 @@ function Map2() {
   // ── Хайлтын илэрц — доод attribute хүснэгтийн ТАБ ──
   const SEARCH_TABLE_HEAD = [
     { id: "", label: "Nº", width: 44 },
-    { id: "", label: "Нэр" },
-    { id: "", label: "Дугаар", width: 150 },
-    { id: "", label: "Солбицол", width: 200 },
+    { id: "name", label: "Нэр" },
+    { id: "number", label: "Дугаар" },
+    { id: "aimag_name", label: "Аймаг" },
+    { id: "sum_name", label: "Сум" },
+    { id: "geom_kind", label: "Геом", width: 70, align: "center" },
   ];
+  // units нь [{id,name,level}] — аймаг эхэнд, дараа нь сум
+  const unitAt = (units, key) =>
+    (units || []).find((u) => (u.level || "").includes(key))?.name || "—";
+  // Геометрийн төрлөөр дүрс — геомгүй бол null
+  const geomIcon = (t) => {
+    const g = String(t || "");
+    if (g.includes("Point"))
+      return { icon: "mdi:map-marker", color: "#16a34a", title: "Цэг" };
+    if (g.includes("Line"))
+      return { icon: "mdi:vector-polyline", color: "#2563eb", title: "Шугам" };
+    if (g.includes("Polygon"))
+      return { icon: "mdi:vector-square", color: "#d97706", title: "Талбай" };
+    return null;
+  };
   const renderSearchTab = (
     <Box
       sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
     >
+      {/* Toolbar — нэр/дугаар/төрөл/аймаг/сум + геометрийн төрөл */}
+      <Box
+        sx={{ px: 1.5, py: 1, display: "flex", alignItems: "center", gap: 1 }}
+      >
+        <TextField
+          fullWidth
+          size="small"
+          placeholder="Нэр, дугаараар хайх…"
+          value={resTerm}
+          onChange={(e) => {
+            setResTerm(e.target.value);
+            setSearchPage(0);
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" sx={{ color: "text.disabled" }} />
+              </InputAdornment>
+            ),
+          }}
+        />
+        {["Төрөл", "Дэд төрөл", "Ангилал"].map((lbl, lvl) => (
+          <TextField
+            key={lbl}
+            select
+            size="small"
+            label={lbl}
+            value={resType[lvl]}
+            disabled={lvl > 0 && !resType[lvl - 1]}
+            onChange={(e) => pickResType(lvl, e.target.value)}
+            sx={{ minWidth: 160 }}
+          >
+            <MenuItem value="">Бүгд</MenuItem>
+            {(resTypeOpts[lvl] || []).map((t) => (
+              <MenuItem key={t.id} value={t.id}>
+                {t.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        ))}
+        <TextField
+          select
+          size="small"
+          label="Аймаг/Нийслэл"
+          value={resAimag}
+          onChange={(e) => {
+            setResAimag(e.target.value);
+            setResSum("");
+            setSearchPage(0);
+          }}
+          sx={{ minWidth: 170 }}
+        >
+          <MenuItem value="">Бүгд</MenuItem>
+          {resAimagOptions.map((u) => (
+            <MenuItem key={u.id} value={u.id}>
+              {u.unit}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Сум/Дүүрэг"
+          value={resSum}
+          disabled={!resAimag}
+          onChange={(e) => {
+            setResSum(e.target.value);
+            setSearchPage(0);
+          }}
+          sx={{ minWidth: 170 }}
+        >
+          <MenuItem value="">Бүгд</MenuItem>
+          {resSumOptions.map((u) => (
+            <MenuItem key={u.id} value={u.id}>
+              {u.unit}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Геометр"
+          value={resGeom}
+          onChange={(e) => {
+            setResGeom(e.target.value);
+            setSearchPage(0);
+          }}
+          sx={{ minWidth: 140 }}
+        >
+          <MenuItem value="">Бүгд</MenuItem>
+          <MenuItem value="point">Цэг</MenuItem>
+          <MenuItem value="line">Шугам</MenuItem>
+          <MenuItem value="polygon">Талбай</MenuItem>
+        </TextField>
+      </Box>
+
       <TableContainer sx={{ flex: 1, position: "relative", overflow: "auto" }}>
         <Scrollbar>
           <Table size="small" sx={{ minWidth: 640 }} stickyHeader>
-            <TableHeadCustom headLabel={SEARCH_TABLE_HEAD} />
+            <TableHeadCustom
+              headLabel={SEARCH_TABLE_HEAD}
+              //
+              order={resOrder.desc ? "desc" : "asc"}
+              orderBy={resOrder.by}
+              onSort={(id) => {
+                setSearchPage(0);
+                setResOrder((o) =>
+                  o.by === id
+                    ? { by: id, desc: !o.desc }
+                    : { by: id, desc: false },
+                );
+              }}
+            />
             <TableBody>
               {nameResultsLoading &&
-                Array.from({ length: 8 }).map((_, i) => (
-                  <TableSkeleton
-                    key={i}
-                    headLength={SEARCH_TABLE_HEAD.length}
-                  />
-                ))}
+                Array.from({ length: Math.min(searchPageSize, 10) }).map(
+                  (_, i) => (
+                    <TableSkeleton
+                      key={i}
+                      headLength={SEARCH_TABLE_HEAD.length}
+                    />
+                  ),
+                )}
 
               {!nameResultsLoading &&
                 nameResults.map((it, i) => {
@@ -3618,16 +3833,43 @@ function Map2() {
                       sx={{ cursor: canFly ? "pointer" : "default" }}
                     >
                       <TableCell>
-                        {searchPage * NAME_PAGE_SIZE + i + 1}
+                        {searchPage * searchPageSize + i + 1}
                       </TableCell>
                       <TableCell sx={{ fontWeight: 600 }}>
                         {it.name || "—"}
                       </TableCell>
                       <TableCell>{it.number}</TableCell>
-                      <TableCell>
-                        {it.lat != null
-                          ? `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}`
-                          : "—"}
+                      <TableCell>{unitAt(it.units, "Аймаг")}</TableCell>
+                      <TableCell>{unitAt(it.units, "Сум")}</TableCell>
+                      <TableCell align="center">
+                        {(() => {
+                          const gi = geomIcon(it.geom_type);
+                          if (!gi || !canFly) return null;
+                          return (
+                            <Tooltip title={`${gi.title} — зураг дээр очих`}>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (it.lat != null) {
+                                    handleFlyTo({
+                                      center: [it.lon, it.lat],
+                                      zoom: 14,
+                                    });
+                                  } else if (bbox) {
+                                    handleFlyTo({ bbox });
+                                  }
+                                }}
+                              >
+                                <Iconify
+                                  icon={gi.icon}
+                                  width={18}
+                                  sx={{ color: gi.color }}
+                                />
+                              </IconButton>
+                            </Tooltip>
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   );
@@ -3642,13 +3884,17 @@ function Map2() {
       </TableContainer>
 
       <TablePaginationCustom
-        count={searchQuery?.count || 0}
+        count={searchCount || searchQuery?.count || 0}
         //
         page={searchPage}
         onPageChange={(e, p) => setSearchPage(p)}
         //
-        rowsPerPage={NAME_PAGE_SIZE}
-        rowsPerPageOptions={[NAME_PAGE_SIZE]}
+        rowsPerPage={searchPageSize}
+        rowsPerPageOptions={[25, 50, 100, 200]}
+        onRowsPerPageChange={(e) => {
+          setSearchPageSize(parseInt(e.target.value, 10));
+          setSearchPage(0);
+        }}
       />
     </Box>
   );
@@ -3737,31 +3983,35 @@ function Map2() {
                 legalDocs.map((d, i) => (
                   <React.Fragment key={d.id}>
                     <TableRow hover>
-                    <TableCell>
-                      {legalTable.page * legalTable.rowsPerPage + i + 1}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
-                    <TableCell>{d.type?.name || "—"}</TableCell>
-                    <TableCell>{d.unit?.unit || "—"}</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      {d.order_date || "—"}
-                    </TableCell>
-                    <TableCell>{d.order_number || "—"}</TableCell>
-                    <TableCell align="right">{d.names_count ?? 0}</TableCell>
-                    <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                      {(legalPerms.update || legalPerms.delete) && (
-                        <IconButton
-                          size="small"
-                          color={legalMenu?.row?.id === d.id ? "inherit" : "default"}
-                          onClick={(e) =>
-                            setLegalMenu({ anchor: e.currentTarget, row: d })
-                          }
-                        >
-                          <Iconify icon="eva:more-vertical-fill" width={18} />
-                        </IconButton>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                      <TableCell>
+                        {legalTable.page * legalTable.rowsPerPage + i + 1}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>{d.name}</TableCell>
+                      <TableCell>{d.type?.name || "—"}</TableCell>
+                      <TableCell>{d.unit?.unit || "—"}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
+                        {d.order_date || "—"}
+                      </TableCell>
+                      <TableCell>{d.order_number || "—"}</TableCell>
+                      <TableCell align="right">{d.names_count ?? 0}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                        {(legalPerms.update || legalPerms.delete) && (
+                          <IconButton
+                            size="small"
+                            color={
+                              legalMenu?.row?.id === d.id
+                                ? "inherit"
+                                : "default"
+                            }
+                            onClick={(e) =>
+                              setLegalMenu({ anchor: e.currentTarget, row: d })
+                            }
+                          >
+                            <Iconify icon="eva:more-vertical-fill" width={18} />
+                          </IconButton>
+                        )}
+                      </TableCell>
+                    </TableRow>
 
                     {/* ЗАСАХ форм — тухайн мөрийнхөө ЯГ доор задарна */}
                     {legalForm?.mode === "edit" &&
@@ -3918,7 +4168,11 @@ function Map2() {
             >
               Хадгалах
             </Button>
-            <Button size="small" color="inherit" onClick={() => cancelMapEdit()}>
+            <Button
+              size="small"
+              color="inherit"
+              onClick={() => cancelMapEdit()}
+            >
               Болих (ESC)
             </Button>
           </Box>
@@ -4030,23 +4284,25 @@ function Map2() {
                 {qualityReport.error}
               </Typography>
             )}
-            {!qualityReport?.loading && !qualityReport?.error && qualityReport && (
-              <Stack spacing={1}>
-                <Typography variant="body2">
-                  Нийт объект: <b>{qualityReport.total ?? "—"}</b> (шалгасан:{" "}
-                  {qualityReport.checked})
-                </Typography>
-                <Typography variant="body2">
-                  Геометргүй: <b>{qualityReport.noGeom}</b>
-                </Typography>
-                <Typography variant="body2">
-                  {qualityReport.nameField
-                    ? `Нэр (${qualityReport.nameField}) хоосон: `
-                    : "Нэрийн талбар олдсонгүй: "}
-                  <b>{qualityReport.noName ?? "—"}</b>
-                </Typography>
-              </Stack>
-            )}
+            {!qualityReport?.loading &&
+              !qualityReport?.error &&
+              qualityReport && (
+                <Stack spacing={1}>
+                  <Typography variant="body2">
+                    Нийт объект: <b>{qualityReport.total ?? "—"}</b> (шалгасан:{" "}
+                    {qualityReport.checked})
+                  </Typography>
+                  <Typography variant="body2">
+                    Геометргүй: <b>{qualityReport.noGeom}</b>
+                  </Typography>
+                  <Typography variant="body2">
+                    {qualityReport.nameField
+                      ? `Нэр (${qualityReport.nameField}) хоосон: `
+                      : "Нэрийн талбар олдсонгүй: "}
+                    <b>{qualityReport.noName ?? "—"}</b>
+                  </Typography>
+                </Stack>
+              )}
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setQualityReport(null)}>Хаах</Button>
@@ -4097,7 +4353,6 @@ function Map2() {
           />
         )}
 
-
         {/* Улсын хэмжээ (ЗЗ нэгжгүй) шийдвэрийн тоо — zoom 2‑5 дээр */}
         {overlayLegal && legalNational != null && (
           <Paper
@@ -4119,7 +4374,6 @@ function Map2() {
             </Typography>
           </Paper>
         )}
-
 
         {/* Устгах баталгаажуулалт */}
         <Dialog open={!!legalDelRow} onClose={() => setLegalDelRow(null)}>
@@ -4367,58 +4621,26 @@ function Map2() {
       {/* Cursor байрлал (DMS) + масштаб — зургийн ДООД status bar.
           Зургийн (map-viewport) ГАДНА, бие даасан мөр: ямар ч хөвөгч форм/панел
           үүний цаагуур орохгүй, зураг өөрөө 26px‑ээр богиноснo. */}
-        <Box
-          sx={{
-            flexShrink: 0,
-            zIndex: 10,
-            ml: `${managePanelW}px`,
-            bgcolor: "rgba(255,255,255,0.72)",
-            backdropFilter: "blur(6px)",
-            borderTop: "1px solid",
-            borderColor: "divider",
-            px: 1.5,
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-            height: 26,
-          }}
-        >
-          {/* Солбицол — ЗҮҮН, масштаб — БАРУУН (сонгодог GIS байрлал).
+      <Box
+        sx={{
+          flexShrink: 0,
+          zIndex: 10,
+          ml: `${managePanelW}px`,
+          bgcolor: "rgba(255,255,255,0.72)",
+          backdropFilter: "blur(6px)",
+          borderTop: "1px solid",
+          borderColor: "divider",
+          px: 1.5,
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          height: 26,
+        }}
+      >
+        {/* Солбицол — ЗҮҮН, масштаб — БАРУУН (сонгодог GIS байрлал).
               Панел нээлттэй үед мөр нь панелийн ард биш, хажуугаас эхэлнэ. */}
-          {cursorCoords.lon !== null && (
-            <>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontFamily: "monospace",
-                  color: "text.secondary",
-                  lineHeight: 1,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {toDMS(cursorCoords.lat, true)}
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{ color: "divider", lineHeight: 1 }}
-              >
-                |
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontFamily: "monospace",
-                  color: "text.secondary",
-                  lineHeight: 1,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {toDMS(cursorCoords.lon, false)}
-              </Typography>
-            </>
-          )}
-          <Box sx={{ flex: 1 }} />
-          {mapScale !== null && (
+        {cursorCoords.lon !== null && (
+          <>
             <Typography
               variant="caption"
               sx={{
@@ -4428,47 +4650,78 @@ function Map2() {
                 whiteSpace: "nowrap",
               }}
             >
-              1 : {mapScale.toLocaleString()}
+              {toDMS(cursorCoords.lat, true)}
             </Typography>
-          )}
-          <Box
-            component="select"
-            value=""
-            onChange={(e) => {
-              const s = Number(e.target.value);
-              const map = mapObjRef.current;
-              if (!s || !map) return;
-              const lat = toLonLat(map.getView().getCenter())[1];
-              const cosLat = Math.cos((lat * Math.PI) / 180);
-              map.getView().setResolution((s * 0.0254) / (96 * cosLat));
-            }}
+            <Typography
+              variant="caption"
+              sx={{ color: "divider", lineHeight: 1 }}
+            >
+              |
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                fontFamily: "monospace",
+                color: "text.secondary",
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {toDMS(cursorCoords.lon, false)}
+            </Typography>
+          </>
+        )}
+        <Box sx={{ flex: 1 }} />
+        {mapScale !== null && (
+          <Typography
+            variant="caption"
             sx={{
-              pointerEvents: "auto",
               fontFamily: "monospace",
-              fontSize: 11,
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: 0.5,
-              bgcolor: "transparent",
               color: "text.secondary",
-              height: 20,
-              px: 0.5,
-              cursor: "pointer",
-              outline: "none",
-              "&:hover": { borderColor: "text.primary" },
+              lineHeight: 1,
+              whiteSpace: "nowrap",
             }}
           >
-            <option value="" disabled>
-              Масштаб
+            1 : {mapScale.toLocaleString()}
+          </Typography>
+        )}
+        <Box
+          component="select"
+          value=""
+          onChange={(e) => {
+            const s = Number(e.target.value);
+            const map = mapObjRef.current;
+            if (!s || !map) return;
+            const lat = toLonLat(map.getView().getCenter())[1];
+            const cosLat = Math.cos((lat * Math.PI) / 180);
+            map.getView().setResolution((s * 0.0254) / (96 * cosLat));
+          }}
+          sx={{
+            pointerEvents: "auto",
+            fontFamily: "monospace",
+            fontSize: 11,
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 0.5,
+            bgcolor: "transparent",
+            color: "text.secondary",
+            height: 20,
+            px: 0.5,
+            cursor: "pointer",
+            outline: "none",
+            "&:hover": { borderColor: "text.primary" },
+          }}
+        >
+          <option value="" disabled>
+            Масштаб
+          </option>
+          {MAP_SCALE_OPTIONS.map((s) => (
+            <option key={s} value={s}>
+              1 : {s.toLocaleString("en-US").replace(/,/g, " ")}
             </option>
-            {MAP_SCALE_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                1 : {s.toLocaleString("en-US").replace(/,/g, " ")}
-              </option>
-            ))}
-          </Box>
+          ))}
         </Box>
-
+      </Box>
 
       {/* ─── Доод ATTRIBUTE хүснэгт — нээсэн ангилал бүрд таб, чирж өндөр солино ─── */}
       {featureTabs.length > 0 && (
@@ -4506,7 +4759,11 @@ function Map2() {
               onChange={(e, v) => setActiveTabKey(v)}
               variant="scrollable"
               scrollButtons="auto"
-              sx={{ minHeight: 36, borderBottom: "1px solid", borderColor: "divider" }}
+              sx={{
+                minHeight: 36,
+                borderBottom: "1px solid",
+                borderColor: "divider",
+              }}
             >
               {featureTabs.map((t) => (
                 <Tab
@@ -4514,7 +4771,9 @@ function Map2() {
                   value={t.key}
                   sx={{ minHeight: 36, textTransform: "none", pr: 0.5 }}
                   label={
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Box
+                      sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                    >
                       {t.label}
                       <Box
                         component="span"
@@ -4544,33 +4803,33 @@ function Map2() {
                 ) : t.kind === "search" ? (
                   <React.Fragment key={t.key}>{renderSearchTab}</React.Fragment>
                 ) : (
-                <FeatureTabPanel
-                  key={t.key}
-                  tab={t}
-                  onPatch={(patch) => patchTab(t.key, patch)}
-                  onClose={() => closeFeatureTab(t.key)}
-                  onRowAction={(row, action) =>
-                    handleRowAction(t.key, row, action)
-                  }
-                  onFieldCalc={() => setFieldCalcTab(t.key)}
-                  onZoomTo={(geometry) => {
-                    const map = mapObjRef.current;
-                    if (!map || !geometry) return;
-                    try {
-                      const g = new GeoJSON().readGeometry(geometry, {
-                        dataProjection: "EPSG:4326",
-                        featureProjection: map.getView().getProjection(),
-                      });
-                      map.getView().fit(g.getExtent(), {
-                        duration: 400,
-                        padding: [80, 80, 80, 80],
-                        maxZoom: 16,
-                      });
-                    } catch (e) {
-                      /* алгасна */
+                  <FeatureTabPanel
+                    key={t.key}
+                    tab={t}
+                    onPatch={(patch) => patchTab(t.key, patch)}
+                    onClose={() => closeFeatureTab(t.key)}
+                    onRowAction={(row, action) =>
+                      handleRowAction(t.key, row, action)
                     }
-                  }}
-                />
+                    onFieldCalc={() => setFieldCalcTab(t.key)}
+                    onZoomTo={(geometry) => {
+                      const map = mapObjRef.current;
+                      if (!map || !geometry) return;
+                      try {
+                        const g = new GeoJSON().readGeometry(geometry, {
+                          dataProjection: "EPSG:4326",
+                          featureProjection: map.getView().getProjection(),
+                        });
+                        map.getView().fit(g.getExtent(), {
+                          duration: 400,
+                          padding: [80, 80, 80, 80],
+                          maxZoom: 16,
+                        });
+                      } catch (e) {
+                        /* алгасна */
+                      }
+                    }}
+                  />
                 ),
               )}
           </Box>

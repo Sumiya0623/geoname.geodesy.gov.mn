@@ -146,7 +146,7 @@ const MODES = [
 
 // Хүснэгтээр харуулах босго (10‑с дээш) ба "Хүснэгтээр харах" товч гарах хязгаар
 const TABLE_THRESHOLD = 0;
-const AUTO_LIMIT = 100;
+const AUTO_LIMIT = 200;
 
 export default function AdvancedSearch({
   onSearch,
@@ -180,17 +180,13 @@ export default function AdvancedSearch({
   }, [seed?.n]);
 
   // Засаг захиргаа — аймаг → сум → баг (dependent)
-  const { units: aimagOptions } = useGetLegalUnits("Аймаг/Нийслэл", null, true);
+  const { units: aimagOptions } = useGetLegalUnits("Аймаг", null, true);
   const { units: sumOptions } = useGetLegalUnits(
-    "Сум/Дүүрэг",
+    "Сум",
     f.aimag?.id,
     !!f.aimag?.id,
   );
-  const { units: bagOptions } = useGetLegalUnits(
-    "Баг/Хороо",
-    f.sum?.id,
-    !!f.sum?.id,
-  );
+  const { units: bagOptions } = useGetLegalUnits("Баг", f.sum?.id, !!f.sum?.id);
 
   // Ангилал — level1 → level2 → level3 (dependent, GEONAME_TYPES)
   const [cat1Opts, setCat1Opts] = useState([]);
@@ -323,7 +319,8 @@ export default function AdvancedSearch({
       setResult({ count, big });
       // ≤100 → шууд хүснэгтээр (хуудаслалттай). >100 → "Хүснэгтээр харах" товч.
       if (onResults) {
-        if (count > TABLE_THRESHOLD && !big) onResults({ params: baseParams, count });
+        if (count > TABLE_THRESHOLD && !big)
+          onResults({ params: baseParams, count });
         else onResults(null);
       }
     } catch (e) {
@@ -651,20 +648,44 @@ export default function AdvancedSearch({
                 py: 0.75,
                 borderRadius: 1,
                 textAlign: "center",
-                bgcolor: result.count ? "#16a34a14" : "#64748b14",
+                bgcolor: result.big
+                  ? "#f59e0b1f"
+                  : result.count
+                    ? "#16a34a14"
+                    : "#64748b14",
               }}
             >
               <Typography
                 variant="caption"
                 sx={{
                   fontWeight: 600,
-                  color: result.count ? "#16a34a" : "text.secondary",
+                  display: "block",
+                  color: result.big
+                    ? "#b45309"
+                    : result.count
+                      ? "#16a34a"
+                      : "text.secondary",
                 }}
               >
                 {result.count
                   ? `Нийт: ${result.count} илэрц олдлоо`
                   : "Илэрц олдсонгүй"}
               </Typography>
+              {/* Хязгаараас хэтэрсэн — хайлтыг нарийсгахыг сануулна */}
+              {result.big && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: "block",
+                    mt: 0.25,
+                    color: "#b45309",
+                    lineHeight: 1.3,
+                  }}
+                >
+                  Хайлт хэт өргөн байна ({AUTO_LIMIT}-аас олон илэрц). Ангилал,
+                  засаг захиргааны нэгж, эсвэл нэр/дугаараар нарийсгана уу.
+                </Typography>
+              )}
             </Box>
 
             {/* 100‑с дээш — "Хайх" дарж хүснэгтэд ачаална */}

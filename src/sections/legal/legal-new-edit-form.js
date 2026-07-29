@@ -5,13 +5,7 @@ import { useForm } from "react-hook-form";
 import { useRef, useMemo, useEffect, useCallback } from "react";
 import { yupResolver } from "@hookform/resolvers/yup";
 
-import {
-  Box,
-  Stack,
-  Button,
-  MenuItem,
-  Divider,
-} from "@mui/material";
+import { Box, Stack, Button, MenuItem, Divider } from "@mui/material";
 import LoadingButton from "@mui/lab/LoadingButton";
 
 import { requiredMsg } from "src/utils/regex";
@@ -306,7 +300,7 @@ export default function LegalNewEditForm({
           {needAimag && (
             <RHFAutocomplete
               name="aimag"
-              label="Аймаг / Нийслэл"
+              label="Аймаг"
               options={aimagOptions}
               getOptionLabel={(o) => o?.unit || ""}
               isOptionEqualToValue={(o, v) => o?.id === v?.id}
@@ -315,7 +309,7 @@ export default function LegalNewEditForm({
           {needSum && (
             <RHFAutocomplete
               name="sum"
-              label="Сум / Дүүрэг"
+              label="Сум"
               disabled={!aimagValue?.id}
               options={sumOptions}
               getOptionLabel={(o) => o?.unit || ""}

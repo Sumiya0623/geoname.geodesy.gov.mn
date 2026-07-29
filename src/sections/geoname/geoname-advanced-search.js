@@ -42,9 +42,9 @@ export default function GeonameAdvancedSearch({
     if (open) setDraft({ ...EMPTY, ...value });
   }, [open, value]);
 
-  const { units: aimagOptions } = useGetLegalUnits("Аймаг/Нийслэл", null, open);
+  const { units: aimagOptions } = useGetLegalUnits("Аймаг", null, open);
   const { units: sumOptions } = useGetLegalUnits(
-    "Сум/Дүүрэг",
+    "Сум",
     draft.aimag?.id,
     open && !!draft.aimag?.id,
   );

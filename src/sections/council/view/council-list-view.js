@@ -174,8 +174,8 @@ export default function CouncilListView() {
   const [cf, setCf] = useState(emptyCouncil);
   const [aimag, setAimag] = useState(null);
   const [sum, setSum] = useState(null);
-  const aimags = useUnits("Аймаг/Нийслэл", null, true);
-  const sums = useUnits("Сум/Дүүрэг", aimag?.id, !!aimag?.id);
+  const aimags = useUnits("Аймаг", null, true);
+  const sums = useUnits("Сум", aimag?.id, !!aimag?.id);
 
   const openCreate = () => {
     setCf(emptyCouncil);

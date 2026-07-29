@@ -251,14 +251,14 @@ export default function RecountPanel({
   const [sf, setSf] = useState(EMPTY_SEARCH);
   const [statusChecked, setStatusChecked] = useState(() => new Set());
   const { constants: statuses } = useGetConstantsFordropdown("RECOUNT_STATUS");
-  const { units: aimagOptions } = useGetLegalUnits("Аймаг/Нийслэл", null, true);
+  const { units: aimagOptions } = useGetLegalUnits("Аймаг", null, true);
   const { units: sumOptions } = useGetLegalUnits(
-    "Сум/Дүүрэг",
+    "Сум",
     sf.aimag?.id,
     !!sf.aimag?.id,
   );
   const { units: bagOptions } = useGetLegalUnits(
-    "Баг/Хороо",
+    "Баг",
     sf.sum?.id,
     !!sf.sum?.id,
   );
@@ -342,7 +342,9 @@ export default function RecountPanel({
     if (sf.border) conds.push("is_border = true");
     if (statusChecked.size) {
       // Олон-төлөв: status_ids (' 1220 1221 ')‑д аль нэг нь байвал тохирно
-      const parts = [...statusChecked].map((id) => `status_ids LIKE '% ${id} %'`);
+      const parts = [...statusChecked].map(
+        (id) => `status_ids LIKE '% ${id} %'`,
+      );
       conds.push(`(${parts.join(" OR ")})`);
     }
     onCql?.(conds.join(" AND "));
