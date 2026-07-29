@@ -17,8 +17,14 @@ urlpatterns = [
 
 urlpatterns = [
     path('api/', include(urlpatterns)),
-    # Лавлагааны HTML баримт (QR нь frontend‑ийн шалгах хуудас руу заана)
-    path('inquire/<str:code>/', inquire_document, name='geoname-inquire-document'),
+    # Лавлагааны HTML баримт (A4). ЗААВАЛ /api/ доор байх ёстой — nginx дээр
+    # зөвхөн /api/ нь Django руу очдог, бусад зам Next.js рүү очно. Frontend дээр
+    # /inquire/<code> нь QR‑аас нээгддэг ШАЛГАХ хуудас тул мөргөлдөнө.
+    path('api/inquire/<str:code>/', inquire_document,
+         name='geoname-inquire-document'),
+    # Хуучин зам (dev дээр Django шууд сонсдог порт) — нийцтэй байдлаар үлдээв
+    path('inquire/<str:code>/', inquire_document,
+         name='geoname-inquire-document-legacy'),
     path("__reload__/", include("django_browser_reload.urls")),
 ]
 	
