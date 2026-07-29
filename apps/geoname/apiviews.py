@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q, Subquery, OuterRef
+from django.db.models import CharField, Func, Q, Subquery, OuterRef
 from django.contrib.gis.geos import Point, GEOSGeometry
 from django.contrib.contenttypes.models import ContentType
 
@@ -70,11 +70,12 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 	permission_classes = function_permission('geoname')
 	filterset_class = GlobalFilter
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-	search_fields = ['name', 'number']
+	# Нэр, дугаар, ТӨРӨЛ, АЙМАГ, СУМ‑аар хайна (сүүлийн 2 нь annotate)
+	search_fields = ['name', 'number', 'type__name', 'aimag_name', 'sum_name']
 	# Модел талбарууд + холбоост (төрлийн нэр, эх сурвалжийн итгэл/төлөв)
 	ordering_fields = [f.name for f in GeoName._meta.fields] + [
 		'type__name', 'sources__confidence', 'sources__needs_review',
-		'aimag_name', 'sum_name']
+		'aimag_name', 'sum_name', 'geom_kind']
 	ordering = ['-created_date']
 
 	def get_queryset(self):
@@ -86,7 +87,14 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		sum_sq = AdminUnit.objects.filter(
 			unitnames=OuterRef('pk'), level__name='Сум/Дүүрэг').order_by('unit').values('unit')[:1]
 		qs = qs.annotate(aimag_name=Subquery(aimag_sq), sum_name=Subquery(sum_sq))
+		# Геометрийн төрөл (POINT/LINESTRING/POLYGON...) — шүүх/эрэмбэлэхэд
+		qs = qs.annotate(geom_kind=Func(
+			'geoloc', function='GeometryType', output_field=CharField()))
 		p = self.request.query_params
+		# ?geom_type=point|line|polygon → геометрийн төрлөөр шүүх
+		geom_type = (p.get('geom_type') or '').strip()
+		if geom_type:
+			qs = qs.filter(geom_kind__icontains=geom_type)
 		# Картын төрөл / ангилал (удам багтаана)
 		type_id = p.get('type', None)
 		if type_id:

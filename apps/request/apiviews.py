@@ -181,7 +181,7 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 		return Response({'detail': 'Төслөөс салгалаа', 'id': order.id}, status=200)
 
 	# ЗЗ нэгжийн түвшин: URL түлхүүр → UNIT_LEVEL нэр
-	MAP_LEVELS = {'aimag': 'Аймаг/Нийслэл', 'sum': 'Сум/Дүүрэг', 'bag': 'Баг/Хороо'}
+	MAP_LEVELS = {'aimag': 'Аймаг', 'sum': 'Сум', 'bag': 'Баг'}
 
 	@action(detail=False, methods=['get'], url_path='unit-tree')
 	def unit_tree(self, request):
