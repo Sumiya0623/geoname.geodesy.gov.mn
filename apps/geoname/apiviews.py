@@ -3,7 +3,7 @@ import math
 from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Subquery, OuterRef
@@ -11,7 +11,7 @@ from django.contrib.gis.geos import Point, GEOSGeometry
 from django.contrib.contenttypes.models import ContentType
 
 from core.models import (Constant, GeoName, AdminUnit, Nomek, ReCount,
-                         LegalOrder, Photo, Attach, RequestName)
+                         LegalOrder, Photo, Attach, RequestName, GeoNameInquire)
 from core.mixin import PublicListMixin
 from core.filters import GlobalFilter
 from portal.auth import function_permission
@@ -375,6 +375,53 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		Photo.objects.filter(
 			id=pid, content_type=self._ct(), object_id=obj.id).delete()
 		return Response({'detail': 'ok'}, status=200)
+
+	@action(detail=True, methods=['post'], url_path='inquire',
+			permission_classes=[IsAuthenticated])
+	def inquire(self, request, pk=None):
+		"""'Лавлагаа авах' — батлагдсан нэрийн лавлагаа (GeoNameInquire) үүсгэнэ.
+		Давтагдашгүй code буцаана (QR + нийтийн хүчинтэй шалгалтад)."""
+		from django.utils import timezone
+		from datetime import timedelta
+		obj = self.get_object()
+		if not obj.is_approved:
+			return Response({'detail': 'Зөвхөн батлагдсан нэрд лавлагаа гаргана'},
+							status=400)
+		inq = GeoNameInquire.objects.create(
+			name=obj,
+			user=request.user if request.user.is_authenticated else None,
+			purpose=(request.data.get('purpose') or '').strip() or None,
+			valid_until=timezone.now() + timedelta(days=30),
+		)
+		return Response({'code': inq.code, 'created_date': inq.created_date,
+						 'valid_until': inq.valid_until}, status=201)
+
+	@action(detail=False, methods=['get'], url_path='inquire-verify',
+			permission_classes=[AllowAny])
+	def inquire_verify(self, request):
+		"""QR‑аас нийтийн шалгалт — code‑оор лавлагааны хүчинтэй эсэх + үндсэн мөрүүд.
+		Хүчинтэй = нэр батлагдсан хэвээр БА хугацаа дуусаагүй."""
+		from django.utils import timezone
+		code = (request.query_params.get('code') or '').strip()
+		inq = GeoNameInquire.objects.select_related('name', 'user').filter(code=code).first()
+		if not inq:
+			return Response({'found': False}, status=404)
+		now = timezone.now()
+		valid = bool(inq.name and inq.name.is_approved) and \
+			(inq.valid_until is None or inq.valid_until >= now)
+		return Response({
+			'found': True,
+			'valid': valid,
+			'code': inq.code,
+			'geoname_id': inq.name_id,
+			'name': inq.name.name if inq.name else None,
+			'number': inq.name.number if inq.name else None,
+			'is_approved': inq.name.is_approved if inq.name else None,
+			'purpose': inq.purpose,
+			'created_date': inq.created_date,
+			'valid_until': inq.valid_until,
+			'user': (inq.user.get_full_name() if inq.user else None),
+		}, status=200)
 
 	@action(detail=True, methods=['post'], url_path='add-attach',
 			parser_classes=[MultiPartParser, FormParser])

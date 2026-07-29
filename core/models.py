@@ -400,6 +400,27 @@ class Attach(models.Model):
 	class Meta:
 		verbose_name_plural = "Attach"
 
+class GeoNameInquire(UserMixin):
+	"""Батлагдсан газар зүйн нэрийн ЛАВЛАГАА. "Лавлагаа авах" дарахад үүснэ.
+	code нь давтагдашгүй — QR түүнийг агуулж, нийтийн хуудсанд лавлагааны хүчинтэй
+	эсэх (нэр батлагдсан + хугацаа) + үүсгэсэн огноог харуулна (point.geodesy‑тэй ижил)."""
+	name=models.ForeignKey(GeoName,on_delete=models.CASCADE,verbose_name='Газар зүйн нэр',related_name='inquires',blank=True,null=True)
+	code=models.CharField(max_length=32,unique=True,db_index=True,verbose_name='Лавлагааны дугаар')
+	purpose=models.CharField(max_length=2000,blank=True,null=True,verbose_name='Зориулалт')
+	valid_until=models.DateTimeField(blank=True,null=True,verbose_name='Хүчинтэй хугацаа')
+
+	def save(self,*args,**kwargs):
+		if not self.code:
+			self.code=uuid.uuid4().hex
+		super().save(*args,**kwargs)
+
+	def __str__(self):
+		return f'{self.code} — {self.name}'
+
+	class Meta:
+		verbose_name_plural='GeoNameInquire'
+
+
 class ReCount(models.Model):
 	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='recounts',blank=True, null=True)
 	step=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_STEPS'},verbose_name='Төрөл',related_name='recountsteps',blank=True, null=True)
