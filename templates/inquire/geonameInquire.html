@@ -415,7 +415,8 @@
               </div>
               <div class="si">
                 <!-- Django template тагийг мөр таслах хориотой (tag_re нь newline‑ийг таньдаггүй) -->
-                <div class="sl">{% if measure.kind == 'point' %}Солбицол{% elif measure.kind == 'line' %}Урт{% elif measure.kind == 'area' %}Талбай{% else %}Байрлал{% endif %}</div>
+                <div class="sl">{% if measure.kind == 'point' %}Солбицол{% elif measure.kind == 'line' %}Урт{% elif
+                  measure.kind == 'area' %}Талбай{% else %}Байрлал{% endif %}</div>
                 <div>{{ measure.text }}</div>
                 <div>{{ coord_system }}</div>
               </div>
@@ -432,16 +433,16 @@
             <thead>
               <tr>
                 <th>Баримт бичгийн нэр</th>
-                <th style="width:20%">Дугаар</th>
-                <th style="width:20%">Огноо</th>
+                <th style="width:22%">Төрөл</th>
+                <th style="width:14%">Дугаар</th>
               </tr>
             </thead>
             <tbody>
               {% for o in orders %}
               <tr>
                 <td>{{ o.name|default:"—" }}</td>
-                <td>{{ o.number|default:"—" }}</td>
-                <td>{{ o.date|default:"—" }}</td>
+                <td>{{ o.type|default:"—" }}{% if o.org %}<br>{{ o.org }}{% endif %}</td>
+                <td>{% if o.number %}{{ o.number }}<br>{% endif %}{{ o.date|default:"—" }}</td>
               </tr>
               {% endfor %}
             </tbody>

@@ -66,15 +66,17 @@ class LegalOrderSerializer(serializers.ModelSerializer):
 		source='unit', write_only=True, required=False, allow_null=True,
 	)
 	user_name = serializers.CharField(source='user.full_name', read_only=True)
+	# Тухайн шийдвэрт холбогдсон газар зүйн нэрийн тоо (queryset дээр annotate)
+	names_count = serializers.IntegerField(read_only=True, default=0)
 
 	class Meta:
 		model = LegalOrder
 		fields = [
 			'id', 'name', 'org', 'org_id', 'type', 'type_id', 'unit', 'unit_id',
 			'description', 'order_date', 'order_number', 'document', 'signer',
-			'user_name', 'created_date', 'views',
+			'user_name', 'created_date', 'views', 'names_count',
 		]
-		read_only_fields = ['user_name', 'created_date', 'views']
+		read_only_fields = ['user_name', 'created_date', 'views', 'names_count']
 
 
 # ----------------------------------------------------------------------

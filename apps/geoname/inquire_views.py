@@ -44,6 +44,11 @@ def _dms(value, is_lat):
     return f"{d}°{m:02d}'{s:04.1f}\"{hemi}"
 
 
+def _mn_date(d):
+    """Огноо: «2003.09.30»."""
+    return f'{d.year}.{d.month:02d}.{d.day:02d}' if d else ''
+
+
 def _measure(geom):
     """Геометрийн төрлөөр хэмжээ: цэг→солбицол(DMS), шугам→урт, талбай→км².
     Урт/талбайг геометрийн центроидын UTM бүс рүү хувиргаж тооцно."""
@@ -65,7 +70,7 @@ def _measure(geom):
             return {'kind': 'line', 'text': txt}
         if 'Polygon' in gt:
             km2 = g2.area / 1_000_000.0
-            return {'kind': 'area', 'text': f'{km2:.4f} км²'}
+            return {'kind': 'area', 'text': f'{km2:.1f} км²'}
     except Exception:
         pass
     return {'kind': gt, 'text': '—'}
@@ -94,8 +99,12 @@ def _inquire_context(request, inq):
     now = timezone.now()
     valid = bool(g and g.is_approved) and (inq.valid_until is None or inq.valid_until >= now)
     # Эрх зүйн баримт (батлагдсан) — LegalOrder
-    orders = [{'name': o.name, 'number': o.order_number, 'date': o.order_date}
-              for o in (g.legalorders.all() if g else [])]
+    orders = [{'name': o.name,
+               'type': (o.type.name if o.type_id else ''),
+               'org': (o.org.name if o.org_id else ''),
+               'number': (f'№ {o.order_number}' if o.order_number else ''),
+               'date': _mn_date(o.order_date)}
+              for o in (g.legalorders.select_related('type', 'org').all() if g else [])]
     # Зураг (generic FK) — desc‑тэй
     from django.contrib.contenttypes.models import ContentType
     from core.models import Photo, GeoName

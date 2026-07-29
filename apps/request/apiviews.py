@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
-from django.db.models import Count, IntegerField, Value, Q
+from django.db.models import CharField, Count, F, IntegerField, Value, Q
 from django.db.models.functions import Cast, NullIf
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.gis.geos import Point
@@ -41,6 +41,22 @@ class LegalTypeViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
 		)
 
 
+class MappedOrderingFilter(filters.OrderingFilter):
+	"""`?ordering=unit` гэх мэт FK талбарыг id‑ээр бус НЭРЭЭР нь эрэмбэлнэ.
+
+	unit → unit_name (AdminUnit.unit), org/type → тухайн Constant.name.
+	Эдгээр нь queryset дээр annotate‑лагдсан байх ёстой."""
+	field_map = {'unit': 'unit_name', 'org': 'org_name', 'type': 'type_name'}
+
+	def remove_invalid_fields(self, queryset, fields, view, request):
+		mapped = []
+		for f in fields:
+			desc = f.startswith('-')
+			raw = self.field_map.get(f[1:] if desc else f, f[1:] if desc else f)
+			mapped.append('-' + raw if desc else raw)
+		return super().remove_invalid_fields(queryset, mapped, view, request)
+
+
 class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 	"""Тогтоол, шийдвэрийн сан (LegalOrder) — CRUD, хуудаслалт, хайлт, сорттой.
 
@@ -52,14 +68,32 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 	queryset = LegalOrder.objects.all()
 	permission_classes = function_permission('legal')
 	filterset_class = GlobalFilter
-	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-	search_fields = ['name', 'order_number', 'signer', 'description']
-	ordering_fields = [f.name for f in LegalOrder._meta.fields]
+	filter_backends = [DjangoFilterBackend, MappedOrderingFilter, filters.SearchFilter]
+	# Нэр, дугаар, ТӨРӨЛ, ОГНОО‑гоор хайна (сүүлийн 2 нь annotate‑лагдсан)
+	search_fields = ['name', 'order_number', 'signer', 'description',
+	                 'type_name', 'date_text']
+
+	ordering_fields = ([f.name for f in LegalOrder._meta.fields]
+	                   + ['names_count', 'unit_name', 'org_name', 'type_name'])
 	ordering = ['-created_date']
+
+	# PublicListMixin нь filter_backends атрибутыг биш ЭНЭ функцийг ашигладаг тул
+	# FK‑г нэрээр эрэмбэлдэг MappedOrderingFilter‑ийг энд ч өгнө.
+	def get_filter_backends(self):
+		return [DjangoFilterBackend, MappedOrderingFilter, filters.SearchFilter]
 
 	def get_queryset(self):
 		p = self.request.query_params
-		qs = LegalOrder.objects.select_related('org', 'type', 'unit', 'user')
+		qs = (LegalOrder.objects
+		      .select_related('org', 'type', 'unit', 'user')
+		      # Тухайн шийдвэрт холбогдсон газар зүйн нэрийн тоо (sort‑той) +
+		      # FK талбаруудыг id‑ээр бус НЭРЭЭР нь эрэмбэлэх боломж
+		      .annotate(names_count=Count('names', distinct=True),
+		                unit_name=F('unit__unit'),
+		                org_name=F('org__name'),
+		                type_name=F('type__name'),
+		                # Огноог текстээр хайх боломжтой болгов ("2003-09")
+		                date_text=Cast('order_date', CharField())))
 		# Төслөөр шүүх (бэлтгэл таб): тухайн төслийн legal орд (projects M2M).
 		# 'projects' param — GlobalFilter‑ийн 'project' (FK) filter‑тэй мөргөлдөхгүй.
 		project_id = p.get('projects', None)
@@ -97,6 +131,9 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(Q(unit_id=aimag_id) | Q(unit__parent_id=aimag_id))
 		# Газрын зургийн badge дээр дарахад: тухайн нэгж БА түүний удмын (аймаг→сум
 		# →баг) бүх захиалга. Аль ч түвшний нэгжийн id‑г нэг ижилээр авна.
+		# Модны «Нийт» зангилаа — ЗЗ нэгжгүй шийдвэрүүд
+		if p.get('no_unit') in ('1', 'true', 'True'):
+			qs = qs.filter(unit__isnull=True)
 		map_unit = p.get('map_unit', None)
 		if map_unit:
 			try:
@@ -146,6 +183,80 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 	# ЗЗ нэгжийн түвшин: URL түлхүүр → UNIT_LEVEL нэр
 	MAP_LEVELS = {'aimag': 'Аймаг/Нийслэл', 'sum': 'Сум/Дүүрэг', 'bag': 'Баг/Хороо'}
 
+	@action(detail=False, methods=['get'], url_path='unit-tree')
+	def unit_tree(self, request):
+		"""Шийдвэрийн сан — модлон бүлэглэнэ.
+
+		  Нийт (ЗЗ нэгжгүй шийдвэрүүд) → Төрөл
+		  Аймаг/Нийслэл → Сум/Дүүрэг → Төрөл
+
+		Аймагт шууд холбогдсон шийдвэрүүд «Аймгийн шийдвэр» дэд зангилаанд орно.
+		?name=<хайлт> → нэр/дугаараар шүүнэ.
+		"""
+		name_q = (request.query_params.get('name')
+		          or request.query_params.get('search') or '').strip()
+		qs = LegalOrder.objects.all()
+		if name_q:
+			qs = qs.filter(Q(name__icontains=name_q)
+			               | Q(order_number__icontains=name_q))
+		rows = (qs.values('unit_id', 'unit__unit', 'unit__level__name',
+		                  'unit__parent_id', 'unit__parent__unit',
+		                  'type_id', 'type__name')
+		          .annotate(c=Count('id')))
+
+		roots = {}   # key → {id,name,count,children{}}
+		NO_TYPE = 'Төрөл тодорхойгүй'
+
+		def bucket(parent, key, node_id, node_name):
+			return parent.setdefault(key, {
+				'id': node_id, 'name': node_name, 'count': 0, 'children': {},
+			})
+
+		for r in rows:
+			cnt = r['c']
+			t_id = r['type_id']
+			t_name = r['type__name'] or NO_TYPE
+			lvl = r['unit__level__name']
+			if not r['unit_id']:
+				# «Нийт» — ЗЗ нэгжгүй шийдвэрүүд, шууд төрлөөр нь ангилна
+				root = bucket(roots, 'none', 'none', 'Улс')
+				mid = root
+			elif lvl == 'Сум/Дүүрэг':
+				a_id = r['unit__parent_id'] or 0
+				root = bucket(roots, f'a{a_id}', f'a{a_id}',
+				              r['unit__parent__unit'] or 'Аймаг тодорхойгүй')
+				mid = bucket(root['children'], f's{r["unit_id"]}',
+				             f's{r["unit_id"]}', r['unit__unit'] or '—')
+			else:
+				# Аймаг/Нийслэл (эсвэл баг) — аймгийн шууд шийдвэр
+				a_id = (r['unit_id'] if lvl == 'Аймаг/Нийслэл'
+				        else (r['unit__parent_id'] or 0))
+				a_name = (r['unit__unit'] if lvl == 'Аймаг/Нийслэл'
+				          else (r['unit__parent__unit'] or 'Аймаг тодорхойгүй'))
+				root = bucket(roots, f'a{a_id}', f'a{a_id}', a_name or '—')
+				mid = bucket(root['children'], f'a{a_id}-own', f'a{a_id}-own',
+				             'Аймгийн шийдвэр')
+			leaf = bucket(mid['children'], f't{t_id}',
+			              f'{mid["id"]}-t{t_id or 0}', t_name)
+			leaf['count'] += cnt
+			if mid is not root:
+				mid['count'] += cnt
+			root['count'] += cnt
+
+		def finalize(n):
+			kids = sorted(n['children'].values(), key=lambda x: x['name'])
+			n['children'] = [finalize(k) for k in kids] if kids else []
+			n['child_count'] = len(n['children'])
+			return n
+
+		none_root = roots.pop('none', None)
+		results = sorted((finalize(r) for r in roots.values()),
+		                 key=lambda x: x['name'])
+		if none_root:
+			results.insert(0, finalize(none_root))
+		total = sum(r['count'] for r in results)
+		return Response({'results': results, 'total': total})
+
 	@action(detail=False, methods=['get'], url_path='map-counts')
 	def map_counts(self, request):
 		"""Газрын зургийн overlay: тухайн түвшний ЗЗ нэгж бүрийн тогтоол/шийдвэрийн
@@ -155,7 +266,9 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 		  ?level=aimag|sum|bag  (default aimag)
 		  ?bbox=minx,miny,maxx,maxy  (EPSG:4326) — зөвхөн харагдах мужийн нэгж
 		    (баг/сум олон тул zoom‑д зориулан хэрэглэнэ)
-		Зөвхөн тоо > 0 нэгжийг буцаана."""
+		  ?empty=1 → шийдвэргүй (count=0) нэгжийг ч буцаана. Ингэснээр газрын
+		    зурагт БҮХ хил саарлаар харагдаж, шийдвэртэй нь л тодорно.
+		Үгүй бол зөвхөн тоо > 0 нэгжийг буцаана."""
 		import json
 		from django.contrib.gis.geos import Polygon
 		level = request.query_params.get('level', 'aimag')
@@ -199,10 +312,11 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 			except (ValueError, TypeError):
 				pass
 
+		include_empty = request.query_params.get('empty') in ('1', 'true', 'True')
 		features = []
 		for u in units.iterator():
 			cnt = total.get(u.id, 0)
-			if not cnt:
+			if not cnt and not include_empty:
 				continue
 			# Хил (полигон) — хялбарчилсан. Label/hover‑д зориулж центроидыг props‑д.
 			try:
