@@ -355,7 +355,9 @@ export default function NameDetailCard({
     try {
       const res = await axiosInstance.post(endpoints.geoname.inquire(geonameId), {});
       const code = res?.data?.code;
-      if (code) window.open(`${HOST_API}/inquire/${code}/`, "_blank");
+      // ЗААВАЛ /api/ доогуур — nginx дээр /inquire/<code> нь frontend‑ийн
+      // QR шалгах хуудас руу очдог тул баримт харагдахгүй болно.
+      if (code) window.open(`${HOST_API}/api/inquire/${code}/`, "_blank");
     } catch (e) {
       enqueueSnackbar(e?.response?.data?.detail || "Лавлагаа гаргахад алдаа гарлаа", {
         variant: "warning",
