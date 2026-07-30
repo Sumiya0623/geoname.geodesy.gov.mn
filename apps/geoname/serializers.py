@@ -199,10 +199,6 @@ class GeoNameSerializer(serializers.ModelSerializer):
 	order_ids = serializers.PrimaryKeyRelatedField(
 		queryset=LegalOrder.objects.all(), source='orders',
 		many=True, write_only=True, required=False)
-	# Импортын эх сурвалжийн төлөв (GeoNameSource): хянах шаардлагатай эсэх, итгэл
-	needs_review = serializers.SerializerMethodField()
-	confidence = serializers.SerializerMethodField()
-	source = serializers.SerializerMethodField()
 	# Засаг захиргааны нэгж (аймаг/сум) — M2M
 	units = serializers.SerializerMethodField()
 
@@ -212,8 +208,7 @@ class GeoNameSerializer(serializers.ModelSerializer):
 			'id', 'name', 'number', 'type', 'type_id',
 			'is_approved', 'is_border',
 			'lat', 'lon', 'geom', 'geom_type', 'orders', 'order_ids',
-			'user_name', 'created_date',
-			'needs_review', 'confidence', 'source', 'units',
+			'user_name', 'created_date', 'units',
 		]
 		read_only_fields = ['user_name', 'created_date']
 
@@ -224,26 +219,6 @@ class GeoNameSerializer(serializers.ModelSerializer):
 		return [{'id': u.id, 'name': u.unit,
 		         'level': u.level.name if u.level else None}
 		        for u in sorted(obj.unit.all(), key=lvl)]
-
-	def _src(self, obj):
-		# Кэшлэх (needs_review/confidence/source нэг л query дуудна)
-		if not hasattr(obj, '_src_cache'):
-			obj._src_cache = obj.sources.first()
-		return obj._src_cache
-
-	def get_needs_review(self, obj):
-		s = self._src(obj)
-		return s.needs_review if s else None
-
-	def get_confidence(self, obj):
-		s = self._src(obj)
-		return s.confidence if s else None
-
-	def get_source(self, obj):
-		s = self._src(obj)
-		if not s:
-			return None
-		return {'volume': s.volume, 'page': s.page, 'line': s.line}
 
 	def get_lat(self, obj):
 		return obj.geoloc.y if obj.geoloc and obj.geoloc.geom_type == 'Point' else None

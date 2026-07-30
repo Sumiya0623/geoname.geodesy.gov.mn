@@ -70,12 +70,13 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 	permission_classes = function_permission('geoname')
 	filterset_class = GlobalFilter
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-	# Нэр, дугаар, ТӨРӨЛ, АЙМАГ, СУМ‑аар хайна (сүүлийн 2 нь annotate)
-	search_fields = ['name', 'number', 'type__name', 'aimag_name', 'sum_name']
-	# Модел талбарууд + холбоост (төрлийн нэр, эх сурвалжийн итгэл/төлөв)
+	# Нэр, дугаар, төрлөөр хайна. aimag_name/sum_name нь Subquery annotate тул
+	# search_fields‑д ОРУУЛАХГҮЙ — 215к мөр дээр мөр бүрд корреляцтай дэд query
+	# ажиллаж хайлтыг ~30 дахин удаашруулдаг (8.7с ↔ 0.3с).
+	search_fields = ['name', 'number', 'type__name']
+	# Модел талбарууд + холбоост (төрлийн нэр, аймаг/сум, геометрийн төрөл)
 	ordering_fields = [f.name for f in GeoName._meta.fields] + [
-		'type__name', 'sources__confidence', 'sources__needs_review',
-		'aimag_name', 'sum_name', 'geom_kind']
+		'type__name', 'aimag_name', 'sum_name', 'geom_kind']
 	ordering = ['-created_date']
 
 	@action(detail=False, methods=['get'], url_path='type-summary')
@@ -171,12 +172,6 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(is_border=True)
 		elif border in ('false', 'False', '0'):
 			qs = qs.filter(is_border=False)
-		# Импортын эх сурвалж: хянах шаардлагатай эсэхээр шүүх
-		review = p.get('needs_review', None)
-		if review in ('true', 'True', '1'):
-			qs = qs.filter(sources__needs_review=True).distinct()
-		elif review in ('false', 'False', '0'):
-			qs = qs.filter(sources__needs_review=False).distinct()
 		# Дэлгэрэнгүй хайлт: засаг захиргааны нэгж (удам багтаана).
 		# Нэгжид ХАМААРАХ (M2M гишүүнчлэл) ЭСВЭЛ нэгжийн геометр дотор БАЙРШИХ
 		# (орон зайн) нэрс. Зарим нэгжид M2M холбоос дутуу/хоосон байдаг тул
@@ -882,6 +877,26 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
     serializer_class = PrintMapSerializer
     queryset = PrintMap.objects.all().order_by('-created_date')
     permission_classes = [IsAuthenticated]
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    # Гарчиг + сонгогдсон нэгжийн нэрээр хайна
+    search_fields = ['title', 'units__unit', 'units__parent__unit']
+    ordering_fields = ['id', 'title', 'name_count', 'scale', 'is_border',
+                       'created_date']
+    ordering = ['-created_date']
+
+    def get_queryset(self):
+        qs = (PrintMap.objects.select_related('user')
+              .prefetch_related('units', 'units__parent'))
+        p = self.request.query_params
+        # ЗЗ нэгжээр (сум эсвэл аймаг — аймаг бол харьяа сумдаар нь)
+        unit = p.get('unit')
+        if unit:
+            qs = qs.filter(Q(units__id=unit) | Q(units__parent_id=unit))
+        # Хэвлэсэн ОН
+        year = p.get('year')
+        if year and str(year).isdigit():
+            qs = qs.filter(created_date__year=int(year))
+        return qs.distinct()
 
     @action(detail=False, methods=['get'], url_path='adjacent')
     def adjacent(self, request):
