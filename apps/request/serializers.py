@@ -336,8 +336,11 @@ class LegalOrderMiniSerializer(serializers.ModelSerializer):
 
 class CouncilMemberSerializer(serializers.ModelSerializer):
 	position = ConstantDropSerializer(read_only=True)
+	# «Оролцоо» нь MEMBER_TYPES‑ээс сонгогддог; хуучин бүртгэлүүд
+	# COUNCIL_POSITIONS‑ыг ашигласан тул хоёуланг нь зөвшөөрнө.
 	position_id = serializers.PrimaryKeyRelatedField(
-		queryset=Constant.objects.filter(key='COUNCIL_POSITIONS'),
+		queryset=Constant.objects.filter(
+			key__in=['MEMBER_TYPES', 'COUNCIL_POSITIONS']),
 		source='position', write_only=True, required=False, allow_null=True)
 	appoint_doc = LegalOrderMiniSerializer(read_only=True)
 	appoint_doc_id = serializers.PrimaryKeyRelatedField(

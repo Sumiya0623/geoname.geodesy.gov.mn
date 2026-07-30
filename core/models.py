@@ -696,7 +696,7 @@ class CouncilMember(models.Model):
 	person = models.ForeignKey(RemoteUser, on_delete=models.SET_NULL, null=True, blank=True,
 		related_name='council_memberships', verbose_name='Системийн хэрэглэгч')
 	position = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
-		limit_choices_to={'key': 'COUNCIL_POSITIONS'}, related_name='council_positions', verbose_name='Албан тушаал')
+		limit_choices_to={'key': 'MEMBER_TYPES'}, related_name='council_positions', verbose_name='Албан тушаал')
 	org_title = models.CharField(max_length=1000, null=True, blank=True, verbose_name='Төлөөлж буй албан тушаал')
 	start_date = models.DateField(verbose_name='Томилогдсон огноо')
 	end_date = models.DateField(null=True, blank=True, verbose_name='Чөлөөлөгдсөн огноо')

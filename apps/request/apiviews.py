@@ -228,7 +228,10 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 		return Response({'detail': 'Төслөөс салгалаа', 'id': order.id}, status=200)
 
 	# ЗЗ нэгжийн түвшин: URL түлхүүр → UNIT_LEVEL нэр
-	MAP_LEVELS = {'aimag': 'Аймаг', 'sum': 'Сум', 'bag': 'Баг'}
+	# UNITLEVEL Constant‑ийн нэртэй ЯГ таарах ёстой — эс бөгөөс нэгж олдохгүй
+	# (газрын зурагт хил, тоо огт харагдахгүй болно).
+	MAP_LEVELS = {'aimag': 'Аймаг/Нийслэл', 'sum': 'Сум/Дүүрэг',
+	              'bag': 'Баг/Хороо'}
 
 	@action(detail=False, methods=['get'], url_path='unit-tree')
 	def unit_tree(self, request):
@@ -1257,7 +1260,11 @@ class CouncilViewSet(PublicListMixin, viewsets.ModelViewSet):
 	queryset = Council.objects.all()
 	permission_classes = [IsAuthenticated]
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-	search_fields = ['name']
+	# Нэр + төрөл, нэгж, төлвөөр хайна
+	search_fields = ['name', 'kind__name', 'unit__unit', 'status__name']
+	# Хүснэгтийн толгойгоор эрэмбэлэх (холбоост талбарууд ч)
+	ordering_fields = [f.name for f in Council._meta.fields] + [
+		'kind__name', 'unit__unit', 'unit__parent__unit', 'status__name']
 	ordering = ['name']
 
 	def get_queryset(self):
@@ -1279,6 +1286,71 @@ class CouncilMemberViewSet(PublicListMixin, viewsets.ModelViewSet):
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
 	search_fields = ['full_name', 'register', 'org_title']
 
+	@action(detail=False, methods=['post'], url_path='ensure-person')
+	def ensure_person(self, request, *args, **kwargs):
+		"""Регистрээр системийн хэрэглэгчийг ОЛОХ, олдохгүй бол ҮҮСГЭНЭ.
+
+		  POST {register, last_name, first_name, email, phone,
+		        role: 'Үндэсний зөвлөл'|'Салбар зөвлөл', unit: <AdminUnit id>}
+		Роль: «Иргэн» + зөвлөлийн роль. Салбар зөвлөл бол сонгосон нэгжийг
+		хэрэглэгчийн unit M2M‑д нэмнэ (хэрэглэгчийн эрхтэй ижил зарчим).
+		→ {id, register, full_name, created}
+		"""
+		from django.contrib.auth import get_user_model
+		User = get_user_model()
+		d = request.data
+		register = str(d.get('register') or '').strip()
+		if not register:
+			return Response({'detail': 'Регистр шаардлагатай'}, status=400)
+		last = str(d.get('last_name') or '').strip()
+		first = str(d.get('first_name') or '').strip()
+		user = User.objects.filter(register=register).first()
+		created = False
+		if not user:
+			if not (last or first):
+				return Response(
+					{'detail': 'Шинэ хэрэглэгчид овог, нэр шаардлагатай'},
+					status=400)
+			user = User.objects.create(
+				register=register, username=register,
+				last_name=last, first_name=first,
+				email=str(d.get('email') or '').strip(),
+				phone=str(d.get('phone') or '').strip() or None,
+				is_citizen=True)
+			user.set_unusable_password()
+			user.save()
+			created = True
+		else:
+			# Байгаа хэрэглэгчийн ДУТУУ талбарыг л нөхнө (дарж бичихгүй)
+			changed = []
+			for f, v in (('last_name', last), ('first_name', first),
+			             ('email', str(d.get('email') or '').strip()),
+			             ('phone', str(d.get('phone') or '').strip())):
+				if v and not getattr(user, f, None):
+					setattr(user, f, v)
+					changed.append(f)
+			if changed:
+				user.save(update_fields=changed)
+		# Роль — «Иргэн» + зөвлөлийн роль
+		role_names = ['Иргэн']
+		rn = str(d.get('role') or '').strip()
+		if rn:
+			role_names.append(rn)
+		roles = list(Constant.objects.filter(key='ROLES', name__in=role_names))
+		if roles:
+			user.roles.add(*roles)
+		# Салбар зөвлөл — сонгосон ЗЗ нэгжийг хэрэглэгчид ононо
+		unit_id = d.get('unit')
+		if unit_id:
+			au = AdminUnit.objects.filter(id=unit_id).first()
+			if au:
+				user.unit.add(au)
+		return Response({
+			'id': user.id, 'register': user.register,
+			'full_name': f'{user.last_name} {user.first_name}'.strip(),
+			'created': created,
+		})
+
 	def get_queryset(self):
 		qs = CouncilMember.objects.select_related(
 			'position', 'appoint_doc', 'release_doc', 'person')
@@ -1291,10 +1363,13 @@ class CouncilMemberViewSet(PublicListMixin, viewsets.ModelViewSet):
 		return qs
 
 	def destroy(self, request, *args, **kwargs):
-		# Архивын зарчим — гишүүн устгахгүй. Чөлөөлөх (release) үйлдэл хийнэ.
-		return Response(
-			{'detail': 'Гишүүнийг устгах боломжгүй. Баримтаар чөлөөлнө үү (release).'},
-			status=405)
+		"""Гишүүнийг устгана — АЛДААТАЙ бүртгэлийг арилгах зориулалттай.
+
+		Ердийн урсгалд томилгоо нь архив (append‑only) тул чөлөөлөхдөө
+		`release` (end_date + release_doc)‑ыг ашиглана. Устгалт нь буруу
+		оруулсан мөрийг л цэвэрлэнэ.
+		"""
+		return super().destroy(request, *args, **kwargs)
 
 	@action(detail=True, methods=['post'], url_path='release')
 	def release(self, request, *args, **kwargs):
