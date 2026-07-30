@@ -1,22 +1,22 @@
 "use client";
 
+import { isEqual } from "lodash";
 import { useState, useMemo, useCallback } from "react";
 
 import {
-  Box,
   Card,
+  Container,
   Table,
-  Stack,
-  Button,
   TableBody,
-  Typography,
   TableContainer,
 } from "@mui/material";
 
 import axiosInstance, { endpoints } from "src/utils/axios";
+import { paths } from "src/routes/paths";
+import { useDebounce } from "src/hooks/use-debounce";
+import { useSettingsContext } from "src/components/settings";
 import { useGetRasters } from "src/api/raster";
 
-import Iconify from "src/components/iconify";
 import Scrollbar from "src/components/scrollbar";
 import { useSnackbar } from "src/components/snackbar";
 import {
@@ -27,8 +27,13 @@ import {
   TablePaginationCustom,
 } from "src/components/table";
 
+import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
+
 import RasterPrintPanel from "../print-map-panel";
+import RasterTableToolbar from "../raster-table-toolbar";
 import RasterTableRow from "../raster-table-row";
+
+const defaultFilters = { search: "", aimag: null, sum: null, year: "" };
 
 const TABLE_HEAD = [
   { id: "", label: "Nº", width: 48 },
@@ -43,6 +48,7 @@ const TABLE_HEAD = [
 ];
 
 export default function RasterListView() {
+  const settings = useSettingsContext();
   const { enqueueSnackbar } = useSnackbar();
   const table = useTable({
     defaultDense: true,
@@ -51,10 +57,42 @@ export default function RasterListView() {
     defaultRowsPerPage: 10,
   });
   const [panelOpen, setPanelOpen] = useState(false);
+  const [filters, setFilters] = useState(defaultFilters);
+  const dq = useDebounce(filters.search, 400);
+
+  const handleFilters = useCallback(
+    (name, value) => {
+      table.onResetPage();
+      setFilters((prev) => ({ ...prev, [name]: value }));
+    },
+    [table],
+  );
+  const handleResetFilters = useCallback(() => setFilters(defaultFilters), []);
+  const canReset = !isEqual(defaultFilters, filters);
 
   const requestBody = useMemo(
-    () => ({ page: table.page + 1, page_size: table.rowsPerPage }),
-    [table.page, table.rowsPerPage],
+    () => ({
+      page: table.page + 1,
+      page_size: table.rowsPerPage,
+      ordering: `${table.order === "desc" ? "-" : ""}${table.orderBy}`,
+      ...(dq ? { search: dq } : {}),
+      ...(filters.sum?.id
+        ? { unit: filters.sum.id }
+        : filters.aimag?.id
+          ? { unit: filters.aimag.id }
+          : {}),
+      ...(filters.year ? { year: filters.year } : {}),
+    }),
+    [
+      table.page,
+      table.rowsPerPage,
+      table.order,
+      table.orderBy,
+      dq,
+      filters.aimag,
+      filters.sum,
+      filters.year,
+    ],
   );
   const {
     rasters,
@@ -80,30 +118,34 @@ export default function RasterListView() {
   const notFound = rastersEmpty && !rastersLoading;
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ mb: 2 }}
-      >
-        <Typography variant="h5">
-          Газар зүйн нэрийн зургийн хэвлэлийн эх
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<Iconify icon="solar:printer-bold" />}
-          onClick={() => setPanelOpen(true)}
-        >
-          Хэвлэх
-        </Button>
-      </Stack>
+    <Container maxWidth={settings.themeStretch ? false : "xxl"}>
+      <CustomBreadcrumbs
+        heading="Газар зүйн нэрийн зургийн хэвлэлийн эх"
+        links={[
+          { name: "Дашбоард", href: paths.dashboard.root },
+          { name: "Хэвлэлийн эх" },
+        ]}
+        sx={{ mb: 3 }}
+      />
 
       <Card>
+        <RasterTableToolbar
+          filters={filters}
+          onFilters={handleFilters}
+          canReset={canReset}
+          onReset={handleResetFilters}
+          onPrint={() => setPanelOpen(true)}
+        />
+
         <TableContainer sx={{ position: "relative", overflow: "unset" }}>
           <Scrollbar>
             <Table size="small" sx={{ minWidth: 900 }}>
-              <TableHeadCustom headLabel={TABLE_HEAD} />
+              <TableHeadCustom
+                headLabel={TABLE_HEAD}
+                order={table.order}
+                onSort={table.onSort}
+                orderBy={table.orderBy}
+              />
               <TableBody>
                 {rastersLoading
                   ? Array.from({ length: table.rowsPerPage }).map((_, i) => (
@@ -141,6 +183,6 @@ export default function RasterListView() {
         onClose={() => setPanelOpen(false)}
         onDone={rastersMutation}
       />
-    </Box>
+    </Container>
   );
 }

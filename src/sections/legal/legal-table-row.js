@@ -52,10 +52,14 @@ export default function LegalTableRow({
           {order_date ? fDate(order_date, "yyyy-MM-dd") : "-"}
         </TableCell>
         <TableCell>{order_number || "-"}</TableCell>
-        <TableCell>{signer || "-"}</TableCell>
         <TableCell align="center">
           {docUrl ? (
-            <Link href={docUrl} target="_blank" rel="noopener" title="Баримт нээх">
+            <Link
+              href={docUrl}
+              target="_blank"
+              rel="noopener"
+              title="Баримт нээх"
+            >
               <Iconify
                 icon="vscode-icons:file-type-pdf2"
                 width={22}

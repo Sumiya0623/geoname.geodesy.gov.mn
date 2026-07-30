@@ -20,12 +20,16 @@ export default function LegalTableToolbar({
   canCreate,
   onCreate,
   typeCode = "0",
+  typeName = "",
   canSync = false,
   onSync,
   syncing = false,
 }) {
-  const needAimag = typeCode === "1" || typeCode === "2";
-  const needSum = typeCode === "2";
+  // «Салбар зөвлөл» нь аймаг/сум аль ч түвшинд байдаг тул код 2‑той адил
+  // аймаг + сум 2уланг нь харуулна.
+  const isBranch = (typeName || "").includes("Салбар зөвлөл");
+  const needAimag = typeCode === "1" || typeCode === "2" || isBranch;
+  const needSum = typeCode === "2" || isBranch;
 
   // Аймаг ба (аймаг сонгосон үед) сум сонголтын жагсаалт
   const { units: aimagOptions } = useGetLegalUnits("Аймаг/Нийслэл", null, needAimag);
@@ -184,6 +188,7 @@ LegalTableToolbar.propTypes = {
   canCreate: PropTypes.bool,
   onCreate: PropTypes.func,
   typeCode: PropTypes.string,
+  typeName: PropTypes.string,
   canSync: PropTypes.bool,
   onSync: PropTypes.func,
   syncing: PropTypes.bool,

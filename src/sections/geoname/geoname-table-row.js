@@ -4,7 +4,7 @@ import MenuItem from "@mui/material/MenuItem";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import IconButton from "@mui/material/IconButton";
-import { Link, Chip, Button, Tooltip, Divider } from "@mui/material";
+import { Link, Chip, Button, Divider } from "@mui/material";
 
 import { fDate } from "src/utils/format-time";
 import { useBoolean } from "src/hooks/use-boolean";
@@ -24,7 +24,7 @@ export default function GeonameTableRow({
   onEdit,
   onDeleteRow,
 }) {
-  const { id, name, number, type, is_approved, created_date, needs_review, confidence, source, units } = row;
+  const { id, name, number, type, is_approved, created_date, units } = row;
 
   const aimag = units?.find((u) => u.level && u.level.includes("Аймаг"));
   const sum = units?.find((u) => u.level && u.level.includes("Сум"));
@@ -59,26 +59,6 @@ export default function GeonameTableRow({
         <TableCell>{aimag?.name || "-"}</TableCell>
         <TableCell sx={{ whiteSpace: "normal", maxWidth: 160 }}>
           {sum?.name || otherUnits.map((u) => u.name).join(", ") || "-"}
-        </TableCell>
-        <TableCell align="center">
-          {confidence != null ? `${Math.round(confidence * 100)}%` : "-"}
-        </TableCell>
-        <TableCell>
-          {needs_review == null ? (
-            "-"
-          ) : (
-            <Tooltip
-              title={source ? `Эх: ${source.volume} х.${source.page}` : ""}
-              arrow
-            >
-              <Chip
-                size="small"
-                variant="soft"
-                color={needs_review ? "warning" : "success"}
-                label={needs_review ? "Хянах шаардлагатай" : "Шалгасан"}
-              />
-            </Tooltip>
-          )}
         </TableCell>
         <TableCell align="center">
           <Chip

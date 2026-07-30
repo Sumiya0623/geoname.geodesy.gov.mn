@@ -6,15 +6,12 @@ import { useState, useMemo, useCallback } from "react";
 import {
   Box,
   Card,
-  Grid,
   Table,
-  Stack,
   Button,
   Collapse,
   Container,
   Typography,
   TableBody,
-  CardActionArea,
   CircularProgress,
   TableContainer,
 } from "@mui/material";
@@ -40,6 +37,7 @@ import {
 
 import LegalTableRow from "../legal-table-row";
 import LegalTableToolbar from "../legal-table-toolbar";
+import LegalTableStatus from "../legal-table-status";
 import LegalNewEditForm from "../legal-new-edit-form";
 
 // ----------------------------------------------------------------------
@@ -50,7 +48,6 @@ const TABLE_HEAD = [
   { id: "unit", label: "Нэгж" },
   { id: "order_date", label: "Огноо", width: 130 },
   { id: "order_number", label: "Дугаар" },
-  { id: "", label: "Гарын үсэг", width: 150 },
   { id: "", label: "Баримт", width: 80, align: "center" },
   { id: "", width: 48 },
 ];
@@ -184,61 +181,28 @@ export default function LegalListView() {
         sx={{ mb: 3 }}
       />
 
-      {/* Төрлийн картууд (label‑тай) */}
-      {legalTypesLoading ? (
-        <Box sx={{ py: 5, textAlign: "center" }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          {legalTypes.map((type) => {
-            const active = type.id === selectedId;
-            return (
-              <Grid key={type.id} item xs={12} sm={6} md={2}>
-                <Card
-                  sx={{
-                    border: "2px solid",
-                    borderColor: active ? "primary.main" : "transparent",
-                    boxShadow: active
-                      ? (t) => t.customShadows?.primary
-                      : undefined,
-                    transition: "all 0.2s ease",
-                    height: 1,
-                  }}
-                >
-                  <CardActionArea
-                    onClick={() => handleSelect(type.id)}
-                    sx={{ p: 2.5, height: 1 }}
-                  >
-                    <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                      <Typography variant="subtitle2" sx={{ lineHeight: 1.3 }}>
-                        {type.label}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {type.order_count} шийдвэр
-                      </Typography>
-                    </Box>
-                  </CardActionArea>
-                </Card>
-              </Grid>
-            );
-          })}
-        </Grid>
-      )}
+      {/* Төрөл (toolbar‑ын дээр) + сонгосон төрлийн тогтоолын хүснэгт */}
+      <Card>
+        {legalTypesLoading ? (
+          <Box sx={{ py: 3, textAlign: "center" }}>
+            <CircularProgress size={22} />
+          </Box>
+        ) : (
+          <LegalTableStatus
+            types={legalTypes}
+            value={selectedId}
+            onChange={handleSelect}
+          />
+        )}
 
-      {/* Сонгосон төрлийн тогтоолын хүснэгт */}
-      {selectedType && (
-        <Card>
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={1}
-            sx={{ px: 2.5, pt: 2 }}
-          >
-            <Iconify icon="solar:folder-with-files-bold" width={22} />
-            <Typography variant="h6">{selectedType.name}</Typography>
-          </Stack>
-
+        {!selectedType ? (
+          <Box sx={{ p: 3, textAlign: "center" }}>
+            <Typography variant="body2" color="text.secondary">
+              Төрөл сонгоно уу.
+            </Typography>
+          </Box>
+        ) : (
+          <>
           <LegalTableToolbar
             filters={filters}
             onFilters={handleFilters}
@@ -247,6 +211,7 @@ export default function LegalListView() {
             canCreate={menuPermissions?.create}
             onCreate={form.onToggle}
             typeCode={String(selectedType?.code ?? "0")}
+            typeName={selectedType?.name || ""}
           />
 
           {/* Нэмэх форм — toolbar‑ийн доор нээгдэнэ */}
@@ -306,8 +271,9 @@ export default function LegalListView() {
             dense={table.dense}
             onChangeDense={table.onChangeDense}
           />
-        </Card>
-      )}
+          </>
+        )}
+      </Card>
     </Container>
   );
 }

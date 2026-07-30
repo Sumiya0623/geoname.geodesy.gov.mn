@@ -48,11 +48,11 @@ const TABLE_HEAD = [
   { id: "", label: "Nº", width: 48 },
   { id: "name", label: "Нэр" },
   { id: "", label: "Нэгж" },
-  { id: "order_date", label: "Огноо", width: 130 },
+  { id: "order_date", label: "Огноо" },
   { id: "order_number", label: "Дугаар" },
-  { id: "", label: "Гарын үсэг" },
-  { id: "", label: "Баримт", width: 80, align: "center" },
-  { id: "", width: 48 },
+
+  { id: "", label: "Баримт", align: "center" },
+  { id: "" },
 ];
 
 const defaultFilters = { search: "", year: "", aimag: null, sum: null };

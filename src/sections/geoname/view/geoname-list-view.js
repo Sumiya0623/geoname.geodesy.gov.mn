@@ -7,6 +7,7 @@ import {
   Box,
   Card,
   Grid,
+  Button,
   Table,
   Stack,
   Collapse,
@@ -20,11 +21,13 @@ import {
 import { Icon } from "@iconify/react";
 
 import { paths } from "src/routes/paths";
+import { RouterLink } from "src/routes/components";
 import { useBoolean } from "src/hooks/use-boolean";
 import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetGeonames, useGetGeonameTypes } from "src/api/geoname";
 
+import Iconify from "src/components/iconify";
 import Scrollbar from "src/components/scrollbar";
 import { useSnackbar } from "src/components/snackbar";
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
@@ -50,8 +53,6 @@ const TABLE_HEAD = [
   { id: "type__name", label: "Төрөл", width: 140 },
   { id: "aimag_name", label: "Аймаг", width: 120 },
   { id: "sum_name", label: "Сум", width: 130 },
-  { id: "sources__confidence", label: "Итгэл", width: 90, align: "center" },
-  { id: "sources__needs_review", label: "Төлөв", width: 130 },
   { id: "is_approved", label: "Батлагдсан", width: 110, align: "center" },
   { id: "created_date", label: "Огноо", width: 120 },
   { id: "", width: 48 },
@@ -68,10 +69,15 @@ const defaultFilters = {
   lat: "",
   lon: "",
   nomek: "",
+  is_border: false,
+  // ангиллын 3 түвшний сонголт (дэлгэрэнгүй хайлт) — гүн нь category болно
+  t1: null,
+  t2: null,
+  t3: null,
 };
 
 // Дэлгэрэнгүй шүүлтийн талбарууд (badge/идэвх шалгахад)
-const ADVANCED_KEYS = ["aimag", "sum", "nomek"];
+const ADVANCED_KEYS = ["aimag", "sum", "nomek", "is_border", "category"];
 
 // ----------------------------------------------------------------------
 
@@ -117,6 +123,7 @@ export default function GeonameListView() {
             ...(filters.lat && filters.lon
               ? { lat: filters.lat, lon: filters.lon }
               : {}),
+            ...(filters.is_border ? { is_border: true } : {}),
             ...(unitTree ? { unit_tree: unitTree } : {}),
           }
         : null,
@@ -134,8 +141,9 @@ export default function GeonameListView() {
       filters.nomek,
       filters.lat,
       filters.lon,
+      filters.is_border,
       unitTree,
-    ]
+    ],
   );
 
   const {
@@ -148,7 +156,7 @@ export default function GeonameListView() {
 
   const selectedType = useMemo(
     () => types.find((t) => t.id === selectedId) || null,
-    [types, selectedId]
+    [types, selectedId],
   );
 
   const refetchAll = useCallback(() => {
@@ -162,7 +170,7 @@ export default function GeonameListView() {
       setFilters(defaultFilters);
       table.onResetPage();
     },
-    [table]
+    [table],
   );
 
   const handleFilters = useCallback(
@@ -170,14 +178,14 @@ export default function GeonameListView() {
       table.onResetPage();
       setFilters((prev) => ({ ...prev, [name]: value }));
     },
-    [table]
+    [table],
   );
 
   const canReset = !isEqual(defaultFilters, filters);
 
   const advancedActive = useMemo(
     () => ADVANCED_KEYS.some((k) => !isEqual(defaultFilters[k], filters[k])),
-    [filters]
+    [filters],
   );
 
   const handleApplyAdvanced = useCallback(
@@ -185,7 +193,7 @@ export default function GeonameListView() {
       table.onResetPage();
       setFilters((prev) => ({ ...prev, ...adv }));
     },
-    [table]
+    [table],
   );
 
   const handleDeleteRow = useCallback(
@@ -197,12 +205,15 @@ export default function GeonameListView() {
           refetchAll();
         }
       } catch (error) {
-        enqueueSnackbar(error?.response?.data?.detail || "Устгах үед алдаа гарлаа", {
-          variant: "warning",
-        });
+        enqueueSnackbar(
+          error?.response?.data?.detail || "Устгах үед алдаа гарлаа",
+          {
+            variant: "warning",
+          },
+        );
       }
     },
-    [enqueueSnackbar, refetchAll]
+    [enqueueSnackbar, refetchAll],
   );
 
   const openCreate = () => {
@@ -224,7 +235,18 @@ export default function GeonameListView() {
           { name: "Дашбоард", href: paths.dashboard.root },
           { name: "Газар зүйн нэр" },
         ]}
-        sx={{ mb: 3 }}
+        action={
+          <Button
+            component={RouterLink}
+            href={paths.dashboard.map.root}
+            variant="contained"
+            color="primary"
+            startIcon={<Iconify icon="solar:map-point-bold" />}
+          >
+            Газрын зураг
+          </Button>
+        }
+        sx={{ mb: 2 }}
       />
 
       {/* Төрлийн картууд */}
@@ -233,7 +255,7 @@ export default function GeonameListView() {
           <CircularProgress />
         </Box>
       ) : (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid container spacing={2}>
           {types.map((t) => {
             const active = t.id === selectedId;
             return (
@@ -245,7 +267,10 @@ export default function GeonameListView() {
                     transition: "all 0.2s ease",
                   }}
                 >
-                  <CardActionArea onClick={() => handleSelect(t.id)} sx={{ p: 2.5 }}>
+                  <CardActionArea
+                    onClick={() => handleSelect(t.id)}
+                    sx={{ p: 2.5 }}
+                  >
                     <Stack direction="row" alignItems="center" spacing={2}>
                       <Box
                         sx={{
@@ -282,11 +307,6 @@ export default function GeonameListView() {
       {/* Хүснэгт */}
       {selectedType && (
         <Card>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 2.5, pt: 2 }}>
-            <Icon icon="solar:folder-with-files-bold" width={22} />
-            <Typography variant="h6">{selectedType.name}</Typography>
-          </Stack>
-
           <GeonameTableToolbar
             filters={filters}
             onFilters={handleFilters}
@@ -295,9 +315,18 @@ export default function GeonameListView() {
             canCreate={!isAll && menuPermissions?.create}
             onCreate={openCreate}
             rootTypeId={selectedId}
-            onAdvanced={advanced.onTrue}
+            onAdvanced={advanced.onToggle}
             advancedActive={advancedActive}
           />
+
+          {/* Дэлгэрэнгүй хайлт — toolbar‑ын доор */}
+          <Collapse in={advanced.value} timeout="auto" unmountOnExit>
+            <GeonameAdvancedSearch
+              open={advanced.value}
+              value={filters}
+              onApply={handleApplyAdvanced}
+            />
+          </Collapse>
 
           {/* Нэмэх / засах форм — toolbar доор */}
           <Collapse in={form.value} timeout="auto" unmountOnExit>
@@ -313,7 +342,10 @@ export default function GeonameListView() {
 
           <TableContainer sx={{ position: "relative", overflow: "unset" }}>
             <Scrollbar>
-              <Table size={table.dense ? "small" : "medium"} sx={{ minWidth: 800 }}>
+              <Table
+                size={table.dense ? "small" : "medium"}
+                sx={{ minWidth: 800 }}
+              >
                 <TableHeadCustom
                   headLabel={TABLE_HEAD}
                   order={table.order}
@@ -354,13 +386,6 @@ export default function GeonameListView() {
           />
         </Card>
       )}
-
-      <GeonameAdvancedSearch
-        open={advanced.value}
-        onClose={advanced.onFalse}
-        value={filters}
-        onApply={handleApplyAdvanced}
-      />
     </Container>
   );
 }

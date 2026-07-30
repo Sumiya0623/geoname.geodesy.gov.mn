@@ -1,52 +1,74 @@
 import PropTypes from "prop-types";
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 import {
   Box,
   Stack,
-  Drawer,
   Button,
   Divider,
+  Checkbox,
   TextField,
   Typography,
-  IconButton,
   Autocomplete,
+  FormControlLabel,
 } from "@mui/material";
 
 import { useGetLegalUnits } from "src/api/legal";
+import { useGetConstantsFordropdown } from "src/api/constant";
+
 import Iconify from "src/components/iconify";
-import Scrollbar from "src/components/scrollbar";
 
 // ----------------------------------------------------------------------
-// Дэлгэрэнгүй хайлт — баруунаас нээгддэг drawer.
-// Засаг захиргааны нэгж (аймаг/сум), нэрлэврээр шүүнэ. (Нэр/дугаар нь
-// toolbar дээр шууд байгаа тул эндээс хассан.) "Хайх" дарахад л хэрэгжинэ.
+// Дэлгэрэнгүй хайлт — toolbar‑ын доор нээгддэг самбар.
+//   1‑р мөр: засаг захиргааны нэгж (аймаг → сум), нэрлэвэр
+//   2‑р мөр: ангилал 3 түвшин (Үндсэн → Дэд → Ангилал, dependent chain)
+//   3‑р мөр: хилийн цэс + үйлдэл
+// «Хайх» дарж байж хэрэгжинэ, самбар нээлттэй хэвээр үлдэнэ.
 // ----------------------------------------------------------------------
 
 const EMPTY = {
   aimag: null,
   sum: null,
   nomek: "",
+  t1: null,
+  t2: null,
+  t3: null,
+  category: null,
+  is_border: false,
 };
 
-export default function GeonameAdvancedSearch({
-  open,
-  onClose,
-  value,
-  onApply,
-}) {
+export default function GeonameAdvancedSearch({ open, value, onApply }) {
   const [draft, setDraft] = useState(EMPTY);
 
-  // Drawer нээгдэх бүрт идэвхтэй шүүлтээс draft‑аа сэргээнэ
+  // Нээгдэх бүрт идэвхтэй шүүлтээс draft‑аа сэргээнэ (нээлттэй үед бичсэнийг
+  // дарж бичихгүйн тулд зөвхөн open→true шилжилтэд).
   useEffect(() => {
-    if (open) setDraft({ ...EMPTY, ...value });
-  }, [open, value]);
+    if (open) setDraft((p) => ({ ...EMPTY, ...p, ...value }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  const { units: aimagOptions } = useGetLegalUnits("Аймаг", null, open);
+  const { units: aimagOptions } = useGetLegalUnits("Аймаг/Нийслэл", null, open);
   const { units: sumOptions } = useGetLegalUnits(
-    "Сум",
+    "Сум/Дүүрэг",
     draft.aimag?.id,
     open && !!draft.aimag?.id,
+  );
+
+  // Ангилал (GEONAME_TYPES) — 3 түвшний хамааралт сонголт
+  const { constants: types } = useGetConstantsFordropdown("GEONAME_TYPES");
+  const childrenOf = useMemo(
+    () => (parentId) =>
+      types.filter((c) => (c.parent ?? null) === (parentId ?? null)),
+    [types],
+  );
+  const ty1 = useMemo(() => childrenOf(null), [childrenOf]);
+  const ty2 = useMemo(
+    () => (draft.t1?.id ? childrenOf(draft.t1.id) : []),
+    [childrenOf, draft.t1],
+  );
+  const ty3 = useMemo(
+    () => (draft.t2?.id ? childrenOf(draft.t2.id) : []),
+    [childrenOf, draft.t2],
   );
 
   const set = (name, val) => setDraft((p) => ({ ...p, [name]: val }));
@@ -54,108 +76,160 @@ export default function GeonameAdvancedSearch({
   const handleAimag = (_e, v) =>
     setDraft((p) => ({ ...p, aimag: v, sum: null }));
 
+  // Сонгосон хамгийн ГҮН ангилал л шүүлтэд үйлчилнэ
+  const handleType = (level, v) =>
+    setDraft((p) => {
+      const next =
+        level === 1
+          ? { ...p, t1: v, t2: null, t3: null }
+          : level === 2
+            ? { ...p, t2: v, t3: null }
+            : { ...p, t3: v };
+      next.category = next.t3?.id || next.t2?.id || next.t1?.id || null;
+      return next;
+    });
+
   const handleClear = () => setDraft(EMPTY);
 
-  const handleApply = () => {
-    onApply(draft);
-    onClose();
-  };
+  const handleApply = () => onApply(draft);
 
   return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}
-      slotProps={{ backdrop: { invisible: true } }}
-      PaperProps={{ sx: { width: { xs: 1, sm: 380 } } }}
-    >
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ py: 2, pl: 2.5, pr: 1.5 }}
-      >
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <Iconify icon="solar:filter-bold" width={22} />
-          <Typography variant="h6">Дэлгэрэнгүй хайлт</Typography>
-        </Stack>
-        <IconButton onClick={onClose}>
-          <Iconify icon="mingcute:close-line" />
-        </IconButton>
-      </Stack>
-
+    <>
       <Divider />
+      <Box sx={{ p: 2.5, bgcolor: "background.neutral" }}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+          <Iconify icon="solar:filter-bold" width={18} />
+          <Typography variant="subtitle2">Дэлгэрэнгүй хайлт</Typography>
+        </Stack>
 
-      <Scrollbar sx={{ flexGrow: 1 }}>
-        <Stack spacing={2.5} sx={{ p: 2.5 }}>
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              Засаг захиргааны нэгж
-            </Typography>
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <Autocomplete
-                value={draft.aimag}
-                onChange={handleAimag}
-                options={aimagOptions}
-                getOptionLabel={(o) => o?.unit || ""}
-                isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                renderInput={(params) => (
-                  <TextField {...params} label="Аймаг / Нийслэл" />
-                )}
-              />
-              <Autocomplete
-                value={draft.sum}
-                onChange={(_e, v) => set("sum", v)}
-                disabled={!draft.aimag?.id}
-                options={sumOptions}
-                getOptionLabel={(o) => o?.unit || ""}
-                isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                renderInput={(params) => (
-                  <TextField {...params} label="Сум / Дүүрэг" />
-                )}
-              />
-            </Stack>
+        <Stack spacing={2}>
+          {/* 1‑р мөр — засаг захиргаа, нэрлэвэр */}
+          <Box
+            sx={{
+              display: "grid",
+              gap: 2,
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, 1fr)",
+                md: "repeat(3, 1fr)",
+              },
+            }}
+          >
+            <Autocomplete
+              value={draft.aimag}
+              onChange={handleAimag}
+              options={aimagOptions}
+              getOptionLabel={(o) => o?.unit || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Аймаг / Нийслэл" />
+              )}
+            />
+            <Autocomplete
+              value={draft.sum}
+              onChange={(_e, v) => set("sum", v)}
+              disabled={!draft.aimag?.id}
+              options={sumOptions}
+              getOptionLabel={(o) => o?.unit || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Сум / Дүүрэг" />
+              )}
+            />
+            <TextField
+              label="Нэрлэвэр"
+              value={draft.nomek}
+              onChange={(e) => set("nomek", e.target.value)}
+              placeholder="М-46-22, М-48-7-А-г гэх мэт"
+              helperText="1:100000 (М-46-22), 1:25000 (М-46-22-А-г) масштаб"
+            />
           </Box>
 
-          <TextField
-            label="Нэрлэвэр"
-            value={draft.nomek}
-            onChange={(e) => set("nomek", e.target.value)}
-            placeholder="М-46-22, М-48-7-А-г гэх мэт"
-            helperText="Зөвхөн 1:100000 (М-46-22), 1:25000 (М-46-22-А-г) масштаб"
-          />
+          {/* 2‑р мөр — ангилал 3 түвшин */}
+          <Box
+            sx={{
+              display: "grid",
+              gap: 2,
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, 1fr)",
+                md: "repeat(3, 1fr)",
+              },
+            }}
+          >
+            <Autocomplete
+              value={draft.t1}
+              onChange={(_e, v) => handleType(1, v)}
+              options={ty1}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Үндсэн ангилал" />
+              )}
+            />
+            <Autocomplete
+              value={draft.t2}
+              disabled={!draft.t1?.id || !ty2.length}
+              onChange={(_e, v) => handleType(2, v)}
+              options={ty2}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Дэд ангилал" />
+              )}
+            />
+            <Autocomplete
+              value={draft.t3}
+              disabled={!draft.t2?.id || !ty3.length}
+              onChange={(_e, v) => handleType(3, v)}
+              options={ty3}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Ангилал" />
+              )}
+            />
+          </Box>
+
+          {/* 3‑р мөр — хилийн цэс + үйлдэл */}
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            alignItems={{ xs: "stretch", sm: "center" }}
+            justifyContent="space-between"
+            spacing={1.5}
+          >
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={!!draft.is_border}
+                  onChange={(e) => set("is_border", e.target.checked)}
+                />
+              }
+              label="Хилийн цэс"
+            />
+
+            <Stack direction="row" spacing={1.5} justifyContent="flex-end">
+              <Button color="inherit" variant="outlined" onClick={handleClear}>
+                Цэвэрлэх
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<Iconify icon="eva:search-fill" />}
+                onClick={handleApply}
+              >
+                Хайх
+              </Button>
+            </Stack>
+          </Stack>
         </Stack>
-      </Scrollbar>
-
+      </Box>
       <Divider />
-
-      <Stack direction="row" spacing={1.5} sx={{ p: 2.5 }}>
-        <Button
-          fullWidth
-          size="small"
-          color="inherit"
-          variant="outlined"
-          onClick={handleClear}
-        >
-          Цэвэрлэх
-        </Button>
-        <Button
-          fullWidth
-          size="small"
-          variant="contained"
-          startIcon={<Iconify icon="eva:search-fill" />}
-          onClick={handleApply}
-        >
-          Хайх
-        </Button>
-      </Stack>
-    </Drawer>
+    </>
   );
 }
 
 GeonameAdvancedSearch.propTypes = {
   open: PropTypes.bool,
-  onClose: PropTypes.func,
   value: PropTypes.object,
   onApply: PropTypes.func,
 };

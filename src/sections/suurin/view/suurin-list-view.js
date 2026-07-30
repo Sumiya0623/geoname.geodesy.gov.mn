@@ -17,20 +17,17 @@ import {
   Button,
   Dialog,
   Divider,
-  Tooltip,
   TableRow,
   TextField,
   TableBody,
   TableCell,
   Typography,
-  IconButton,
   Autocomplete,
   DialogTitle,
   FormControlLabel,
   DialogContent,
   DialogActions,
   TableContainer,
-  InputAdornment,
   CircularProgress,
 } from "@mui/material";
 
@@ -46,6 +43,9 @@ import { useSnackbar } from "src/components/snackbar";
 import { TableHeadCustom, TablePaginationCustom } from "src/components/table";
 
 import RecountMap from "./recount-map";
+
+import SuurinTableRow from "../suurin-table-row";
+import SuurinTableToolbar from "../suurin-table-toolbar";
 import { statusColorByName } from "src/components/map/recountStatus";
 
 // ----------------------------------------------------------------------
@@ -437,7 +437,6 @@ export default function SuurinListView({
     />
   );
 
-
   return (
     <Box>
       {/* Төслийн талбайн батлагдсан нэрсийн ХУРААНГУЙ — ангиллаар */}
@@ -527,7 +526,6 @@ export default function SuurinListView({
                       {k.name}
                     </Typography>
                     <Chip
-                      size="small"
                       variant="soft"
                       color="primary"
                       label={`${k.count.toLocaleString()} нэр`}
@@ -565,194 +563,57 @@ export default function SuurinListView({
         <>
           <Divider />
           {/* Toolbar — хайлт + сангаас импортлох */}
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ p: 2 }}>
-            <TextField
-              fullWidth
-              size="small"
-              value={rq}
-              onChange={(e) => {
-                setRq(e.target.value);
-                setRPage(0);
-              }}
-              placeholder="Нэрээр..."
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Iconify
-                      icon="eva:search-fill"
-                      sx={{ color: "text.disabled" }}
-                    />
-                  </InputAdornment>
-                ),
-                endAdornment: rq ? (
-                  <IconButton size="small" onClick={() => setRq("")}>
-                    <Iconify icon="eva:close-fill" />
-                  </IconButton>
-                ) : null,
-              }}
-            />
-
-            {/* Ангилал — Үндсэн → Дэд → Ангилал (сонгосон хамгийн гүн нь үйлчилнэ) */}
-            <Autocomplete
-              size="small"
-              value={t1}
-              onChange={(_e, v) => {
+          <SuurinTableToolbar
+            search={rq}
+            onSearch={(v) => {
+              setRq(v);
+              setRPage(0);
+            }}
+            t1={t1}
+            t2={t2}
+            t3={t3}
+            ty1={ty1}
+            ty2={ty2}
+            ty3={ty3}
+            onType={(level, v) => {
+              if (level === 1) {
                 setT1(v);
                 setT2(null);
                 setT3(null);
-                setRPage(0);
-              }}
-              options={ty1}
-              getOptionLabel={(o) => o?.name || ""}
-              isOptionEqualToValue={(o, v) => o?.id === v?.id}
-              sx={{ minWidth: 150 }}
-              renderInput={(params) => <TextField {...params} label="Үндсэн" />}
-            />
-            <Autocomplete
-              size="small"
-              value={t2}
-              disabled={!t1?.id}
-              onChange={(_e, v) => {
+              } else if (level === 2) {
                 setT2(v);
                 setT3(null);
-                setRPage(0);
-              }}
-              options={ty2}
-              getOptionLabel={(o) => o?.name || ""}
-              isOptionEqualToValue={(o, v) => o?.id === v?.id}
-              sx={{ minWidth: 150 }}
-              renderInput={(params) => <TextField {...params} label="Дэд" />}
-            />
-            <Autocomplete
-              size="small"
-              value={t3}
-              disabled={!t2?.id}
-              onChange={(_e, v) => {
+              } else {
                 setT3(v);
-                setRPage(0);
-              }}
-              options={ty3}
-              getOptionLabel={(o) => o?.name || ""}
-              isOptionEqualToValue={(o, v) => o?.id === v?.id}
-              sx={{ minWidth: 150 }}
-              renderInput={(params) => (
-                <TextField {...params} label="Ангилал" />
-              )}
-            />
-
-            {/* Төлөв — inline товч + сонголтын жагсаалт (checkbox) */}
-            <Button
-              variant="outlined"
-              color={rStatuses.length ? "primary" : "inherit"}
-              onClick={(e) => setStMenu(e.currentTarget)}
-              endIcon={<Iconify icon="eva:chevron-down-fill" />}
-              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
-            >
-              Төлөв
-              {rStatuses.length ? ` (${rStatuses.length})` : ""}
-            </Button>
-            <Menu
-              open={!!stMenu}
-              anchorEl={stMenu}
-              onClose={() => setStMenu(null)}
-              slotProps={{ paper: { sx: { width: 240 } } }}
-            >
-              {[...statuses, { id: "none", name: "Тодорхойгүй" }].map((st) => {
-                const col =
-                  st.id === "none" ? "#94a3b8" : statusColorByName(st.name);
-                const on = rStatuses.includes(st.id);
-                return (
-                  <MenuItem
-                    key={st.id}
-                    onClick={() => {
-                      setRStatuses((prev) =>
-                        prev.includes(st.id)
-                          ? prev.filter((x) => x !== st.id)
-                          : [...prev, st.id],
-                      );
-                      setRPage(0);
-                    }}
-                  >
-                    <Checkbox
-                      size="small"
-                      checked={on}
-                      sx={{ p: 0.5, mr: 1 }}
-                    />
-                    <Box
-                      sx={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        bgcolor: col,
-                        mr: 1,
-                        flexShrink: 0,
-                      }}
-                    />
-                    {st.name}
-                  </MenuItem>
-                );
-              })}
-              {!!rStatuses.length && (
-                <>
-                  <Divider />
-                  <MenuItem
-                    onClick={() => {
-                      setRStatuses([]);
-                      setRPage(0);
-                      setStMenu(null);
-                    }}
-                    sx={{ color: "text.secondary" }}
-                  >
-                    <Iconify icon="solar:restart-bold" sx={{ mr: 1 }} />
-                    Цэвэрлэх
-                  </MenuItem>
-                </>
-              )}
-            </Menu>
-
-            <FormControlLabel
-              sx={{ ml: 0, flexShrink: 0, whiteSpace: "nowrap" }}
-              control={
-                <Checkbox
-                  size="small"
-                  checked={noGeom}
-                  onChange={(e) => {
-                    setNoGeom(e.target.checked);
-                    setRPage(0);
-                  }}
-                />
               }
-              label={<Typography variant="body2">No Geom</Typography>}
-            />
-
-            <Tooltip title="Сангаас импортлох — төслийн хамрах засаг захиргаанд (аймаг сонгосон бол доод шатны сум, баг хүртэл) багтах бүх батлагдсан нэрийг дахин тооллого руу нэг дор нэмнэ">
-              <span>
-                <IconButton
-                  color="primary"
-                  disabled={importing || !projectUnitIds.length}
-                  onClick={handleImportByUnits}
-                >
-                  <Iconify
-                    icon="solar:refresh-circle-bold"
-                    sx={
-                      importing
-                        ? {
-                            animation: "spin 1s linear infinite",
-                            "@keyframes spin": {
-                              from: { transform: "rotate(0deg)" },
-                              to: { transform: "rotate(360deg)" },
-                            },
-                          }
-                        : undefined
-                    }
-                  />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </Stack>
+              setRPage(0);
+            }}
+            statuses={statuses}
+            selectedStatuses={rStatuses}
+            onStatuses={(id) => {
+              setRStatuses((prev) =>
+                id === null
+                  ? []
+                  : prev.includes(id)
+                    ? prev.filter((x) => x !== id)
+                    : [...prev, id],
+              );
+              setRPage(0);
+            }}
+            stMenu={stMenu}
+            onStMenu={setStMenu}
+            noGeom={noGeom}
+            onNoGeom={(v) => {
+              setNoGeom(v);
+              setRPage(0);
+            }}
+            importing={importing}
+            canImport={!!projectUnitIds.length}
+            onImport={handleImportByUnits}
+          />
           <TableContainer>
             <Scrollbar>
-              <Table size="small" sx={{ minWidth: 600 }}>
+              <Table sx={{ minWidth: 600 }}>
                 <TableHeadCustom
                   order={rOrder}
                   orderBy={rOrderBy}
@@ -785,106 +646,15 @@ export default function SuurinListView({
                     </TableRow>
                   )}
                   {recounts.map((r) => (
-                    <TableRow key={r.id} hover>
-                      <TableCell>{r.draft || r.name?.name || "—"}</TableCell>
-                      <TableCell>{r.name?.type_l1 || "—"}</TableCell>
-                      <TableCell>{r.name?.type_l2 || "—"}</TableCell>
-                      <TableCell>{r.name?.type_l3 || "—"}</TableCell>
-                      <TableCell align="center">
-                        {(() => {
-                          const geom = r.loc || r.name?.geom || null;
-                          const gt = geom?.type || r.name?.geom_type || "";
-                          const icon = gt.includes("Point")
-                            ? "mdi:map-marker"
-                            : gt.includes("Line")
-                              ? "mdi:vector-polyline"
-                              : gt.includes("Polygon")
-                                ? "mdi:vector-square"
-                                : "mdi:map-marker-off-outline";
-                          const color = gt.includes("Point")
-                            ? "#16a34a"
-                            : gt.includes("Line")
-                              ? "#2563eb"
-                              : gt.includes("Polygon")
-                                ? "#d97706"
-                                : null;
-                          // Геометргүй — ИДЭВХГҮЙ өнгө, дарагдахгүй
-                          if (!geom) {
-                            return (
-                              <Tooltip title="Байршил бүртгэгдээгүй">
-                                <span>
-                                  <IconButton size="small" disabled>
-                                    <Iconify icon={icon} width={18} />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                            );
-                          }
-                          return (
-                            <Tooltip title="Байршлыг харах">
-                              <IconButton
-                                size="small"
-                                onClick={() =>
-                                  setLocDlg({
-                                    title: r.draft || r.name?.name || "Байршил",
-                                    geom,
-                                  })
-                                }
-                              >
-                                <Iconify
-                                  icon={icon}
-                                  width={18}
-                                  sx={{ color }}
-                                />
-                              </IconButton>
-                            </Tooltip>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell>
-                        {r.statuses?.length ? (
-                          <Stack
-                            direction="row"
-                            flexWrap="wrap"
-                            gap={0.5}
-                            sx={{ py: 0.25 }}
-                          >
-                            {r.statuses.map((st) => {
-                              const col = statusColorByName(st.name);
-                              return (
-                                <Chip
-                                  key={st.id}
-                                  size="small"
-                                  label={st.name}
-                                  sx={{
-                                    height: 22,
-                                    fontWeight: 600,
-                                    color: col,
-                                    bgcolor: `${col}1f`,
-                                    border: `1px solid ${col}66`,
-                                  }}
-                                />
-                              );
-                            })}
-                          </Stack>
-                        ) : (
-                          <Typography variant="caption" color="text.disabled">
-                            Тодорхойлоогүй
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          color={rowMenu?.row?.id === r.id ? "inherit" : "default"}
-                          onClick={(e) =>
-                            setRowMenu({ anchor: e.currentTarget, row: r })
-                          }
-                        >
-                          <Iconify icon="eva:more-vertical-fill" width={18} />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
+                    <SuurinTableRow
+                      key={r.id}
+                      row={r}
+                      menuOpen={rowMenu?.row?.id === r.id}
+                      onLocation={setLocDlg}
+                      onMenu={(anchor, item) =>
+                        setRowMenu({ anchor, row: item })
+                      }
+                    />
                   ))}
                 </TableBody>
               </Table>
@@ -978,7 +748,11 @@ export default function SuurinListView({
         <DialogTitle sx={{ pb: 1 }}>
           Тодруулалт засах
           {editDlg?.name ? (
-            <Typography variant="caption" component="div" color="text.secondary">
+            <Typography
+              variant="caption"
+              component="div"
+              color="text.secondary"
+            >
               {editDlg.name}
             </Typography>
           ) : null}
@@ -1008,7 +782,6 @@ export default function SuurinListView({
                   sx={{ ml: 0 }}
                   control={
                     <Checkbox
-                      size="small"
                       checked={on}
                       onChange={() =>
                         setEditDlg((d) => ({
@@ -1046,7 +819,6 @@ export default function SuurinListView({
                 sx={{ ml: 0 }}
                 control={
                   <Checkbox
-                    size="small"
                     checked={!!editDlg?.isBorder}
                     onChange={(e) =>
                       setEditDlg((d) => ({ ...d, isBorder: e.target.checked }))
