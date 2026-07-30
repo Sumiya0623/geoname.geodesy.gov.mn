@@ -322,6 +322,12 @@ class Project(models.Model):
 	signed_date=models.DateTimeField(blank=True,null=True, verbose_name='Эхэлсэн огноо')
 	end_date=models.DateTimeField(blank=True,null=True, verbose_name='Дуусах огноо')
 	units=models.ManyToManyField(AdminUnit,related_name='projectunits',verbose_name='Хил',blank=True)
+
+class ProjectArea(UserMixin):
+	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='covers',blank=True, null=True)
+	area=models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
+	is_finished=models.BooleanField(default=False,verbose_name='Дууссан эсэх',blank=True,null=True)	
+
 class GeoName(UserMixin):
 	name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
 	name_eng=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр (English)')
@@ -658,11 +664,6 @@ class LayerGroupItem(models.Model):
 	class Meta:
 		unique_together = ('group', 'layer')  # нэг group-д ижил combo давтагдахгүй
 		ordering = ['order', 'id']
-
-
-
-
-
 
 class Council(models.Model):
 	"""Газар зүйн нэрийн зөвлөл — үндэсний (нэг) эсвэл салбар (аймаг/сум/дүүрэг

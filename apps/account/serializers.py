@@ -1,3 +1,6 @@
+import json
+
+from django.contrib.gis.geos import GEOSGeometry
 from rest_framework import  serializers
 
 from core.serializers import (
@@ -10,6 +13,7 @@ from core.models import (
     Error500,
     Errors,
     Project,
+    ProjectArea,
     RequestLog,
     Constant,
 
@@ -26,6 +30,49 @@ class ProjectUnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = AdminUnit
         fields = ['id', 'unit', 'parent', 'parent_unit', 'level_name']
+
+
+class ProjectAreaSerializer(serializers.ModelSerializer):
+    """Төслийн ажлын талбай — газрын зураг дээр зурсан polygon.
+
+    area нь GeoJSON‑оор орж/гарна. Зурагт label болгон харуулахад
+    user_name (үүсгэсэн хэрэглэгч) + is_finished (төлөв) хэрэгтэй.
+    """
+    area = serializers.SerializerMethodField()
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectArea
+        fields = ['id', 'project', 'area', 'is_finished',
+                  'user', 'user_name', 'created_date']
+        read_only_fields = ['user', 'created_date']
+
+    def get_area(self, obj):
+        return json.loads(obj.area.geojson) if obj.area else None
+
+    def get_user_name(self, obj):
+        u = obj.user
+        return (getattr(u, 'full_name', None) or getattr(u, 'username', None)
+                or '') if u else ''
+
+    def _apply_area(self, validated_data):
+        raw = self.initial_data.get('area')
+        if raw in (None, ''):
+            return validated_data
+        try:
+            g = GEOSGeometry(raw if isinstance(raw, str) else json.dumps(raw))
+            if not g.srid:
+                g.srid = 4326
+            validated_data['area'] = g
+        except Exception:
+            raise serializers.ValidationError({'area': 'Буруу геометр'})
+        return validated_data
+
+    def create(self, validated_data):
+        return super().create(self._apply_area(validated_data))
+
+    def update(self, instance, validated_data):
+        return super().update(instance, self._apply_area(validated_data))
 
 
 class RequestLogSerializer(serializers.ModelSerializer):

@@ -17,10 +17,12 @@ from portal.auth import function_permission
 from core.filters import GlobalFilter
 
 from .serializers import (
-    ProjectSerializer
+    ProjectSerializer,
+    ProjectAreaSerializer
 )
 from core.models import (
-    Project,    
+    Project,
+    ProjectArea,
 	RemoteUser
 )
 
@@ -161,3 +163,31 @@ class ProjectViewSet(PublicListMixin, viewsets.ModelViewSet):
 			else:
 				qs = qs.filter(org=user)
 		return qs
+
+
+class ProjectAreaViewSet(PublicListMixin, viewsets.ModelViewSet):
+	"""Төслийн ажлын талбай (ProjectArea) — газрын зураг дээр зурсан polygon.
+
+	Том хэмжээний зураглалын ажлыг талбайчлан хуваарилж, дуусгасан эсэхийг
+	(is_finished) тэмдэглэхэд ашиглана. ?project=<id> ‑ээр шүүнэ.
+
+	Эрх: SUBMENUS code='project-area' (Зураглах талбай удирдах) —
+	list/detail = харах, create = нэмэх, update = засах, delete = устгах.
+	"""
+	serializer_class = ProjectAreaSerializer
+	queryset = ProjectArea.objects.select_related('project', 'user')
+	permission_classes = function_permission('project-area')
+	filter_backends = [filters.OrderingFilter]
+	ordering_fields = ['id', 'created_date', 'is_finished']
+	ordering = ['id']
+
+	def get_queryset(self):
+		qs = super().get_queryset()
+		project = self.request.query_params.get('project')
+		if project:
+			qs = qs.filter(project_id=project)
+		return qs
+
+	def perform_create(self, serializer):
+		user = self.request.user if self.request.user.is_authenticated else None
+		serializer.save(user=user)
