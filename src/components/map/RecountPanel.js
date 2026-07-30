@@ -42,10 +42,13 @@ import {
 
 import Iconify from "src/components/iconify";
 
+import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 import { useGetLegalUnits } from "src/api/legal";
-import { useGetChampaign } from "src/api/champaign";
+import { useGetChampaign, useGetProjectAreas } from "src/api/champaign";
 import { useGetConstantsFordropdown } from "src/api/constant";
 import axiosInstance, { endpoints } from "src/utils/axios";
+
+import { requestMapDraw } from "./mapDraw";
 
 const esc = (s) => String(s).replace(/'/g, "''");
 
@@ -236,6 +239,8 @@ export default function RecountPanel({
   onFlyTo,
   // Сонгосон нэгжийн ЗӨВХӨН ХҮРЭЭГ зурагт харуулна
   onUnitBoundary,
+  // Төслийн ажлын талбай (ProjectArea) — зурагт харуулах жагсаалт (эсвэл null)
+  onAreas,
 }) {
   // Мөрийн цэсний anchor + сонгосон ангилал
   const [nodeMenu, setNodeMenu] = useState(null);
@@ -289,10 +294,7 @@ export default function RecountPanel({
     return s;
   }, [projectUnits]);
   const allowedSumIds = useMemo(
-    () =>
-      new Set(
-        projectUnits.filter((u) => u.parent).map((u) => u.id),
-      ),
+    () => new Set(projectUnits.filter((u) => u.parent).map((u) => u.id)),
     [projectUnits],
   );
   const aimagOptions = useMemo(
@@ -442,6 +444,77 @@ export default function RecountPanel({
     setStatusChecked(new Set());
   };
 
+  // ── Төслийн ажлын талбай (ProjectArea) ──
+  // Хөлийн check‑ээр асаана; зурагт polygon + голд нь (үүсгэсэн хэрэглэгч,
+  // төлөв) label харагдана. Шинээр зурахдаа ЗӨВХӨН polygon зурна.
+  // Эрх: SUBMENUS code='project-area' — list=харах, create=нэмэх,
+  // update=засах (is_finished), delete=устгах
+  const areaPerm = useMenuPermissions({ content: "project-area" });
+  const canViewArea = !!areaPerm?.list;
+  const canAddArea = !!areaPerm?.create;
+  const canUpdArea = !!areaPerm?.update;
+  const canDelArea = !!areaPerm?.delete;
+
+  const [areaOn, setAreaOn] = useState(false);
+  const [areaBusy, setAreaBusy] = useState(false);
+  const { areas, areasLoading, areasMutation } = useGetProjectAreas(
+    projectId,
+    areaOn && canViewArea,
+  );
+  const onAreasRef = useRef(onAreas);
+  onAreasRef.current = onAreas;
+  useEffect(() => {
+    onAreasRef.current?.(areaOn ? areas : null);
+  }, [areaOn, areas]);
+  // Панел хаагдахад зурагнаас арилгана
+  useEffect(() => () => onAreasRef.current?.(null), []);
+
+  const handleDrawArea = useCallback(async () => {
+    if (!projectId) return;
+    setAreaBusy(true);
+    try {
+      const geom = await requestMapDraw("Polygon"); // ESC → null
+      if (!geom) return;
+      await axiosInstance.post(endpoints.champaign.areaCreate(), {
+        project: projectId,
+        area: geom,
+        is_finished: false,
+      });
+      setAreaOn(true);
+      areasMutation();
+    } catch (e) {
+      /* алгасна */
+    } finally {
+      setAreaBusy(false);
+    }
+  }, [projectId, areasMutation]);
+
+  const handleAreaFinished = useCallback(
+    async (a, checked) => {
+      try {
+        await axiosInstance.patch(endpoints.champaign.areaDetail(a.id), {
+          is_finished: checked,
+        });
+        areasMutation();
+      } catch (e) {
+        /* алгасна */
+      }
+    },
+    [areasMutation],
+  );
+
+  const handleAreaDelete = useCallback(
+    async (a) => {
+      try {
+        await axiosInstance.delete(endpoints.champaign.areaDetail(a.id));
+        areasMutation();
+      } catch (e) {
+        /* алгасна */
+      }
+    },
+    [areasMutation],
+  );
+
   // Тоолбарын үйлдлүүд (Удирдлага панелийн дээд мөр) — event‑ээр ирнэ
   const [expandSignal, setExpandSignal] = useState({ n: 0, mode: "expand" });
   // ЗӨВХӨН 3‑р түвшний (навч) ангиллыг ДАВХАРГА гэж үзнэ.
@@ -552,7 +625,15 @@ export default function RecountPanel({
   );
 
   return (
-    <Box sx={{ py: 0.5 }}>
+    // Панелийн бүх өндрийг эзэлж, «Ажлын талбай» хэсгийг ХӨЛД нааж байрлуулна
+    <Box
+      sx={{
+        py: 0.5,
+        minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       {/* Засаг захиргаа — ҮРГЭЛЖ харагдана (төслийн хамрах нэгжээр хязгаарласан).
           Сонгосон нэгж нь модны тоо, зургийн CQL хоёуланд шууд үйлчилнэ. */}
       <Stack spacing={1} sx={{ px: 1, pb: 1 }}>
@@ -659,7 +740,7 @@ export default function RecountPanel({
         <Divider />
       </Collapse>
 
-      <Box sx={{ px: 0.5 }}>
+      <Box sx={{ px: 0.5, flexGrow: 1 }}>
         {!sf.aimag?.id ? (
           <Box sx={{ p: 2.5, textAlign: "center" }}>
             <Iconify
@@ -698,6 +779,111 @@ export default function RecountPanel({
           ))
         )}
       </Box>
+
+      {/* ── Хөл: төслийн ажлын талбай (ProjectArea). Эрхгүй бол огт харагдахгүй ── */}
+      {canViewArea && (
+        <>
+          <Divider sx={{ mt: "auto" }} />
+          <Box sx={{ px: 1, py: 0.5, flexShrink: 0 }}>
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <FormControlLabel
+                sx={{ flex: 1, mr: 0 }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={areaOn}
+                    onChange={(e) => setAreaOn(e.target.checked)}
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    Ажлын талбай
+                    {areaOn && areas.length ? ` (${areas.length})` : ""}
+                  </Typography>
+                }
+              />
+              {areasLoading && areaOn ? <CircularProgress size={14} /> : null}
+              {canAddArea && (
+                <IconButton
+                  size="small"
+                  color="primary"
+                  disabled={!projectId || areaBusy}
+                  title="Газрын зураг дээр талбай (polygon) зурж нэмэх"
+                  onClick={handleDrawArea}
+                >
+                  <Iconify icon="solar:add-square-bold" width={18} />
+                </IconButton>
+              )}
+            </Stack>
+
+            <Collapse in={areaOn} timeout="auto" unmountOnExit>
+              {areas.length === 0 ? (
+                <Typography
+                  variant="caption"
+                  color="text.disabled"
+                  sx={{ display: "block", px: 1.5, pb: 1 }}
+                >
+                  Талбай алга. «+» дарж зурагт polygon зурна.
+                </Typography>
+              ) : (
+                <Box sx={{ maxHeight: 180, overflowY: "auto", pb: 0.5 }}>
+                  {areas.map((a, i) => (
+                    <Stack
+                      key={a.id}
+                      direction="row"
+                      alignItems="center"
+                      spacing={0.5}
+                      sx={{ pl: 1.5, pr: 0.5, py: 0.25 }}
+                    >
+                      <Checkbox
+                        size="small"
+                        checked={!!a.is_finished}
+                        disabled={!canUpdArea}
+                        onChange={(e) =>
+                          handleAreaFinished(a, e.target.checked)
+                        }
+                        title="Дууссан эсэх"
+                      />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography
+                          variant="caption"
+                          noWrap
+                          sx={{ display: "block" }}
+                        >
+                          №{i + 1} · {a.user_name || "—"}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: a.is_finished
+                              ? "success.main"
+                              : "warning.main",
+                          }}
+                        >
+                          {a.is_finished ? "Дууссан" : "Хийгдэж буй"}
+                        </Typography>
+                      </Box>
+                      {canDelArea && (
+                        <IconButton
+                          size="small"
+                          color="error"
+                          title="Талбай устгах"
+                          onClick={() => handleAreaDelete(a)}
+                        >
+                          <Iconify
+                            icon="solar:trash-bin-trash-bold"
+                            width={16}
+                          />
+                        </IconButton>
+                      )}
+                    </Stack>
+                  ))}
+                </Box>
+              )}
+            </Collapse>
+          </Box>
+        </>
+      )}
 
       {/* Ангиллын мөрийн цэс — Zoom / Attribute (таб) / Чанарын шалгалт */}
       <Menu
@@ -738,4 +924,5 @@ RecountPanel.propTypes = {
   onFlyTo: PropTypes.func,
   onUnitBoundary: PropTypes.func,
   onNodeAction: PropTypes.func,
+  onAreas: PropTypes.func,
 };

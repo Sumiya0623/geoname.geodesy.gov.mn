@@ -627,6 +627,10 @@ function Map2() {
   // Recount панелийн (type checkbox + draft) бүрдүүлсэн CQL. null → бүх recount.
   const [recountCql, setRecountCql] = useState(null);
   const recountLayerRef = useRef(null);
+  // Төслийн ажлын талбай (ProjectArea) — Тодруулалт панелийн хөлөөс ирнэ.
+  // null → давхарга унтраалттай.
+  const [projectAreas, setProjectAreas] = useState(null);
+  const projectAreaLayerRef = useRef(null);
   // Доод status bar — курсорын солбицол (DMS) ба масштаб
   const [cursorCoords, setCursorCoords] = useState({ lon: null, lat: null });
   const [mapScale, setMapScale] = useState(null);
@@ -2187,8 +2191,17 @@ function Map2() {
       }
       source.clear();
       const draw = new Draw({ source, type: type || "Point" });
+      // Зурж байх үед газрын зургийн click (GetFeatureInfo / recount popup)
+      // ажиллахгүй байх ёстой — map-init нь drawInteractionRef‑ээр шалгадаг.
+      drawInteractionRef.current = draw;
       const cleanup = () => {
         map.removeInteraction(draw);
+        // Зурж дуусгасан (давхар) клик нь дараа нь map click болж дуудагдах тул
+        // хамгаалалтыг нэг агшин хойшлуулж арилгана.
+        setTimeout(() => {
+          if (drawInteractionRef.current === draw)
+            drawInteractionRef.current = null;
+        }, 350);
         document.removeEventListener("keydown", keyHandler);
       };
       const keyHandler = (e) => {
@@ -3620,6 +3633,61 @@ function Map2() {
     }
   }, [selectedName]);
 
+  // Төслийн ажлын талбай (ProjectArea) — polygon + голд нь label
+  // (үүсгэсэн хэрэглэгч, төлөв). Алтан (gold) өнгөөр, дууссан бол ногоон.
+  useEffect(() => {
+    const map = mapObjRef.current;
+    if (!map || !mapReady) return;
+    if (!projectAreaLayerRef.current) {
+      projectAreaLayerRef.current = new VectorLayer({
+        source: new VectorSource(),
+        zIndex: 58,
+        style: (feature) => {
+          const done = !!feature.get("is_finished");
+          const color = done ? "#16a34a" : "#d4a017"; // ногоон / алтан
+          return new Style({
+            stroke: new Stroke({ color, width: 2.5 }),
+            fill: new Fill({
+              color: done ? "rgba(22,163,74,0.10)" : "rgba(212,160,23,0.14)",
+            }),
+            text: new Text({
+              text: [feature.get("user_name") || "—",
+                     done ? "Дууссан" : "Хийгдэж буй"].join("\n"),
+              font: "bold 12px sans-serif",
+              textAlign: "center",
+              overflow: true,
+              fill: new Fill({ color }),
+              stroke: new Stroke({ color: "#fff", width: 3 }),
+            }),
+          });
+        },
+      });
+      map.addLayer(projectAreaLayerRef.current);
+    }
+    const src = projectAreaLayerRef.current.getSource();
+    src.clear();
+    (projectAreas || []).forEach((a) => {
+      if (!a?.area) return;
+      try {
+        const f = new GeoJSON().readFeature(
+          {
+            type: "Feature",
+            geometry: a.area,
+            properties: {
+              id: a.id,
+              user_name: a.user_name,
+              is_finished: !!a.is_finished,
+            },
+          },
+          { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" },
+        );
+        src.addFeature(f);
+      } catch (e) {
+        /* геометр уншиж чадсангүй — алгасна */
+      }
+    });
+  }, [projectAreas, mapReady]);
+
   const handleClearHighlight = useCallback(() => {
     const existingFeatures =
       measurementSearchSourceRef.current?.getFeatures() || [];
@@ -4459,6 +4527,7 @@ function Map2() {
           setSearchPointState={setSearchPointState}
           scaleDenom={scaleDenom}
           onRecountCql={setRecountCql}
+          onProjectAreas={setProjectAreas}
           // «Шийдвэрийн сан» таб нээхэд ЗЗ нэгжийн хил + тооны overlay асна
           onTabChange={(t) => setOverlayLegal(t === "legal")}
           // Модны хүснэгтийн дүрс → доод хүснэгтэд ТАБ болгож нээнэ

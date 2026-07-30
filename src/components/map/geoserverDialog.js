@@ -115,6 +115,8 @@ function GeoserverDialog({
   forceOpen = false,
   forceTab = null,
   onFlyTo,
+  // Төслийн ажлын талбай (ProjectArea) — зурагт дамжуулна
+  onProjectAreas,
   onPanelClose,
   geonameSearchTerm,
   scaleDenom,
@@ -804,6 +806,7 @@ function GeoserverDialog({
                         onNodeAction={onNodeAction}
                         onFlyTo={onFlyTo}
                         onUnitBoundary={handleUnitBoundary}
+                        onAreas={onProjectAreas}
                       />
                     ) : (
                       <NameCategoryTree

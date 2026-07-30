@@ -395,6 +395,11 @@ export const endpoints = {
     // Төслийн хамрах ЗЗ нэгж — тусдаа эрхтэй (unit_add / unit_remove)
     unitAdd: (id) => `/api/account/project/${id}/unit-add/`,
     unitRemove: (id) => `/api/account/project/${id}/unit-remove/`,
+    // Төслийн ажлын талбай (ProjectArea) — газрын зураг дээр зурсан polygon
+    areas: (projectId) =>
+      `/api/account/project-area/?pagination=false&project=${projectId}`,
+    areaCreate: () => `/api/account/project-area/`,
+    areaDetail: (id) => `/api/account/project-area/${id}/`,
   },
 
   public: {

@@ -50,3 +50,25 @@ export function useGetChampaign(id) {
 
   return memoizedValue;
 }
+
+// ----------------------------------------------------------------------
+// Төслийн ажлын талбай (ProjectArea) — газрын зураг дээр зурсан polygon‑ууд.
+// Том хэмжээний зураглалын ажлыг талбайчлан хуваарилж, дуусгасныг тэмдэглэнэ.
+export function useGetProjectAreas(projectId, enabled = true) {
+  const URL = projectId ? endpoints.champaign.areas(projectId) : null;
+  const { data, isLoading, error, mutate } = useSWR(
+    URL && enabled ? [URL, axiosInstance, "get"] : null,
+    fetcher,
+    { shouldRetryOnError: false },
+  );
+
+  return useMemo(
+    () => ({
+      areas: Array.isArray(data) ? data : data?.results || [],
+      areasLoading: isLoading,
+      areasError: error,
+      areasMutation: mutate,
+    }),
+    [data, error, isLoading, mutate],
+  );
+}
