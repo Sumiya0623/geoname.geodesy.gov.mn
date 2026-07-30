@@ -20,6 +20,9 @@ export default function LegalTableToolbar({
   canCreate,
   onCreate,
   typeCode = "0",
+  canSync = false,
+  onSync,
+  syncing = false,
 }) {
   const needAimag = typeCode === "1" || typeCode === "2";
   const needSum = typeCode === "2";
@@ -134,6 +137,33 @@ export default function LegalTableToolbar({
           </IconButton>
         </Tooltip>
 
+        {canSync && (
+          <Tooltip title="Сангаас дуудах — төслийн хамрах засаг захиргаанд (аймаг сонгосон бол доод шатны сум, баг хүртэл) харьяалагдах бүх шийдвэрийг сангаас нэг дор төсөлд холбоно">
+            <span>
+              <IconButton
+                color="primary"
+                onClick={onSync}
+                disabled={syncing}
+              >
+                <Iconify
+                  icon="solar:refresh-circle-bold"
+                  sx={
+                    syncing
+                      ? {
+                          animation: "spin 1s linear infinite",
+                          "@keyframes spin": {
+                            from: { transform: "rotate(0deg)" },
+                            to: { transform: "rotate(360deg)" },
+                          },
+                        }
+                      : undefined
+                  }
+                />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+
         {canCreate && (
           <Tooltip title="Шинэ тогтоол нэмэх">
             <IconButton color="inherit" onClick={onCreate}>
@@ -154,4 +184,7 @@ LegalTableToolbar.propTypes = {
   canCreate: PropTypes.bool,
   onCreate: PropTypes.func,
   typeCode: PropTypes.string,
+  canSync: PropTypes.bool,
+  onSync: PropTypes.func,
+  syncing: PropTypes.bool,
 };

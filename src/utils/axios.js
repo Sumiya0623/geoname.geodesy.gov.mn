@@ -167,6 +167,9 @@ export const endpoints = {
     delete: (id) => `/api/n/geoname/${id}/`,
     details: (id) => `/api/n/geoname/${id}/`,
     types: `/api/n/geoname/types/`,
+    // ЗЗ нэгж(үүд)-д багтах батлагдсан нэрсийн ангиллын задаргаа
+    typeSummary: (request_body) =>
+      `/api/n/geoname/type-summary/?${request_body}`,
     addPhoto: (id) => `/api/n/geoname/${id}/add-photo/`,
     delPhoto: (id) => `/api/n/geoname/${id}/del-photo/`,
     addAttach: (id) => `/api/n/geoname/${id}/add-attach/`,
@@ -198,6 +201,8 @@ export const endpoints = {
     delete: (id) => `/api/r/legal/${id}/`,
     details: (id) => `/api/r/legal/${id}/`,
     attachProject: (id) => `/api/r/legal/${id}/attach-project/`,
+    // Төслийн хамрах ЗЗ нэгжид харьяалагдах БҮХ шийдвэрийг нэг дор холбох
+    attachByUnits: `/api/r/legal/attach-by-units/`,
     detachProject: (id) => `/api/r/legal/${id}/detach-project/`,
     unitExtent: (id) => `/api/r/legal-unit/${id}/extent/`,
     // Газрын зургийн overlay — ЗЗ нэгжийн тогтоол/шийдвэрийн тоо (GeoJSON)
@@ -217,7 +222,10 @@ export const endpoints = {
     delete: (id) => `/api/r/council/${id}/`,
     members: (request_body) => `/api/r/council-member/?${request_body}`,
     memberCreate: `/api/r/council-member/`,
+    // Регистрээр системийн хэрэглэгчийг олох/үүсгэх (роль + нэгж онооно)
+    ensurePerson: `/api/r/council-member/ensure-person/`,
     memberRelease: (id) => `/api/r/council-member/${id}/release/`,
+    memberDelete: (id) => `/api/r/council-member/${id}/`,
   },
 
   recount: {
@@ -230,6 +238,8 @@ export const endpoints = {
     typeTree: (request_body) => `/api/r/recount/type-tree/?${request_body}`,
     unitTree: (request_body) => `/api/r/recount/unit-tree/?${request_body}`,
     reverseGeom: (id) => `/api/r/recount/${id}/reverse-geom/`,
+    // Төслийн хамрах талбайд (units) багтах бүх батлагдсан нэрийг импортлох
+    importByUnits: `/api/r/recount/import-by-units/`,
   },
 
   workspace: {
@@ -382,6 +392,9 @@ export const endpoints = {
     details: (id) => `/api/account/project/${id}/`,
     sync: (request_body = "") => `/api/account/project/sync/?${request_body}`,
     dropdown: (params) => `/api/account/project/?pagination=false${params}`,
+    // Төслийн хамрах ЗЗ нэгж — тусдаа эрхтэй (unit_add / unit_remove)
+    unitAdd: (id) => `/api/account/project/${id}/unit-add/`,
+    unitRemove: (id) => `/api/account/project/${id}/unit-remove/`,
   },
 
   public: {

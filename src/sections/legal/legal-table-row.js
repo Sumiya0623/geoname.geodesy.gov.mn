@@ -27,6 +27,8 @@ export default function LegalTableRow({
   menuPermissions,
   refetch,
   onDeleteRow,
+  // Төслийн горим — устгахгүй, ЗӨВХӨН тухайн төслөөс салгана
+  detachMode = false,
 }) {
   const { name, unit, order_number, order_date, signer, document } = row;
 
@@ -53,8 +55,12 @@ export default function LegalTableRow({
         <TableCell>{signer || "-"}</TableCell>
         <TableCell align="center">
           {docUrl ? (
-            <Link href={docUrl} target="_blank" rel="noopener">
-              <Iconify icon="solar:file-text-bold" width={22} />
+            <Link href={docUrl} target="_blank" rel="noopener" title="Баримт нээх">
+              <Iconify
+                icon="vscode-icons:file-type-pdf2"
+                width={22}
+                sx={{ verticalAlign: "middle" }}
+              />
             </Link>
           ) : (
             "-"
@@ -117,8 +123,14 @@ export default function LegalTableRow({
               }}
               sx={{ color: "error.main" }}
             >
-              <Iconify icon="solar:trash-bin-trash-bold" />
-              Устгах
+              <Iconify
+                icon={
+                  detachMode
+                    ? "solar:link-broken-minimalistic-bold"
+                    : "solar:trash-bin-trash-bold"
+                }
+              />
+              {detachMode ? "Хасах" : "Устгах"}
             </MenuItem>
           </>
         )}
@@ -127,15 +139,26 @@ export default function LegalTableRow({
       <ConfirmDialog
         open={confirm.value}
         onClose={confirm.onFalse}
-        title="Устгах"
+        title={detachMode ? "Төслөөс хасах" : "Устгах"}
         content={
-          <>
-            <strong>{name}</strong> тогтоолыг устгахдаа итгэлтэй байна уу?
-          </>
+          detachMode ? (
+            <>
+              <strong>{name}</strong> тогтоолыг энэ төслөөс хасах уу? Тогтоол нь{" "}
+              <strong>санд хэвээр үлдэнэ</strong> — устахгүй.
+            </>
+          ) : (
+            <>
+              <strong>{name}</strong> тогтоолыг устгахдаа итгэлтэй байна уу?
+            </>
+          )
         }
         action={
-          <Button variant="contained" color="error" onClick={onDeleteRow}>
-            Устгах
+          <Button
+            variant="contained"
+            color={detachMode ? "warning" : "error"}
+            onClick={onDeleteRow}
+          >
+            {detachMode ? "Хасах" : "Устгах"}
           </Button>
         }
       />
@@ -152,4 +175,5 @@ LegalTableRow.propTypes = {
   menuPermissions: PropTypes.object,
   refetch: PropTypes.func,
   onDeleteRow: PropTypes.func,
+  detachMode: PropTypes.bool,
 };

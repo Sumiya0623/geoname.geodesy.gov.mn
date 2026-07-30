@@ -12,6 +12,8 @@ import Iconify from "src/components/iconify";
 import ProfileAvatar from "src/components/profile-avatar";
 import { ConfirmDialog } from "src/components/custom-dialog";
 import CustomPopover, { usePopover } from "src/components/custom-popover";
+
+import ChampaignUnitsDialog from "./champaign-units-dialog";
 // ----------------------------------------------------------------------
 
 export default function ChampaignTableRow({
@@ -25,8 +27,14 @@ export default function ChampaignTableRow({
 
   const confirm = useBoolean();
   const popover = usePopover();
+  const unitsDialog = useBoolean();
 
-  const hasMenu = menuPermissions?.detail || menuPermissions?.delete;
+  const canUnitAdd = !!menuPermissions?.unit_add;
+  const canUnitRemove = !!menuPermissions?.unit_remove;
+  const canUnits = canUnitAdd || canUnitRemove;
+
+  const hasMenu =
+    menuPermissions?.detail || menuPermissions?.delete || canUnits;
 
   return (
     <>
@@ -103,7 +111,20 @@ export default function ChampaignTableRow({
           </MenuItem>
         )}
 
-        {menuPermissions?.detail && menuPermissions?.delete && (
+        {/* Засаг захиргаа нэмэх/хасах — unit_add / unit_remove эрхээр */}
+        {canUnits && (
+          <MenuItem
+            onClick={() => {
+              unitsDialog.onTrue();
+              popover.onClose();
+            }}
+          >
+            <Iconify icon="solar:map-point-bold-duotone" />
+            Засаг захиргаа
+          </MenuItem>
+        )}
+
+        {(menuPermissions?.detail || canUnits) && menuPermissions?.delete && (
           <Divider sx={{ borderStyle: "dashed" }} />
         )}
 
@@ -120,6 +141,15 @@ export default function ChampaignTableRow({
           </MenuItem>
         )}
       </CustomPopover>
+
+      <ChampaignUnitsDialog
+        projectId={id}
+        projectName={name}
+        open={unitsDialog.value}
+        onClose={unitsDialog.onFalse}
+        canAdd={canUnitAdd}
+        canRemove={canUnitRemove}
+      />
 
       <ConfirmDialog
         open={confirm.value}

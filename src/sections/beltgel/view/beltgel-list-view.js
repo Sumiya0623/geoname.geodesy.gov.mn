@@ -50,7 +50,7 @@ const TABLE_HEAD = [
   { id: "", label: "Нэгж" },
   { id: "order_date", label: "Огноо", width: 130 },
   { id: "order_number", label: "Дугаар" },
-  { id: "", label: "Гарын үсэг", width: 150 },
+  { id: "", label: "Гарын үсэг" },
   { id: "", label: "Баримт", width: 80, align: "center" },
   { id: "", width: 48 },
 ];
@@ -151,6 +151,34 @@ export default function BeltgelListView({ projectId = "" }) {
     }
   }, [legalOrdersMutation, projectId, champaignMutation, legalTypesMutation]);
 
+  // "Сангаас дуудах" — төслийн хамрах ЗЗ нэгжид харьяалагдах бүх шийдвэрийг
+  // (аймаг сонгосон бол доод шатны сум/баг хүртэл) нэг дор төсөлд холбоно.
+  const [syncing, setSyncing] = useState(false);
+  const handleSyncFromBank = useCallback(async () => {
+    if (!projectId || syncing) return;
+    setSyncing(true);
+    try {
+      const res = await axiosInstance.post(endpoints.legal.attachByUnits, {
+        project: projectId,
+      });
+      const { added = 0, skipped = 0 } = res?.data || {};
+      enqueueSnackbar(
+        added
+          ? `${added} шийдвэр сангаас холбогдлоо${skipped ? ` (${skipped} нь өмнө холбогдсон)` : ""}`
+          : "Шинээр холбох шийдвэр олдсонгүй",
+        { variant: added ? "success" : "info" },
+      );
+      refreshAll();
+    } catch (error) {
+      enqueueSnackbar(
+        error?.response?.data?.detail || "Сангаас дуудахад алдаа гарлаа",
+        { variant: "warning" },
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }, [projectId, syncing, enqueueSnackbar, refreshAll]);
+
   // Мөр хасах:
   //  - projectId БАЙВАЛ → тухайн төслөөс САЛГАНА (detach). Орд санд үлдэнэ.
   //  - projectId БАЙХГҮЙ (ерөнхий) → ордыг бүрэн УСТГАНА.
@@ -163,13 +191,13 @@ export default function BeltgelListView({ projectId = "" }) {
             { project: projectId },
           );
           if (res?.status === 200) {
-            enqueueSnackbar("Төслөөс салгалаа");
+            enqueueSnackbar("Баримт бичгийг төслөөс хаслаа");
             refreshAll();
           }
         } else {
           const res = await axiosInstance.delete(endpoints.legal.delete(id));
           if (res?.status === 204) {
-            enqueueSnackbar("Амжилттай устгагдлаа");
+            enqueueSnackbar("Баримт бичгийг амжилттай устгалаа");
             refreshAll();
           }
         }
@@ -239,6 +267,9 @@ export default function BeltgelListView({ projectId = "" }) {
           canCreate={menuPermissions?.create}
           onCreate={addPanel.onToggle}
           typeCode={String(selectedType?.code ?? "0")}
+          canSync={!!projectId && !!menuPermissions?.create}
+          onSync={handleSyncFromBank}
+          syncing={syncing}
         />
 
         {/* Нэмэх панел — toolbar доор */}
@@ -280,6 +311,7 @@ export default function BeltgelListView({ projectId = "" }) {
                         menuPermissions={menuPermissions}
                         refetch={refreshAll}
                         onDeleteRow={() => handleDeleteRow(row.id)}
+                        detachMode={!!projectId}
                       />
                     ))}
 

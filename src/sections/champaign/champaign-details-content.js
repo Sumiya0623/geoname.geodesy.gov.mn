@@ -20,6 +20,7 @@ import ProfileAvatar from "src/components/profile-avatar";
 export default function ProjectDetailsContent({ project }) {
   const percent = Number(project?.percent) || 0;
   const [open, setOpen] = useState(false);
+  const units = project?.units || [];
   const renderGeneral = (
     <Stack
       component={Card}
@@ -70,6 +71,37 @@ export default function ProjectDetailsContent({ project }) {
           <span>{fDate(project?.signed_date)}</span>
           <span>{fDate(project?.end_date)}</span>
         </Box>
+      </Box>
+
+      {/* Төслийн хамрах засаг захиргааны нэгж */}
+      <Box>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+          <Iconify
+            icon="solar:map-point-bold-duotone"
+            width={18}
+            sx={{ color: "primary.main" }}
+          />
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            Хамрах засаг захиргаа:
+          </Typography>
+        </Stack>
+        {units.length ? (
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            {units.map((u) => (
+              <Chip
+                key={u.id}
+                size="small"
+                variant="soft"
+                color="primary"
+                label={u.parent_unit ? `${u.parent_unit}, ${u.unit}` : u.unit}
+              />
+            ))}
+          </Stack>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            Тохируулаагүй — «Гэрээт ажил» жагсаалтын цэснээс тохируулна уу.
+          </Typography>
+        )}
       </Box>
     </Stack>
   );

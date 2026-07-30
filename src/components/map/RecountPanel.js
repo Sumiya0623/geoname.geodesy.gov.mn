@@ -1,5 +1,11 @@
 import PropTypes from "prop-types";
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, {
+  useRef,
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 
 import {
   Box,
@@ -34,7 +40,10 @@ import {
   Assessment as QualityIcon,
 } from "@mui/icons-material";
 
+import Iconify from "src/components/iconify";
+
 import { useGetLegalUnits } from "src/api/legal";
+import { useGetChampaign } from "src/api/champaign";
 import { useGetConstantsFordropdown } from "src/api/constant";
 import axiosInstance, { endpoints } from "src/utils/axios";
 
@@ -223,6 +232,10 @@ export default function RecountPanel({
   // Ангиллын мөрийн 3 цэгийн цэсийн үйлдэл: (node, action) —
   // action: "zoom" | "features" | "quality"
   onNodeAction,
+  // Аймаг/сум сонгоход тухайн нэгж рүү газрын зургийг ниснэ
+  onFlyTo,
+  // Сонгосон нэгжийн ЗӨВХӨН ХҮРЭЭГ зурагт харуулна
+  onUnitBoundary,
 }) {
   // Мөрийн цэсний anchor + сонгосон ангилал
   const [nodeMenu, setNodeMenu] = useState(null);
@@ -251,22 +264,82 @@ export default function RecountPanel({
   const [sf, setSf] = useState(EMPTY_SEARCH);
   const [statusChecked, setStatusChecked] = useState(() => new Set());
   const { constants: statuses } = useGetConstantsFordropdown("RECOUNT_STATUS");
-  const { units: aimagOptions } = useGetLegalUnits("Аймаг", null, true);
-  const { units: sumOptions } = useGetLegalUnits(
-    "Сум",
+  // UNITLEVEL Constant‑ийн нэр ЯГ таарах ёстой ("Аймаг" гэвэл хоосон буцна)
+  const { units: allAimags } = useGetLegalUnits("Аймаг/Нийслэл", null, true);
+  const { units: allSums } = useGetLegalUnits(
+    "Сум/Дүүрэг",
     sf.aimag?.id,
     !!sf.aimag?.id,
   );
   const { units: bagOptions } = useGetLegalUnits(
-    "Баг",
+    "Баг/Хороо",
     sf.sum?.id,
     !!sf.sum?.id,
   );
+
+  // Сонголтыг ТӨСЛИЙН хамрах засаг захиргаагаар хязгаарлана
+  const { champaign } = useGetChampaign(projectId);
+  const projectUnits = useMemo(() => champaign?.units || [], [champaign]);
+  const allowedAimagIds = useMemo(() => {
+    const s = new Set();
+    projectUnits.forEach((u) => {
+      // Сум бол эцэг аймгийг, аймаг бол өөрийг нь зөвшөөрнө
+      s.add(u.parent || u.id);
+    });
+    return s;
+  }, [projectUnits]);
+  const allowedSumIds = useMemo(
+    () =>
+      new Set(
+        projectUnits.filter((u) => u.parent).map((u) => u.id),
+      ),
+    [projectUnits],
+  );
+  const aimagOptions = useMemo(
+    () =>
+      allowedAimagIds.size
+        ? allAimags.filter((u) => allowedAimagIds.has(u.id))
+        : allAimags,
+    [allAimags, allowedAimagIds],
+  );
+  const sumOptions = useMemo(
+    () =>
+      allowedSumIds.size
+        ? allSums.filter((u) => allowedSumIds.has(u.id))
+        : allSums,
+    [allSums, allowedSumIds],
+  );
+
+  // Сонгосон ЗЗ нэгж рүү газрын зургийг ниснэ (хуудас ачаалахад биш, ЗӨВХӨН сонгоход)
+  const onFlyToRef = useRef(onFlyTo);
+  onFlyToRef.current = onFlyTo;
+  const onUnitBoundaryRef = useRef(onUnitBoundary);
+  onUnitBoundaryRef.current = onUnitBoundary;
+  const flyToUnit = useCallback((unit) => {
+    // Сонгосон нэгжийн хүрээг зурагт (сонголт цуцлагдвал арилна)
+    onUnitBoundaryRef.current?.(unit?.id || null);
+    if (!unit?.id) return;
+    axiosInstance
+      .get(endpoints.legal.unitExtent(unit.id))
+      .then((res) => {
+        const ext = res?.data?.extent;
+        if (ext && ext.length === 4) onFlyToRef.current?.({ bbox: ext });
+      })
+      .catch(() => {});
+  }, []);
 
   // type‑tree ачаална — хайлтын филтэр өөрчлөгдөх бүрд (debounce) дахин татаж,
   // модны тоог шүүлттэй уялдуулна.
   useEffect(() => {
     if (!projectId) return undefined;
+    // ЗААВАЛ аймаг сонгосон байх ёстой — эс бөгөөс мод ч, зураг ч ачаалагдахгүй
+    if (!sf.aimag?.id) {
+      setRoots([]);
+      setLoaded(false);
+      setCheckedSet(new Set());
+      setLoading(false);
+      return undefined;
+    }
     let active = true;
     const t = setTimeout(async () => {
       setLoading(true);
@@ -314,6 +387,11 @@ export default function RecountPanel({
 
   // Ангилал(type)/draft + хайлтын талбаруудаас нэгдсэн CQL бүрдүүлж дамжуулна
   useEffect(() => {
+    // Аймаг сонгоогүй бол зурагт ЮУ Ч харуулахгүй (хэт олон дата татахаас сэргийлнэ)
+    if (!sf.aimag?.id) {
+      onCql?.("1=0");
+      return;
+    }
     // Мод НЭГ Ч УДАА ачаалагдаагүй бол шүүлтгүй (эхэнд бүх recount). Ачаалагдсаны
     // дараа мод ХООСОН ч (ж: зөвхөн "шинэ" draft) шүүлтийг хэвийн бүрдүүлнэ.
     if (!loaded) {
@@ -475,6 +553,28 @@ export default function RecountPanel({
 
   return (
     <Box sx={{ py: 0.5 }}>
+      {/* Засаг захиргаа — ҮРГЭЛЖ харагдана (төслийн хамрах нэгжээр хязгаарласан).
+          Сонгосон нэгж нь модны тоо, зургийн CQL хоёуланд шууд үйлчилнэ. */}
+      <Stack spacing={1} sx={{ px: 1, pb: 1 }}>
+        <Typography variant="overline" color="text.secondary">
+          Засаг захиргаа
+        </Typography>
+        <Stack direction="row" spacing={1}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {unitAc("Аймаг / Нийслэл", sf.aimag, aimagOptions, false, (v) => {
+              setSf((p) => ({ ...p, aimag: v, sum: null, bag: null }));
+              flyToUnit(v);
+            })}
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {unitAc("Сум / Дүүрэг", sf.sum, sumOptions, !sf.aimag?.id, (v) => {
+              setSf((p) => ({ ...p, sum: v, bag: null }));
+              flyToUnit(v || sf.aimag);
+            })}
+          </Box>
+        </Stack>
+      </Stack>
+
       {/* Тооллогын хайлт — филтер icon (searchOpen)‑оор нээгдэнэ */}
       <Collapse in={!!searchOpen} timeout="auto" unmountOnExit>
         <Stack spacing={1} sx={{ px: 1, pb: 1.5 }}>
@@ -527,17 +627,12 @@ export default function RecountPanel({
             onChange={(e) => setSf((p) => ({ ...p, number: e.target.value }))}
           />
           <Typography variant="overline" color="text.secondary">
-            Засаг захиргааны нэгж
+            Баг / Хороо
           </Typography>
-          {unitAc("Аймаг / Нийслэл", sf.aimag, aimagOptions, false, (v) =>
-            setSf((p) => ({ ...p, aimag: v, sum: null, bag: null })),
-          )}
-          {unitAc("Сум / Дүүрэг", sf.sum, sumOptions, !sf.aimag?.id, (v) =>
-            setSf((p) => ({ ...p, sum: v, bag: null })),
-          )}
-          {unitAc("Баг / Хороо", sf.bag, bagOptions, !sf.sum?.id, (v) =>
-            setSf((p) => ({ ...p, bag: v })),
-          )}
+          {unitAc("Баг / Хороо", sf.bag, bagOptions, !sf.sum?.id, (v) => {
+            setSf((p) => ({ ...p, bag: v }));
+            flyToUnit(v || sf.sum);
+          })}
           <TextField
             size="small"
             label="Нэрлэвэр"
@@ -565,7 +660,21 @@ export default function RecountPanel({
       </Collapse>
 
       <Box sx={{ px: 0.5 }}>
-        {loading ? (
+        {!sf.aimag?.id ? (
+          <Box sx={{ p: 2.5, textAlign: "center" }}>
+            <Iconify
+              icon="solar:map-point-search-bold-duotone"
+              width={36}
+              sx={{ color: "text.disabled", mb: 1 }}
+            />
+            <Typography variant="body2" color="text.secondary">
+              Эхлээд <b>аймаг/нийслэл</b> сонгоно уу.
+            </Typography>
+            <Typography variant="caption" color="text.disabled">
+              Сонгосны дараа тухайн нэгжийн тодруулалт зурагт ачаалагдана.
+            </Typography>
+          </Box>
+        ) : loading ? (
           <Box sx={{ p: 3, textAlign: "center" }}>
             <CircularProgress size={22} />
           </Box>
@@ -626,5 +735,7 @@ RecountPanel.propTypes = {
   projectId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onCql: PropTypes.func,
   searchOpen: PropTypes.bool,
+  onFlyTo: PropTypes.func,
+  onUnitBoundary: PropTypes.func,
   onNodeAction: PropTypes.func,
 };

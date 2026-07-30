@@ -2527,7 +2527,8 @@ function Map2() {
         l.setVisible(recountOn);
         map.addLayer(l);
       });
-      load(`project_id=${recountProjectId}`, true); // анх ачаалахад extent fit
+      // Хуудас ачаалахад ДАТА ТАТАХГҮЙ, НАВИГАЦИ ХИЙХГҮЙ. Тодруулалтын
+      // панелиас аймаг сонгоод CQL ирсэн үед л ачаална (доорх effect).
     };
     attach();
     return () => {
@@ -2577,8 +2578,15 @@ function Map2() {
   const recountAppliedCqlRef = useRef(null);
   useEffect(() => {
     if (!recountProjectId) return;
+    // Шүүлт ирээгүй (аймаг сонгоогүй) бол ЮУ Ч ТАТАХГҮЙ — давхаргыг хоосон байлгана
+    if (!recountCql) {
+      recountAppliedCqlRef.current = null;
+      recountLayerRef.current?.getSource()?.clear();
+      setRecountStatusCounts({});
+      return;
+    }
     const base = `project_id=${recountProjectId}`;
-    const cql = recountCql ? `(${base}) AND (${recountCql})` : base;
+    const cql = `(${base}) AND (${recountCql})`;
     recountAppliedCqlRef.current = cql;
     if (recountLoadRef.current) recountLoadRef.current(cql, false);
   }, [recountCql, recountProjectId]);

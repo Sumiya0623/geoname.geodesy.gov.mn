@@ -9,24 +9,23 @@ import {
   Box,
   Card,
   Chip,
+  Menu,
   Stack,
+  Checkbox,
+  MenuItem,
   Table,
-  Switch,
   Button,
   Dialog,
   Divider,
   Tooltip,
-  Collapse,
   TableRow,
   TextField,
   TableBody,
   TableCell,
-  TableHead,
   Typography,
   IconButton,
   Autocomplete,
   DialogTitle,
-  ButtonGroup,
   FormControlLabel,
   DialogContent,
   DialogActions,
@@ -35,17 +34,19 @@ import {
   CircularProgress,
 } from "@mui/material";
 
-import { useBoolean } from "src/hooks/use-boolean";
 import { useDebounce } from "src/hooks/use-debounce";
 import axiosInstance, { fetcher, endpoints } from "src/utils/axios";
 import { useGetConstantsFordropdown } from "src/api/constant";
 import { useGetRecounts } from "src/api/recount";
+import { useGetChampaign } from "src/api/champaign";
 
 import Iconify from "src/components/iconify";
 import Scrollbar from "src/components/scrollbar";
 import { useSnackbar } from "src/components/snackbar";
 import { TableHeadCustom, TablePaginationCustom } from "src/components/table";
 
+import RecountMap from "./recount-map";
+import { statusColorByName } from "src/components/map/recountStatus";
 
 // ----------------------------------------------------------------------
 // Суурин судалгаа — Дахин тооллого (ReCount). ЗЗ нэгж + ангилал сонгоход тухайн
@@ -55,7 +56,6 @@ import { TableHeadCustom, TablePaginationCustom } from "src/components/table";
 //  байршил → газрын зураг дээр ойролцоо байршил зурж хадгална (удахгүй).
 // Доор нь тухайн төслийн ReCount.loc‑ийг GeoServer WMS‑ээр харуулна.
 // ----------------------------------------------------------------------
-
 
 // ЗЗ нэгжийн dropdown (UNITLEVEL нэр + parent) — cascading
 function useUnits(level, parentId, enabled = true) {
@@ -91,7 +91,6 @@ export default function SuurinListView({
   stepName = "Суурин судалгаа",
 }) {
   const { enqueueSnackbar } = useSnackbar();
-  const form = useBoolean();
   const router = useRouter();
 
   // ЗЗ нэгж — 3 түвшний хамааралтай
@@ -111,7 +110,38 @@ export default function SuurinListView({
   const [pageSize, setPageSize] = useState(10);
   const [busyId, setBusyId] = useState(null);
   const [dlg, setDlg] = useState(null); // {geoname, statusName, text}
-  const recountList = useBoolean(false); // бүртгэгдсэн хүснэгт — default хураасан
+
+  // Төслийн хамрах ЗЗ нэгж — нэрийн санг эндээс шүүнэ / импортод ашиглана
+  const { champaign } = useGetChampaign(projectId);
+  const projectUnitIds = useMemo(
+    () => (champaign?.units || []).map((u) => u.id),
+    [champaign],
+  );
+  const [importing, setImporting] = useState(false);
+  const [sumSel, setSumSel] = useState(null); // хураангуйд сонгосон үндсэн ангилал
+
+  // Төслийн талбайд багтах батлагдсан нэрсийн АНГИЛЛЫН хураангуй
+  const { data: typeSummary } = useSWR(
+    projectUnitIds.length
+      ? [
+          endpoints.geoname.typeSummary(
+            new URLSearchParams({
+              unit_tree: projectUnitIds.join(","),
+            }).toString(),
+          ),
+          axiosInstance,
+          "get",
+        ]
+      : null,
+    fetcher,
+    { shouldRetryOnError: false },
+  );
+  const sumGroups = useMemo(() => typeSummary?.results || [], [typeSummary]);
+  const sumActive = useMemo(
+    () => sumGroups.find((g) => g.id === sumSel) || null,
+    [sumGroups, sumSel],
+  );
+
   // Бүртгэгдсэн дахин тооллого — хайлт / хуудаслалт / сорт
   const [rq, setRq] = useState("");
   const rdq = useDebounce(rq.trim(), 400);
@@ -119,6 +149,12 @@ export default function SuurinListView({
   const [rPageSize, setRPageSize] = useState(10);
   const [rOrderBy, setROrderBy] = useState("id");
   const [rOrder, setROrder] = useState("desc");
+  const [rStatuses, setRStatuses] = useState([]); // олон сонголт (RECOUNT_STATUS)
+  const [locDlg, setLocDlg] = useState(null); // {title, geom} — байршил харах
+  const [stMenu, setStMenu] = useState(null); // төлвийн сонголтын цэсний anchor
+  const [noGeom, setNoGeom] = useState(false); // зөвхөн байршилгүй нэрс
+  const [rowMenu, setRowMenu] = useState(null); // мөрийн 3 цэгийн цэс
+  const [editDlg, setEditDlg] = useState(null); // {id, name, draft, statusIds}
   const [mapKey, setMapKey] = useState(0); // газрын зураг дахин татах түлхүүр
   const [drawingFor, setDrawingFor] = useState(null); // байршил зурж буй geoname
   const [isNew, setIsNew] = useState(false); // "Шинэ нэр" горим
@@ -157,14 +193,17 @@ export default function SuurinListView({
     return p.toString();
   }, [page, pageSize, selUnit, selType, dq, projectId, stepObj]);
   const tableEnabled = !!(selUnit?.id || selType?.id || dq);
-  const { data: nameData, isLoading: namesLoading, mutate: namesMutation } =
-    useSWR(
-      tableEnabled
-        ? [endpoints.geoname.list(tableQuery), axiosInstance, "get"]
-        : null,
-      fetcher,
-      { shouldRetryOnError: false },
-    );
+  const {
+    data: nameData,
+    isLoading: namesLoading,
+    mutate: namesMutation,
+  } = useSWR(
+    tableEnabled
+      ? [endpoints.geoname.list(tableQuery), axiosInstance, "get"]
+      : null,
+    fetcher,
+    { shouldRetryOnError: false },
+  );
   const names = nameData?.results || [];
   const namesCount = nameData?.count || 0;
 
@@ -178,9 +217,23 @@ export default function SuurinListView({
             ordering: `${rOrder === "desc" ? "-" : ""}${rOrderBy}`,
             ...(rdq ? { search: rdq } : {}),
             ...(stepObj?.id ? { step: stepObj.id } : {}),
+            ...(selType?.id ? { type: selType.id } : {}),
+            ...(rStatuses.length ? { statuses: rStatuses.join(",") } : {}),
+            ...(noGeom ? { no_geom: 1 } : {}),
           }
         : null,
-    [projectId, stepObj, rPage, rPageSize, rOrder, rOrderBy, rdq],
+    [
+      projectId,
+      stepObj,
+      rPage,
+      rPageSize,
+      rOrder,
+      rOrderBy,
+      rdq,
+      selType,
+      rStatuses,
+      noGeom,
+    ],
   );
   const { recounts, recountsCount, recountsLoading, recountsMutation } =
     useGetRecounts(requestBody);
@@ -251,9 +304,12 @@ export default function SuurinListView({
     } else if (statusName === "байршил") {
       // Газрын зураг дээр цэг тавих горимд орно
       setDrawingFor(geoname);
-      enqueueSnackbar(`"${geoname.name}" — газрын зураг дээр байршлыг тэмдэглэнэ үү`, {
-        variant: "info",
-      });
+      enqueueSnackbar(
+        `"${geoname.name}" — газрын зураг дээр байршлыг тэмдэглэнэ үү`,
+        {
+          variant: "info",
+        },
+      );
     } else {
       // зөрүүтэй / алдаатай → бичих диалог (draft‑ыг нэрээр урьдчилж бөглөнө)
       setDlg({ geoname, statusName, text: geoname.name || "" });
@@ -315,6 +371,58 @@ export default function SuurinListView({
     }
   };
 
+  // Тодруулалтын тайлбар + төлвийг засах
+  const handleEditSave = async () => {
+    if (!editDlg?.id) return;
+    try {
+      await axiosInstance.patch(endpoints.recount.edit(editDlg.id), {
+        draft: editDlg.draft,
+        status_ids: editDlg.statusIds,
+      });
+      // Хилийн цэс нь тооллогын биш, НЭРийн шинж чанар тул тусад нь
+      if (editDlg.nameId) {
+        await axiosInstance.patch(endpoints.geoname.edit(editDlg.nameId), {
+          is_border: !!editDlg.isBorder,
+        });
+      }
+      enqueueSnackbar("Хадгалагдлаа");
+      setEditDlg(null);
+      refreshAll();
+    } catch (error) {
+      enqueueSnackbar(
+        error?.response?.data?.detail || "Хадгалах үед алдаа гарлаа",
+        { variant: "warning" },
+      );
+    }
+  };
+
+  // Төслийн талбайд (units) багтах БҮХ батлагдсан нэрийг дахин тооллого руу импортлох
+  const handleImportByUnits = useCallback(async () => {
+    if (!projectId || importing) return;
+    setImporting(true);
+    try {
+      const res = await axiosInstance.post(endpoints.recount.importByUnits, {
+        project: projectId,
+        ...(stepObj?.id ? { step: stepObj.id } : {}),
+      });
+      const { added = 0, skipped = 0 } = res?.data || {};
+      enqueueSnackbar(
+        added
+          ? `${added} нэр импортлогдлоо${skipped ? ` (${skipped} нь өмнө бүртгэгдсэн)` : ""}`
+          : "Шинээр импортлох нэр олдсонгүй",
+        { variant: added ? "success" : "info" },
+      );
+      recountsMutation && recountsMutation();
+    } catch (error) {
+      enqueueSnackbar(
+        error?.response?.data?.detail || "Импорт хийхэд алдаа гарлаа",
+        { variant: "warning" },
+      );
+    } finally {
+      setImporting(false);
+    }
+  }, [projectId, importing, stepObj, enqueueSnackbar, recountsMutation]);
+
   if (!projectId) return null;
 
   const unitCell = (label, options, value, onChange, disabled) => (
@@ -329,321 +437,135 @@ export default function SuurinListView({
     />
   );
 
+
   return (
     <Box>
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ mb: 1.5 }}
-      >
-        <Typography variant="h6">Дахин тооллого</Typography>
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="outlined"
-            color="info"
-            startIcon={<Iconify icon="solar:map-point-bold" />}
-            onClick={() => router.push(`/dashboard/champaign/${projectId}/map/`)}
-          >
-            Газрын зураг
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<Iconify icon="mingcute:add-line" />}
-            onClick={form.onToggle}
-          >
-            Нэр бүртгэх
-          </Button>
-        </Stack>
-      </Stack>
-
-      {form.value && (
-        <Card sx={{ p: 2, mb: 2 }}>
-          {/* ЗЗ нэгж — 3 түвшин */}
+      {/* Төслийн талбайн батлагдсан нэрсийн ХУРААНГУЙ — ангиллаар */}
+      {!!sumGroups.length && (
+        <>
           <Box
-            gap={1.5}
+            gap={2}
             display="grid"
-            gridTemplateColumns={{ xs: "1fr", sm: "repeat(3, 1fr)" }}
-            sx={{ mb: 1.5 }}
-          >
-            {unitCell(
-              "Аймаг / Нийслэл",
-              lvl1,
-              u1,
-              (e, v) => {
-                setU1(v);
-                setU2(null);
-                setU3(null);
-                setPage(0);
-                navigateToUnit(v?.id);
-              },
-              false,
-            )}
-            {unitCell(
-              "Сум / Дүүрэг",
-              lvl2,
-              u2,
-              (e, v) => {
-                setU2(v);
-                setU3(null);
-                setPage(0);
-                navigateToUnit(v?.id);
-              },
-              !u1?.id,
-            )}
-            {unitCell(
-              "Баг / Хороо",
-              lvl3,
-              u3,
-              (e, v) => {
-                setU3(v);
-                setPage(0);
-                navigateToUnit(v?.id);
-              },
-              !u2?.id,
-            )}
-          </Box>
-          {/* Нэрийн ангилал — 3 түвшин */}
-          <Box
-            gap={1.5}
-            display="grid"
-            gridTemplateColumns={{ xs: "1fr", sm: "repeat(3, 1fr)" }}
-            sx={{ mb: 2 }}
-          >
-            {unitCell(
-              "Ангилал (үндсэн)",
-              ty1,
-              t1,
-              (e, v) => {
-                setT1(v);
-                setT2(null);
-                setT3(null);
-                setPage(0);
-              },
-              false,
-            )}
-            {unitCell(
-              "Дэд ангилал",
-              ty2,
-              t2,
-              (e, v) => {
-                setT2(v);
-                setT3(null);
-                setPage(0);
-              },
-              !t1?.id,
-            )}
-            {unitCell(
-              "Төрөл",
-              ty3,
-              t3,
-              (e, v) => {
-                setT3(v);
-                setPage(0);
-              },
-              !t2?.id,
-            )}
-          </Box>
-
-          {/* Нэрээр хайх */}
-          <TextField
-            fullWidth
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(0);
+            gridTemplateColumns={{
+              xs: "1fr",
+              sm: "repeat(2, 1fr)",
+              md: "repeat(3, 1fr)",
             }}
-            placeholder="Нэр / дугаараар хайх..."
-            sx={{ mb: 2 }}
-            InputProps={{
-              startAdornment: (
-                <Iconify
-                  icon="eva:search-fill"
-                  sx={{ color: "text.disabled", mr: 1 }}
-                />
-              ),
-              endAdornment: q ? (
-                <IconButton size="small" onClick={() => setQ("")}>
-                  <Iconify icon="eva:close-fill" />
-                </IconButton>
-              ) : null,
-            }}
-          />
-
-          {/* Шинэ нэр — байхгүй нэрийг ангиллын геометрээр зурж бүртгэх */}
-          <Stack
-            direction="row"
-            alignItems="center"
-            flexWrap="wrap"
-            spacing={1.5}
             sx={{ mb: 2 }}
           >
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={isNew}
-                  onChange={(e) => setIsNew(e.target.checked)}
-                />
-              }
-              label="Шинэ нэр"
-            />
-            {isNew && (
-              <>
-                <TextField
-                  size="small"
-                  label="Шинэ нэр"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  sx={{ minWidth: 240 }}
-                />
-                <Tooltip
-                  title={`Газрын зураг дээр байршил зурах (${descToGeomType(
-                    selType?.desc,
-                  ) === "Polygon" ? "полигон" : descToGeomType(selType?.desc) === "LineString" ? "шугам" : "цэг"})`}
+            {sumGroups.map((g) => {
+              const active = g.id === sumSel;
+              return (
+                <Card
+                  key={g.id}
+                  onClick={() => setSumSel(active ? null : g.id)}
+                  sx={{
+                    p: 2,
+                    cursor: "pointer",
+                    border: "2px solid",
+                    borderColor: active ? "primary.main" : "transparent",
+                    transition: "all 0.2s ease",
+                  }}
                 >
-                  <span>
-                    <Button
-                      variant="outlined"
-                      startIcon={<Iconify icon="solar:map-point-add-bold" />}
-                      onClick={startNewDraw}
-                      disabled={!newName.trim()}
+                  <Stack direction="row" alignItems="center" spacing={2}>
+                    <Box
+                      sx={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 1.5,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "common.white",
+                        bgcolor: "primary.main",
+                        flexShrink: 0,
+                      }}
                     >
-                      Байршил зурах
-                    </Button>
-                  </span>
-                </Tooltip>
-                <Typography variant="caption" color="text.secondary">
-                  Ангилал: {selType?.name || "—"}
-                </Typography>
-              </>
-            )}
-          </Stack>
+                      <Iconify icon="mdi:map-marker-multiple" width={24} />
+                    </Box>
+                    <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                      <Typography variant="subtitle1" noWrap>
+                        {g.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {g.count.toLocaleString()} нэр ·{" "}
+                        {(g.children || []).length} дэд ангилал
+                      </Typography>
+                    </Box>
+                    <Iconify
+                      icon={active ? "mdi:chevron-up" : "mdi:chevron-down"}
+                      width={22}
+                    />
+                  </Stack>
+                </Card>
+              );
+            })}
+          </Box>
 
-          {/* Шүүсэн нэрсийн хүснэгт */}
-          {!tableEnabled ? (
-            <Typography variant="caption" color="text.secondary">
-              ЗЗ нэгж, ангилал сонгох эсвэл нэрээр хайхад нэрс энд гарч ирнэ.
-            </Typography>
-          ) : (
-            <>
-              <TableContainer>
-                <Scrollbar>
-                  <Table size="small" sx={{ minWidth: 640 }}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell width={48}>№</TableCell>
-                        <TableCell>Нэр</TableCell>
-                        <TableCell>Дугаар</TableCell>
-                        <TableCell align="right">Үйлдэл</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {namesLoading && (
-                        <TableRow>
-                          <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
-                            <CircularProgress size={20} />
-                          </TableCell>
-                        </TableRow>
-                      )}
-                      {!namesLoading && names.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
-                            <Typography variant="caption" color="text.secondary">
-                              Нэр олдсонгүй.
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                      {names.map((g, i) => {
-                        return (
-                          <TableRow key={g.id} hover>
-                            <TableCell>{page * pageSize + i + 1}</TableCell>
-                            <TableCell>{g.name}</TableCell>
-                            <TableCell>{g.number || "—"}</TableCell>
-                            <TableCell align="right">
-                              <ButtonGroup
-                                size="small"
-                                variant="outlined"
-                                disabled={busyId === g.id}
-                              >
-                                <Button
-                                  color="success"
-                                  onClick={() => handleAction(g, "ижил")}
-                                >
-                                  Ижил
-                                </Button>
-                                <Button
-                                  color="warning"
-                                  onClick={() => handleAction(g, "батлагдаагүй")}
-                                >
-                                  Батлагдаагүй
-                                </Button>
-                                <Button
-                                  color="error"
-                                  onClick={() => handleAction(g, "алдаатай")}
-                                >
-                                  Алдаатай
-                                </Button>
-                                <Tooltip title="Газрын зураг дээр байршил зурах">
-                                  <Button
-                                    onClick={() => handleAction(g, "байршил")}
-                                  >
-                                    Байршил
-                                  </Button>
-                                </Tooltip>
-                              </ButtonGroup>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </Scrollbar>
-              </TableContainer>
-              <TablePaginationCustom
-                count={namesCount}
-                page={page}
-                onPageChange={(e, p) => setPage(p)}
-                rowsPerPage={pageSize}
-                onRowsPerPageChange={(e) => {
-                  setPageSize(parseInt(e.target.value, 10));
-                  setPage(0);
-                }}
-                rowsPerPageOptions={[10, 25, 50]}
-                labelDisplayedRows={({ from, to, count }) =>
-                  `${from}–${to} / ${count}`
-                }
-              />
-            </>
+          {/* Сонгосон үндсэн ангиллын дэд задаргаа */}
+          {sumActive && (
+            <Card sx={{ px: 2, py: 1.5, mb: 2 }}>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                {sumActive.name} — дэд ангиллууд
+              </Typography>
+              <Stack divider={<Divider flexItem />}>
+                {(sumActive.children || []).map((k, i) => (
+                  <Stack
+                    key={k.id}
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    sx={{ py: 0.75 }}
+                  >
+                    <Typography variant="body2">
+                      <Box
+                        component="span"
+                        sx={{ color: "text.disabled", mr: 1 }}
+                      >
+                        {i + 1}.
+                      </Box>
+                      {k.name}
+                    </Typography>
+                    <Chip
+                      size="small"
+                      variant="soft"
+                      color="primary"
+                      label={`${k.count.toLocaleString()} нэр`}
+                    />
+                  </Stack>
+                ))}
+              </Stack>
+            </Card>
           )}
-        </Card>
+        </>
       )}
 
-      {/* Бүртгэгдсэн дахин тооллого — default хураасан (collapsed) */}
+      {/* Бүртгэгдсэн дахин тооллого — үргэлж нээлттэй */}
       <Card sx={{ mb: 3 }}>
         <Stack
           direction="row"
           alignItems="center"
           justifyContent="space-between"
-          sx={{ px: 2, py: 1.5, cursor: "pointer" }}
-          onClick={recountList.onToggle}
+          sx={{ px: 2, py: 1.5 }}
         >
           <Typography variant="subtitle1">
-            Бүртгэгдсэн дахин тооллого ({recountsCount})
+            Тодруулалт ({recountsCount} нэр)
           </Typography>
-          <Iconify
-            icon={
-              recountList.value
-                ? "eva:chevron-up-fill"
-                : "eva:chevron-down-fill"
+          <Button
+            variant="outlined"
+            color="primary"
+            startIcon={<Iconify icon="solar:map-bold" />}
+            onClick={() =>
+              router.push(`/dashboard/champaign/${projectId}/map/`)
             }
-            width={22}
-          />
+          >
+            Газрын зураг
+          </Button>
         </Stack>
-        <Collapse in={recountList.value} timeout="auto" unmountOnExit>
+        <>
           <Divider />
-          {/* Хайлт */}
-          <Box sx={{ p: 2 }}>
+          {/* Toolbar — хайлт + сангаас импортлох */}
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ p: 2 }}>
             <TextField
               fullWidth
               size="small"
@@ -652,7 +574,7 @@ export default function SuurinListView({
                 setRq(e.target.value);
                 setRPage(0);
               }}
-              placeholder="Нэр / тайлбараар хайх..."
+              placeholder="Нэрээр..."
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -669,7 +591,165 @@ export default function SuurinListView({
                 ) : null,
               }}
             />
-          </Box>
+
+            {/* Ангилал — Үндсэн → Дэд → Ангилал (сонгосон хамгийн гүн нь үйлчилнэ) */}
+            <Autocomplete
+              size="small"
+              value={t1}
+              onChange={(_e, v) => {
+                setT1(v);
+                setT2(null);
+                setT3(null);
+                setRPage(0);
+              }}
+              options={ty1}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              sx={{ minWidth: 150 }}
+              renderInput={(params) => <TextField {...params} label="Үндсэн" />}
+            />
+            <Autocomplete
+              size="small"
+              value={t2}
+              disabled={!t1?.id}
+              onChange={(_e, v) => {
+                setT2(v);
+                setT3(null);
+                setRPage(0);
+              }}
+              options={ty2}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              sx={{ minWidth: 150 }}
+              renderInput={(params) => <TextField {...params} label="Дэд" />}
+            />
+            <Autocomplete
+              size="small"
+              value={t3}
+              disabled={!t2?.id}
+              onChange={(_e, v) => {
+                setT3(v);
+                setRPage(0);
+              }}
+              options={ty3}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              sx={{ minWidth: 150 }}
+              renderInput={(params) => (
+                <TextField {...params} label="Ангилал" />
+              )}
+            />
+
+            {/* Төлөв — inline товч + сонголтын жагсаалт (checkbox) */}
+            <Button
+              variant="outlined"
+              color={rStatuses.length ? "primary" : "inherit"}
+              onClick={(e) => setStMenu(e.currentTarget)}
+              endIcon={<Iconify icon="eva:chevron-down-fill" />}
+              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
+            >
+              Төлөв
+              {rStatuses.length ? ` (${rStatuses.length})` : ""}
+            </Button>
+            <Menu
+              open={!!stMenu}
+              anchorEl={stMenu}
+              onClose={() => setStMenu(null)}
+              slotProps={{ paper: { sx: { width: 240 } } }}
+            >
+              {[...statuses, { id: "none", name: "Тодорхойгүй" }].map((st) => {
+                const col =
+                  st.id === "none" ? "#94a3b8" : statusColorByName(st.name);
+                const on = rStatuses.includes(st.id);
+                return (
+                  <MenuItem
+                    key={st.id}
+                    onClick={() => {
+                      setRStatuses((prev) =>
+                        prev.includes(st.id)
+                          ? prev.filter((x) => x !== st.id)
+                          : [...prev, st.id],
+                      );
+                      setRPage(0);
+                    }}
+                  >
+                    <Checkbox
+                      size="small"
+                      checked={on}
+                      sx={{ p: 0.5, mr: 1 }}
+                    />
+                    <Box
+                      sx={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        bgcolor: col,
+                        mr: 1,
+                        flexShrink: 0,
+                      }}
+                    />
+                    {st.name}
+                  </MenuItem>
+                );
+              })}
+              {!!rStatuses.length && (
+                <>
+                  <Divider />
+                  <MenuItem
+                    onClick={() => {
+                      setRStatuses([]);
+                      setRPage(0);
+                      setStMenu(null);
+                    }}
+                    sx={{ color: "text.secondary" }}
+                  >
+                    <Iconify icon="solar:restart-bold" sx={{ mr: 1 }} />
+                    Цэвэрлэх
+                  </MenuItem>
+                </>
+              )}
+            </Menu>
+
+            <FormControlLabel
+              sx={{ ml: 0, flexShrink: 0, whiteSpace: "nowrap" }}
+              control={
+                <Checkbox
+                  size="small"
+                  checked={noGeom}
+                  onChange={(e) => {
+                    setNoGeom(e.target.checked);
+                    setRPage(0);
+                  }}
+                />
+              }
+              label={<Typography variant="body2">No Geom</Typography>}
+            />
+
+            <Tooltip title="Сангаас импортлох — төслийн хамрах засаг захиргаанд (аймаг сонгосон бол доод шатны сум, баг хүртэл) багтах бүх батлагдсан нэрийг дахин тооллого руу нэг дор нэмнэ">
+              <span>
+                <IconButton
+                  color="primary"
+                  disabled={importing || !projectUnitIds.length}
+                  onClick={handleImportByUnits}
+                >
+                  <Iconify
+                    icon="solar:refresh-circle-bold"
+                    sx={
+                      importing
+                        ? {
+                            animation: "spin 1s linear infinite",
+                            "@keyframes spin": {
+                              from: { transform: "rotate(0deg)" },
+                              to: { transform: "rotate(360deg)" },
+                            },
+                          }
+                        : undefined
+                    }
+                  />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
           <TableContainer>
             <Scrollbar>
               <Table size="small" sx={{ minWidth: 600 }}>
@@ -678,22 +758,26 @@ export default function SuurinListView({
                   orderBy={rOrderBy}
                   onSort={onRecountSort}
                   headLabel={[
-                    { id: "draft", label: "Нэр / Тайлбар" },
-                    { id: "status__name", label: "Төлөв" },
-                    { id: "", label: "Үйлдэл", align: "right" },
+                    { id: "name__name", label: "Нэр" },
+                    { id: "type_l1", label: "Үндсэн" },
+                    { id: "type_l2", label: "Дэд" },
+                    { id: "type_l3", label: "Ангилал" },
+                    { id: "", label: "Байршил", width: 110, align: "center" },
+                    { id: "", label: "Төлөв" },
+                    { id: "", label: "", width: 70, align: "right" },
                   ]}
                 />
                 <TableBody>
                   {recountsLoading && (
                     <TableRow>
-                      <TableCell colSpan={3} align="center" sx={{ py: 3 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
                         <CircularProgress size={20} />
                       </TableCell>
                     </TableRow>
                   )}
                   {!recountsLoading && recounts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={3} align="center" sx={{ py: 3 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
                         <Typography variant="caption" color="text.secondary">
                           Бичлэг алга.
                         </Typography>
@@ -703,24 +787,101 @@ export default function SuurinListView({
                   {recounts.map((r) => (
                     <TableRow key={r.id} hover>
                       <TableCell>{r.draft || r.name?.name || "—"}</TableCell>
+                      <TableCell>{r.name?.type_l1 || "—"}</TableCell>
+                      <TableCell>{r.name?.type_l2 || "—"}</TableCell>
+                      <TableCell>{r.name?.type_l3 || "—"}</TableCell>
+                      <TableCell align="center">
+                        {(() => {
+                          const geom = r.loc || r.name?.geom || null;
+                          const gt = geom?.type || r.name?.geom_type || "";
+                          const icon = gt.includes("Point")
+                            ? "mdi:map-marker"
+                            : gt.includes("Line")
+                              ? "mdi:vector-polyline"
+                              : gt.includes("Polygon")
+                                ? "mdi:vector-square"
+                                : "mdi:map-marker-off-outline";
+                          const color = gt.includes("Point")
+                            ? "#16a34a"
+                            : gt.includes("Line")
+                              ? "#2563eb"
+                              : gt.includes("Polygon")
+                                ? "#d97706"
+                                : null;
+                          // Геометргүй — ИДЭВХГҮЙ өнгө, дарагдахгүй
+                          if (!geom) {
+                            return (
+                              <Tooltip title="Байршил бүртгэгдээгүй">
+                                <span>
+                                  <IconButton size="small" disabled>
+                                    <Iconify icon={icon} width={18} />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            );
+                          }
+                          return (
+                            <Tooltip title="Байршлыг харах">
+                              <IconButton
+                                size="small"
+                                onClick={() =>
+                                  setLocDlg({
+                                    title: r.draft || r.name?.name || "Байршил",
+                                    geom,
+                                  })
+                                }
+                              >
+                                <Iconify
+                                  icon={icon}
+                                  width={18}
+                                  sx={{ color }}
+                                />
+                              </IconButton>
+                            </Tooltip>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell>
-                        {r.status?.name ? (
-                          <Chip
-                            size="small"
-                            label={r.status.name}
-                            variant="outlined"
-                          />
+                        {r.statuses?.length ? (
+                          <Stack
+                            direction="row"
+                            flexWrap="wrap"
+                            gap={0.5}
+                            sx={{ py: 0.25 }}
+                          >
+                            {r.statuses.map((st) => {
+                              const col = statusColorByName(st.name);
+                              return (
+                                <Chip
+                                  key={st.id}
+                                  size="small"
+                                  label={st.name}
+                                  sx={{
+                                    height: 22,
+                                    fontWeight: 600,
+                                    color: col,
+                                    bgcolor: `${col}1f`,
+                                    border: `1px solid ${col}66`,
+                                  }}
+                                />
+                              );
+                            })}
+                          </Stack>
                         ) : (
-                          "—"
+                          <Typography variant="caption" color="text.disabled">
+                            Тодорхойлоогүй
+                          </Typography>
                         )}
                       </TableCell>
                       <TableCell align="right">
                         <IconButton
                           size="small"
-                          color="error"
-                          onClick={() => handleDelete(r.id)}
+                          color={rowMenu?.row?.id === r.id ? "inherit" : "default"}
+                          onClick={(e) =>
+                            setRowMenu({ anchor: e.currentTarget, row: r })
+                          }
                         >
-                          <Iconify icon="solar:trash-bin-trash-bold" />
+                          <Iconify icon="eva:more-vertical-fill" width={18} />
                         </IconButton>
                       </TableCell>
                     </TableRow>
@@ -743,19 +904,181 @@ export default function SuurinListView({
               `${from}–${to} / ${count}`
             }
           />
-        </Collapse>
+        </>
       </Card>
 
       {/* Газрын зураг тусдаа хуудаст шилжсэн (champaign/<id>/map) — энд хэрэггүй */}
 
+      {/* Байршил — газрын зураг дээр тодруулж харуулна */}
+      <Dialog
+        open={!!locDlg}
+        onClose={() => setLocDlg(null)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle sx={{ pb: 1 }}>{locDlg?.title}</DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {locDlg?.geom && (
+            <RecountMap height={460} flyTarget={{ geom: locDlg.geom }} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button color="inherit" onClick={() => setLocDlg(null)}>
+            Хаах
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Мөрийн үйлдлийн цэс — Засах / Устгах */}
+      <Menu
+        open={!!rowMenu}
+        anchorEl={rowMenu?.anchor}
+        onClose={() => setRowMenu(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { width: 160 } } }}
+      >
+        <MenuItem
+          onClick={() => {
+            const r = rowMenu.row;
+            setEditDlg({
+              id: r.id,
+              nameId: r.name?.id || null,
+              name: r.name?.name || "",
+              draft: r.draft || "",
+              statusIds: (r.statuses || []).map((x) => x.id),
+              isBorder: !!r.name?.is_border,
+            });
+            setRowMenu(null);
+          }}
+        >
+          <Iconify icon="solar:pen-bold" sx={{ mr: 1 }} />
+          Засах
+        </MenuItem>
+        <Divider />
+        <MenuItem
+          sx={{ color: "error.main" }}
+          onClick={() => {
+            handleDelete(rowMenu.row.id);
+            setRowMenu(null);
+          }}
+        >
+          <Iconify icon="solar:trash-bin-trash-bold" sx={{ mr: 1 }} />
+          Устгах
+        </MenuItem>
+      </Menu>
+
+      {/* Тодруулалт засах — тайлбар (draft) + төлөв */}
+      <Dialog
+        open={!!editDlg}
+        onClose={() => setEditDlg(null)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          Тодруулалт засах
+          {editDlg?.name ? (
+            <Typography variant="caption" component="div" color="text.secondary">
+              {editDlg.name}
+            </Typography>
+          ) : null}
+        </DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            fullWidth
+            multiline
+            minRows={2}
+            label="Тайлбар / зөв нэр"
+            value={editDlg?.draft || ""}
+            onChange={(e) =>
+              setEditDlg((d) => ({ ...d, draft: e.target.value }))
+            }
+            sx={{ mb: 2 }}
+          />
+          <Typography variant="overline" color="text.secondary">
+            Төлөв
+          </Typography>
+          <Stack>
+            {statuses.map((st) => {
+              const col = statusColorByName(st.name);
+              const on = (editDlg?.statusIds || []).includes(st.id);
+              return (
+                <FormControlLabel
+                  key={st.id}
+                  sx={{ ml: 0 }}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={on}
+                      onChange={() =>
+                        setEditDlg((d) => ({
+                          ...d,
+                          statusIds: on
+                            ? d.statusIds.filter((x) => x !== st.id)
+                            : [...d.statusIds, st.id],
+                        }))
+                      }
+                    />
+                  }
+                  label={
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Box
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          bgcolor: col,
+                        }}
+                      />
+                      <Typography variant="body2">{st.name}</Typography>
+                    </Stack>
+                  }
+                />
+              );
+            })}
+          </Stack>
+
+          {/* Хилийн цэс — газар зүйн НЭРийн шинж чанар (GeoName.is_border) */}
+          {!!editDlg?.nameId && (
+            <>
+              <Divider sx={{ my: 1.5 }} />
+              <FormControlLabel
+                sx={{ ml: 0 }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={!!editDlg?.isBorder}
+                    onChange={(e) =>
+                      setEditDlg((d) => ({ ...d, isBorder: e.target.checked }))
+                    }
+                  />
+                }
+                label={<Typography variant="body2">Хилийн цэс</Typography>}
+              />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button color="inherit" onClick={() => setEditDlg(null)}>
+            Болих
+          </Button>
+          <Button variant="contained" onClick={handleEditSave}>
+            Хадгалах
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* зөрүүтэй / алдаатай — бичих диалог (draft) */}
       <Dialog open={!!dlg} onClose={() => setDlg(null)} fullWidth maxWidth="xs">
         <DialogTitle>
-          {dlg?.statusName === "батлагдаагүй" ? "Батлагдаагүй нэр" : "Алдаатай нэр"}
+          {dlg?.statusName === "батлагдаагүй"
+            ? "Батлагдаагүй нэр"
+            : "Алдаатай нэр"}
         </DialogTitle>
         <DialogContent>
           <Typography variant="caption" color="text.secondary">
-            {dlg?.geoname?.name} — зөв/тэмдэглэх утгыг бичнэ үү (draft‑д хадгална).
+            {dlg?.geoname?.name} — зөв/тэмдэглэх утгыг бичнэ үү (draft‑д
+            хадгална).
           </Typography>
           <TextField
             autoFocus

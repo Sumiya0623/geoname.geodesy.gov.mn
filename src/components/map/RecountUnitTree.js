@@ -120,19 +120,18 @@ function TreeNode({ node, level, stopLevel, checkedSet, onToggle }) {
         >
           {node.name}
         </Typography>
-        {hasKids && (
-          <Chip
-            size="small"
-            label={`${node.count ?? 0}`}
-            sx={{
-              height: 18,
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#0675c9",
-              bgcolor: "#0675c914",
-            }}
-          />
-        )}
+        {/* Аймаг БОЛОН сум хоёуланд нь тодруулалтын тоог харуулна */}
+        <Chip
+          size="small"
+          label={`${node.count ?? 0}`}
+          sx={{
+            height: 18,
+            fontSize: 11,
+            fontWeight: 600,
+            color: level === 0 ? "#0675c9" : "#7c3aed",
+            bgcolor: level === 0 ? "#0675c914" : "#7c3aed14",
+          }}
+        />
       </Box>
 
       {canExpand && (
@@ -201,9 +200,13 @@ export default function RecountUnitTree({ onCql, onFlyTo }) {
       ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
       return next;
     });
-    // Сум (id="s<unitId>") чагтлахад тухайн сум руу нисэх (extent‑ээр fit)
-    if (on && typeof node.id === "string" && node.id.startsWith("s")) {
-      const unitId = node.id.slice(1);
+    // Аймаг (a<id>) эсвэл сум (s<id>) чагтлахад тухайн нэгж рүү нисэх.
+    // Өмнө нь ЗӨВХӨН сум дээр ниснэ гэсэн нөхцөлтэй байсан тул аймгийн
+    // чагтыг дарахад (сумууд нь cascade‑аар сонгогдоно) газрын зураг хөдөлдөггүй
+    // байсан — иймд тодруулалт зурагдсан ч харагдахгүй байв.
+    const m = typeof node.id === "string" ? node.id.match(/^[as](\d+)$/) : null;
+    if (on && m) {
+      const unitId = m[1];
       axiosInstance
         .get(endpoints.legal.unitExtent(unitId))
         .then((res) => {

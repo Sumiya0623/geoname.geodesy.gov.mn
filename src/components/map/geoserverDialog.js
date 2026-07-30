@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useRef,
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import {
   Box,
   IconButton,
@@ -53,6 +59,8 @@ import AdvancedSearch from "./AdvancedSearch";
 const GEONAME_VIEW_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:geoname_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
 // geoname:recount_view (бүх тодруулалт) WMS суурь URL — Тодруулалтын сан табд
 const RECOUNT_VIEW_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:recount_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
+// ЗЗ нэгжийн хил (point:core_adminunit) WMS суурь URL — сонгосон нэгжийн хүрээнд
+const ADMIN_UNIT_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/point/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=point:core_adminunit&srs=EPSG:4326&width=768&height=330&format=image/png`;
 
 // Идэвхтэй давхаргын геометрийн дүрс (Цэг/Шугам/Талбай)
 function ActiveGeomIcon({ desc }) {
@@ -179,6 +187,7 @@ function GeoserverDialog({
     },
     [panelW],
   );
+  // Төслийн зураг дээр «Нэрийн сан» таб байхгүй — бүх үйлдэл «Тодруулалт» дотор
   const [tab, setTab] = useState("layers");
   const [addOpen, setAddOpen] = useState(false);
 
@@ -193,6 +202,19 @@ function GeoserverDialog({
   const pathname = usePathname();
   const _cm = (pathname || "").match(/^\/dashboard\/champaign\/([^/]+)\/map/);
   const addProjectId = _cm ? _cm[1] : null;
+
+  // Төслийн зураг (champaign/<id>/map) дээр харуулах табууд — «Нэрийн сан»‑гүй
+  const visibleTabs = useMemo(
+    () =>
+      addProjectId
+        ? PANEL_TABS.filter((t) => t.value !== "layers")
+        : PANEL_TABS,
+    [addProjectId],
+  );
+  // Төслийн горимд анхдагч таб = Тодруулалт
+  useEffect(() => {
+    if (addProjectId && tab === "layers") setTab("recount");
+  }, [addProjectId, tab]);
 
   // Панелийн эзлэх өргөнийг эцэгт мэдэгдэнэ (хаалттай бол 0)
   useEffect(() => {
@@ -300,6 +322,26 @@ function GeoserverDialog({
         cql_filter: cql,
         recountView: true, // recount_view‑г өөрийн (geoname төрлийн) style‑аар рендерлэ
         groupUrl: RECOUNT_VIEW_URL,
+        isFromStaticLayer: false,
+      });
+    },
+    [onFilterChange],
+  );
+
+  // Тодруулалтын панелиас сонгосон нэгжийн ЗӨВХӨН ХҮРЭЭГ зурна (дүүргэлтгүй).
+  // GeoServer‑ийн built‑in 'line' style нь полигоныг зөвхөн контуроор рендерлэнэ.
+  const handleUnitBoundary = useCallback(
+    (unitId) => {
+      if (!onFilterChange) return;
+      onFilterChange("unit_boundary", false, { id: "unit_boundary" });
+      if (!unitId) return;
+      onFilterChange("unit_boundary", true, {
+        id: "unit_boundary",
+        name: "Сонгосон нэгжийн хил",
+        layer: "point:core_adminunit",
+        cql_filter: `IN ('core_adminunit.${unitId}')`,
+        styles: "line",
+        groupUrl: ADMIN_UNIT_URL,
         isFromStaticLayer: false,
       });
     },
@@ -447,7 +489,7 @@ function GeoserverDialog({
               },
             }}
           >
-            {PANEL_TABS.map(({ value, label, Icon, color, id }) => (
+            {visibleTabs.map(({ value, label, Icon, color, id }) => (
               <ToggleButton
                 key={value}
                 value={value}
@@ -486,7 +528,7 @@ function GeoserverDialog({
                 zIndex: 2,
               }}
             >
-              {tab === "layers" && (
+              {(tab === "layers" || (addProjectId && tab === "recount")) && (
                 <Box
                   sx={{
                     flex: 1,
@@ -760,6 +802,8 @@ function GeoserverDialog({
                         onCql={onRecountCql}
                         searchOpen={searchOpen}
                         onNodeAction={onNodeAction}
+                        onFlyTo={onFlyTo}
+                        onUnitBoundary={handleUnitBoundary}
                       />
                     ) : (
                       <NameCategoryTree
@@ -786,7 +830,7 @@ function GeoserverDialog({
                 </Box>
               )}
 
-              {tab === "recount" && (
+              {tab === "recount" && !addProjectId && (
                 <Box
                   sx={{
                     flex: 1,

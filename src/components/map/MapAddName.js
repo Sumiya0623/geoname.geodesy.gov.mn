@@ -208,18 +208,20 @@ export default function MapAddName({ onClose, projectId }) {
     setSaving(true);
     try {
       if (approvedMode) {
-        // Батлагдсан нэр — статус "байршил" (зөрүүтэй)
-        const statusId =
-          rStatuses.find((s) => s.name === "байршил")?.id || null;
+        // Батлагдсан нэр — "байршил" (зөрүүтэй) БА "ижил" (нэр нь батлагдсантай
+        // ижил тул) хоёуланг нь автоматаар онооно.
+        const statusIds = ["байршил", "ижил"]
+          .map((n) => rStatuses.find((s) => s.name === n)?.id)
+          .filter(Boolean);
         await axiosInstance.post(endpoints.recount.create, {
           project_id: projectId,
           name_id: apprName.id,
           ...(rStep?.id ? { step_id: rStep.id } : {}),
-          ...(statusId ? { status_ids: [statusId] } : {}),
+          ...(statusIds.length ? { status_ids: statusIds } : {}),
           loc: geojson,
         });
         enqueueSnackbar(
-          `"${apprName.name}" — байршил зөрүүтэй байдлаар геометр оногдлоо`,
+          `"${apprName.name}" — байршил, ижил төлөвөөр геометр оногдлоо`,
         );
       } else {
         const statusId =
