@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import CharField, Func, Q, Subquery, OuterRef
+from django.db.models import CharField, Count, Func, Q, Subquery, OuterRef
 from django.contrib.gis.geos import Point, GEOSGeometry
 from django.contrib.contenttypes.models import ContentType
 
@@ -78,6 +78,66 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		'aimag_name', 'sum_name', 'geom_kind']
 	ordering = ['-created_date']
 
+	@action(detail=False, methods=['get'], url_path='type-summary')
+	def type_summary(self, request):
+		"""Тухайн ЗЗ нэгж(үүд)‑эд багтах БАТЛАГДСАН нэрсийн ангиллын задаргаа.
+
+		  ?unit_tree=<id>[,<id>...] → нэгжийн удам + орон зайн давхцлаар
+		Буцаах: {total, results: [{id, name, count,
+		                           children: [{id, name, count}]}]}
+		"""
+		raw = (request.query_params.get('unit_tree') or '').strip()
+		roots = [int(x) for x in raw.split(',') if x.strip().isdigit()]
+		if not roots:
+			return Response({'total': 0, 'results': []})
+		ids = set()
+		for root in roots:
+			ids |= set(GeoName.objects
+			           .filter(is_approved=True,
+			                   unit__id__in=descendant_unit_ids(root))
+			           .values_list('id', flat=True))
+			au = (AdminUnit.objects.filter(id=root)
+			      .exclude(geom__isnull=True).first())
+			if au:
+				ids |= set(GeoName.objects
+				           .filter(is_approved=True, geoloc__intersects=au.geom)
+				           .values_list('id', flat=True))
+		per_type = dict(
+			GeoName.objects.filter(id__in=ids).exclude(type__isnull=True)
+			.values_list('type_id').annotate(c=Count('id')))
+		# GEONAME_TYPES мод — төрөл бүрийн (level1, level2) өвгийг тодорхойлно
+		consts = {c.id: c for c in Constant.objects.filter(key='GEONAME_TYPES')}
+
+		def chain(tid):
+			out, cur, seen = [], consts.get(tid), set()
+			while cur and cur.id not in seen:
+				seen.add(cur.id)
+				out.append(cur)
+				cur = consts.get(cur.parent_id)
+			out.reverse()          # [level1, level2, level3...]
+			return out
+
+		groups = {}
+		for tid, cnt in per_type.items():
+			ch = chain(tid)
+			if not ch:
+				continue
+			l1 = ch[0]
+			g = groups.setdefault(l1.id, {'id': l1.id, 'name': l1.name,
+			                              'count': 0, 'kids': {}})
+			g['count'] += cnt
+			if len(ch) > 1:
+				l2 = ch[1]
+				k = g['kids'].setdefault(l2.id, {'id': l2.id, 'name': l2.name,
+				                                 'count': 0})
+				k['count'] += cnt
+		results = []
+		for g in sorted(groups.values(), key=lambda x: -x['count']):
+			g['children'] = sorted(g.pop('kids').values(),
+			                       key=lambda x: -x['count'])
+			results.append(g)
+		return Response({'total': len(ids), 'results': results})
+
 	def get_queryset(self):
 		qs = GeoName.objects.select_related('type', 'user').prefetch_related(
 			'sources', 'unit', 'unit__level')
@@ -121,7 +181,22 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		# Нэгжид ХАМААРАХ (M2M гишүүнчлэл) ЭСВЭЛ нэгжийн геометр дотор БАЙРШИХ
 		# (орон зайн) нэрс. Зарим нэгжид M2M холбоос дутуу/хоосон байдаг тул
 		# орон зайгаар ч хайж, газрын зурагт харагдах нэрсийг алдахгүй.
+		# Нэг эсвэл ОЛОН нэгж (таслалаар) — төслийн хамрах нэгжүүдэд зориулав
 		unit_tree = p.get('unit_tree', None)
+		if unit_tree and ',' in str(unit_tree):
+			roots = [int(x) for x in str(unit_tree).split(',') if x.strip().isdigit()]
+			ids = set()
+			for root in roots:
+				ids |= set(GeoName.objects
+				           .filter(unit__id__in=descendant_unit_ids(root))
+				           .values_list('id', flat=True))
+				au = (AdminUnit.objects.filter(id=root)
+				      .exclude(geom__isnull=True).first())
+				if au:
+					ids |= set(GeoName.objects.filter(geoloc__intersects=au.geom)
+					           .values_list('id', flat=True))
+			qs = qs.filter(id__in=ids)
+			unit_tree = None
 		if unit_tree:
 			# Хоёр энгийн query‑гээр id цуглуулж Python‑д нэгтгэнэ. M2M join + OR +
 			# spatial intersects‑ийг distinct‑тэй нэг query болгоход (annotate
@@ -282,9 +357,14 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 
 	def perform_update(self, serializer):
 		instance = serializer.save()
-		# Геометр өөрчлөгдсөн бол нэрлэвэр/нэгжийг дахин онооно
-		self._assign_nomeks(instance)
-		self._assign_units(instance)
+		# Нэрлэвэр/нэгжийг ЗӨВХӨН геометр ирсэн үед дахин онооно.
+		# Эс бөгөөс geoloc‑гүй нэрийн (ж: зөвхөн тооллогын loc‑той) M2M нэгж нь
+		# is_border гэх мэт хамааралгүй талбар засахад ч цэвэрлэгдэж, тухайн нэр
+		# газрын зурагнаас (unit_ids шүүлтээс) алга болдог байсан.
+		geom_keys = ('geoloc', 'geom', 'lat', 'lon', 'wkt')
+		if any(k in self.request.data for k in geom_keys):
+			self._assign_nomeks(instance)
+			self._assign_units(instance)
 
 	@action(detail=False, methods=['get'], url_path='types',
 			permission_classes=[IsAuthenticated])

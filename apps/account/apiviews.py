@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
 from core.mixin import PublicListMixin
+from portal.auth import function_permission
 from core.filters import GlobalFilter
 
 from .serializers import (
@@ -33,6 +34,48 @@ class ProjectViewSet(PublicListMixin, viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated]
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
 	ordering_fields = [f.name for f in Project._meta.fields]+['projectId']
+
+	# ── Төслийн хамрах ЗЗ нэгж (units M2M) — ТУСДАА эрхээр хамгаалсан ──
+	# Роль дээр 'agreement' submenu‑гийн unit_add / unit_remove үйлдэл шаардана.
+	def _unit_ids(self, request):
+		raw = request.data.get('units')
+		if raw is None:
+			raw = request.data.get('unit_ids')
+		if raw is None:
+			return []
+		if not isinstance(raw, (list, tuple)):
+			raw = [raw]
+		out = []
+		for v in raw:
+			try:
+				out.append(int(v))
+			except (TypeError, ValueError):
+				continue
+		return out
+
+	@action(detail=True, methods=['post'], url_path='unit-add',
+	        permission_classes=function_permission('agreement'))
+	def unit_add(self, request, *args, **kwargs):
+		"""Төсөлд засаг захиргааны нэгж НЭМЭХ (эрх: agreement/unit_add)."""
+		project = self.get_object()
+		ids = self._unit_ids(request)
+		if not ids:
+			return Response({'detail': 'units шаардлагатай'}, status=400)
+		project.units.add(*ids)
+		return Response({'detail': 'Нэмэгдлээ',
+		                 'units': list(project.units.values_list('id', flat=True))})
+
+	@action(detail=True, methods=['post'], url_path='unit-remove',
+	        permission_classes=function_permission('agreement'))
+	def unit_remove(self, request, *args, **kwargs):
+		"""Төслөөс засаг захиргааны нэгж ХАСАХ (эрх: agreement/unit_remove)."""
+		project = self.get_object()
+		ids = self._unit_ids(request)
+		if not ids:
+			return Response({'detail': 'units шаардлагатай'}, status=400)
+		project.units.remove(*ids)
+		return Response({'detail': 'Хасагдлаа',
+		                 'units': list(project.units.values_list('id', flat=True))})
 	@transaction.atomic
 	@action(detail=False, methods=['post'], url_path='sync')
 	def sync(self, request, *args, **kwargs):

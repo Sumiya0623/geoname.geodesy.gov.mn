@@ -9,9 +9,49 @@ from core.models import (
 
 
 class GeoNameRefSerializer(serializers.ModelSerializer):
+	# Ангиллын 3 түвшин (Үндсэн → Дэд → Ангилал) — тооллогын хүснэгтэд баганаар
+	type_l1 = serializers.SerializerMethodField()
+	type_l2 = serializers.SerializerMethodField()
+	type_l3 = serializers.SerializerMethodField()
+	# Геометрийн төрөл + GeoJSON — "Байршил" багана / dialog‑ийн зураг
+	geom_type = serializers.SerializerMethodField()
+	geom = serializers.SerializerMethodField()
+
 	class Meta:
 		model = GeoName
-		fields = ['id', 'name']
+		fields = ['id', 'name', 'number', 'type_l1', 'type_l2', 'type_l3',
+		          'geom_type', 'geom', 'is_border']
+
+	def get_geom_type(self, obj):
+		return obj.geoloc.geom_type if obj.geoloc else None
+
+	def get_geom(self, obj):
+		if not obj.geoloc:
+			return None
+		import json
+		return json.loads(obj.geoloc.geojson)
+
+	@staticmethod
+	def _chain(obj):
+		out, cur, seen = [], obj.type, set()
+		while cur and cur.id not in seen:
+			seen.add(cur.id)
+			out.append(cur.name)
+			cur = cur.parent
+		out.reverse()
+		return out
+
+	def get_type_l1(self, obj):
+		ch = self._chain(obj)
+		return ch[0] if len(ch) > 0 else None
+
+	def get_type_l2(self, obj):
+		ch = self._chain(obj)
+		return ch[1] if len(ch) > 1 else None
+
+	def get_type_l3(self, obj):
+		ch = self._chain(obj)
+		return ch[2] if len(ch) > 2 else None
 
 
 # ----------------------------------------------------------------------

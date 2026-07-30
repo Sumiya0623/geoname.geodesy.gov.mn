@@ -6,6 +6,7 @@ from core.serializers import (
 from django.db.models import Count, Q
 
 from core.models import (
+    AdminUnit,
     Error500,
     Errors,
     Project,
@@ -13,6 +14,18 @@ from core.models import (
     Constant,
 
 )
+
+
+class ProjectUnitSerializer(serializers.ModelSerializer):
+    """Төслийн хамрах ЗЗ нэгж — толгойн chip‑д зориулж эцгийн нэртэй."""
+    parent_unit = serializers.CharField(source='parent.unit', read_only=True,
+                                        default=None)
+    level_name = serializers.CharField(source='level.name', read_only=True,
+                                       default=None)
+
+    class Meta:
+        model = AdminUnit
+        fields = ['id', 'unit', 'parent', 'parent_unit', 'level_name']
 
 
 class RequestLogSerializer(serializers.ModelSerializer):
@@ -58,6 +71,12 @@ class ProjectSerializer(serializers.ModelSerializer):
 	# Бэлтгэл табын chip‑үүд: ЗӨВХӨН энэ төсөлд бүртгэгдсэн (≥1 legal орд бүхий)
 	# LEGAL_TYPES төрлүүд + орд тоо. Зөвхөн detail (retrieve) дээр (жагсаалтад null).
 	registered_types = serializers.SerializerMethodField()
+	# Хамрах ЗЗ нэгж — уншихад дэлгэрэнгүй, бичихэд id‑гийн жагсаалт
+	units = ProjectUnitSerializer(many=True, read_only=True)
+	unit_ids = serializers.PrimaryKeyRelatedField(
+		queryset=AdminUnit.objects.all(), source='units',
+		many=True, write_only=True, required=False,
+	)
 
 	class Meta:
 		model = Project

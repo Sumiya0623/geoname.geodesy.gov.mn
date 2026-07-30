@@ -156,9 +156,12 @@ def function_permission(resource_key):
                 return True
             if action_name in ['retrieve','role']:
                 action_name='detail'
+            # Бөөнөөр холбох нь ганцаарчилсан 'attach_project'-ийн л өргөтгөл
+            if action_name == 'attach_by_units':
+                action_name = 'attach_project'
             if action_name in ['sync','partial_update','add_action','remove_action','menus']:
                 action_name='update'
-            if action_name in ['menus','related','system_registered','network_registered','submenu_actions','nameclass','types','locate','dropdown','unit_tree']:
+            if action_name in ['menus','related','system_registered','network_registered','submenu_actions','nameclass','types','locate','dropdown','unit_tree','type_summary']:
                 action_name='list'
             if action_name == 'destroy':
                 action_name='delete'

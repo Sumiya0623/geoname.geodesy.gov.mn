@@ -210,7 +210,8 @@ class GeoNameSerializer(serializers.ModelSerializer):
 		model = GeoName
 		fields = [
 			'id', 'name', 'number', 'type', 'type_id',
-			'is_approved', 'lat', 'lon', 'geom', 'geom_type', 'orders', 'order_ids',
+			'is_approved', 'is_border',
+			'lat', 'lon', 'geom', 'geom_type', 'orders', 'order_ids',
 			'user_name', 'created_date',
 			'needs_review', 'confidence', 'source', 'units',
 		]

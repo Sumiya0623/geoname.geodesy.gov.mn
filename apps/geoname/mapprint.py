@@ -1617,15 +1617,17 @@ class MapPDFRenderer:
         # 2d. WFS вектор дата (ажлын зураг) — од тэмдэг + давхцахгүй шошго.
         # Таних тэмдгийн хайрцгийг УРЬДЧИЛАН тооцож саад болгоно (шошго тойрно).
         self._status_legend_rect = None
+        self._numbered_names = []
         if self.layout.get('features'):
             if self.layout.get('statusLegend'):
                 self._status_legend_rect = status_legend_rect(
                     c, self.layout, self.bbox,
                     self.map_x, self.map_y, self.map_w, self.map_h)
-            draw_features(c, self.layout, self.bbox,
-                          self.map_x, self.map_y, self.map_w, self.map_h,
-                          obstacles=[self._status_legend_rect]
-                          if self._status_legend_rect else None)
+            self._numbered_names = draw_features(
+                c, self.layout, self.bbox,
+                self.map_x, self.map_y, self.map_w, self.map_h,
+                obstacles=[self._status_legend_rect]
+                if self._status_legend_rect else None) or []
 
         # 3. Grid frame
         if self.layout.get('showGrid', True) and self.bbox:
@@ -1670,10 +1672,21 @@ class MapPDFRenderer:
                 c, self.layout, self.bbox,
                 self.map_x, self.map_y, self.map_w, self.map_h)
             draw_status_legend(c, self.layout, rect)
+            self._legend_rect = rect
         elif self.show_legend:
             draw_legend_inside(
                 c, self.layers, self.layout, self.bbox,
                 self.map_x, self.map_y, self.map_w, self.map_h,
+            )
+
+        # 7b. Шошго нь багтаагүй тул дугаараар орлуулсан нэрсийн жагсаалт
+        #     (зургийн хүрээ дотор, таних тэмдэгтэй давхцахгүй)
+        if self._numbered_names and self.bbox:
+            draw_numbered_names(
+                c, self._numbered_names, self.layout, self.bbox,
+                self.map_x, self.map_y, self.map_w, self.map_h,
+                obstacles=[self._status_legend_rect]
+                if self._status_legend_rect else None,
             )
 
         # 8. Crop marks
@@ -2426,6 +2439,9 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
             c.line(bx, cy, bx + bar_len, cy)
             bx += bar_len + bar_gap
 
+    # Багтаагүй нэрс — дугаараар орлуулж, доор жагсаалтаар гаргана
+    overflow = []
+
     # 1) Дүрсүүдийг зурж, тэмдэг/шугамын эзлэх талбайг индекст (шошго тойрно)
     items, lines = [], []
     for f in feats:
@@ -2548,6 +2564,10 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
                             path.lineTo(bxp, byp)
                     c.drawPath(path, stroke=1, fill=0)
                     s += bar_len + bar_gap
+        else:
+            # Ямар ч фонт/офсетоор багтсангүй — геометрийн дунджид дугаар тавина
+            mx, my, _ang = _path_at(pts, cum, total / 2.0)
+            overflow.append((mx, my, name))
 
     # 3) Цэгэн шошгууд — давхцлыг ЭХЛЭЭД ФОНТ ЖИЖГЭРҮҮЛЖ шийднэ (цэгээсээ хол
     # шидэхгүй). Зөвхөн хамгийн жижиг фонтоор ч багтахгүй бол л илүү хол зайлж,
@@ -2586,7 +2606,10 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
                 spot = (x0, y0, rect, dist, lfs, w, h)
                 break
         if spot is None:
-            continue  # газар огт олдсонгүй — тэмдэг үлдэнэ, шошго алгасна
+            # Газар огт олдсонгүй — НЭРГҮЙ ҮЛДЭЭХГҮЙ: дугаараар орлуулж,
+            # дугаарт харгалзах нэрийг хүрээн доторх жагсаалтад гаргана.
+            overflow.append((ax, ay, name))
+            continue
         x0, y0, rect, dist, lfs, w, h = spot
         idx.add(rect)
         # Хол зайлсан бол цэгээс шошго руу нимгэн заагч
@@ -2599,7 +2622,54 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
         # Статусын өнгөт зураас (нэрийн доор, веб зурагтай ижил)
         if colors:
             draw_bars(x0, y0 + bar_h * 0.35, colors)
+
+    # 4) Багтаагүй нэрсийг ДУГААРААР орлуулна (нэргүй үлдэхгүй)
+    numbered = []
+    if overflow:
+        # Дээрээс доош, зүүнээс баруун тийш дугаарлана
+        overflow.sort(key=lambda o: (-o[1], o[0]))
+        nfs = max(min_fs, fs * 0.85)
+        for i, (ax, ay, name) in enumerate(overflow, start=1):
+            label = str(i)
+            tw = c.stringWidth(label, FONT_BOLD, nfs)
+            bw = max(tw + mm_to_pt(2.2), mm_to_pt(4.2))
+            bh = nfs * 1.35
+            spot = None
+            for x0, y0, align, dist in _label_candidates(
+                    ax, ay, bw, bh, gap + r_out, steps=14, step_mm=2.5):
+                rect = (x0 - 1.0, y0 - 1.0, x0 + bw + 1.0, y0 + bh + 1.0)
+                if x0 < map_x or x0 + bw > map_x + map_w or \
+                   y0 < map_y or y0 + bh > map_y + map_h:
+                    continue
+                if idx.hits(rect):
+                    continue
+                spot = (x0, y0, rect, dist)
+                break
+            if spot is None:      # бүрэн нягт — тэмдгийн яг хажууд тавина
+                x0 = min(max(ax + r_out + mm_to_pt(0.8), map_x),
+                         map_x + map_w - bw)
+                y0 = min(max(ay - bh / 2, map_y), map_y + map_h - bh)
+                rect = (x0 - 1.0, y0 - 1.0, x0 + bw + 1.0, y0 + bh + 1.0)
+                dist = mm_to_pt(99)
+            else:
+                x0, y0, rect, dist = spot
+            idx.add(rect)
+            # Заагч шугам (тэмдэг → дугаарын хайрцаг)
+            c.setStrokeColor(Color(0.2, 0.2, 0.2, 0.55))
+            c.setLineWidth(0.5)
+            c.line(ax, ay, x0 + bw / 2, y0 + bh / 2)
+            # Дугаарын хайрцаг
+            c.setFillColor(white)
+            c.setStrokeColor(red)
+            c.setLineWidth(0.8)
+            c.roundRect(x0, y0, bw, bh, mm_to_pt(0.8), stroke=1, fill=1)
+            c.setFillColor(red)
+            c.setFont(FONT_BOLD, nfs)
+            c.drawCentredString(x0 + bw / 2, y0 + bh * 0.28, label)
+            numbered.append({'no': i, 'name': name})
+
     c.restoreState()
+    return numbered
 
 
 # ── Таних тэмдэг (тооллого) — вебийн RecountLegend-тэй ижил харагдац ──
@@ -2679,6 +2749,68 @@ def draw_status_legend(c, layout, rect):
         c.setFont(FONT_BOLD, fs)
         c.drawCentredString(cx + cw / 2, y + row_h * 0.3 + fs * 0.06, cnt)
         y -= row_h
+    c.restoreState()
+
+
+def draw_numbered_names(c, numbered, layout, bbox, map_x, map_y, map_w, map_h,
+                        obstacles=None):
+    """Шошго нь багтаагүй тул дугаараар орлуулсан нэрсийн ЖАГСААЛТ —
+    зургийн хүрээ ДОТОР, сул зайтай буланд («1.Жаргалантын агуй» маягаар).
+    Урт бол хэд хэдэн багана болно."""
+    if not numbered:
+        return
+    fs = float(layout.get('legendFontSize') or 11)
+    row_h = fs * 1.35
+    pad_in = mm_to_pt(2.5)
+    # Мөр бүр: "12.Нэр"
+    texts = [f"{it['no']}.{it['name']}" for it in numbered]
+    tw = max(c.stringWidth(t, FONT, fs) for t in texts)
+    col_w = tw + mm_to_pt(3)
+    # Багана тус бүрд дээд тал нь хичнээн мөр багтахыг тооцно
+    max_rows = max(1, int((map_h - mm_to_pt(24)) // row_h))
+    ncols = max(1, math.ceil(len(texts) / max_rows))
+    nrows = math.ceil(len(texts) / ncols)
+    lw = col_w * ncols + pad_in * 2
+    lh = row_h * nrows + pad_in * 2
+    lw = min(lw, map_w - mm_to_pt(8))
+    lh = min(lh, map_h - mm_to_pt(8))
+
+    pad = mm_to_pt(5)
+    rings = layout.get('boundary') or []
+    corners = [
+        (map_x + pad, map_y + pad),                            # доод-зүүн
+        (map_x + map_w - pad - lw, map_y + pad),               # доод-баруун
+        (map_x + pad, map_y + map_h - pad - lh),               # дээд-зүүн
+        (map_x + map_w - pad - lw, map_y + map_h - pad - lh),  # дээд-баруун
+    ]
+
+    def bad(bx, by):
+        # Сумын дотор талд эсвэл өөр хайрцагтай давхцаж байна уу
+        cx, cy = bx + lw / 2, by + lh / 2
+        lon = bbox[0] + (cx - map_x) / map_w * (bbox[2] - bbox[0])
+        lat = bbox[1] + (cy - map_y) / map_h * (bbox[3] - bbox[1])
+        if _point_in_rings(lon, lat, rings):
+            return True
+        for r in (obstacles or []):
+            if r and not (bx + lw < r[0] or bx > r[2] or
+                          by + lh < r[1] or by > r[3]):
+                return True
+        return False
+
+    bx, by = next((p0 for p0 in corners if not bad(*p0)), corners[0])
+
+    c.saveState()
+    c.setFillColor(Color(1, 1, 1, 0.88))
+    c.setStrokeColor(Color(0.75, 0.78, 0.82))
+    c.setLineWidth(0.8)
+    c.roundRect(bx, by, lw, lh, mm_to_pt(1.6), stroke=1, fill=1)
+    c.setFillColor(black)
+    c.setFont(FONT, fs)
+    for i, t in enumerate(texts):
+        col, row = divmod(i, nrows)
+        x = bx + pad_in + col * col_w
+        y = by + lh - pad_in - row_h * (row + 1) + row_h * 0.28
+        c.drawString(x, y, t)
     c.restoreState()
 
 

@@ -321,7 +321,7 @@ class Project(models.Model):
 	dugaar=models.CharField(max_length=2000, verbose_name='Дугаар',default="un", blank=True, null=True)
 	signed_date=models.DateTimeField(blank=True,null=True, verbose_name='Эхэлсэн огноо')
 	end_date=models.DateTimeField(blank=True,null=True, verbose_name='Дуусах огноо')
-
+	units=models.ManyToManyField(AdminUnit,related_name='projectunits',verbose_name='Хил',blank=True)
 class GeoName(UserMixin):
 	name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
 	name_eng=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр (English)')
@@ -419,7 +419,6 @@ class GeoNameInquire(UserMixin):
 
 	class Meta:
 		verbose_name_plural='GeoNameInquire'
-
 
 class ReCount(models.Model):
 	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='recounts',blank=True, null=True)

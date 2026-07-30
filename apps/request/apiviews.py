@@ -6,7 +6,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
-from django.db.models import CharField, Count, F, IntegerField, Value, Q
+from django.db.models import (CharField, Case, Count, F, IntegerField,
+                              Value, When, Q)
+from django.db.models.functions import Coalesce
 from django.db.models.functions import Cast, NullIf
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.gis.geos import Point
@@ -46,7 +48,9 @@ class MappedOrderingFilter(filters.OrderingFilter):
 
 	unit → unit_name (AdminUnit.unit), org/type → тухайн Constant.name.
 	Эдгээр нь queryset дээр annotate‑лагдсан байх ёстой."""
-	field_map = {'unit': 'unit_name', 'org': 'org_name', 'type': 'type_name'}
+	field_map = {'unit': 'unit_name', 'sum': 'unit_name',
+	             'aimag': 'parent_unit_name', 'org': 'org_name',
+	             'type': 'type_name'}
 
 	def remove_invalid_fields(self, queryset, fields, view, request):
 		mapped = []
@@ -74,7 +78,8 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 	                 'type_name', 'date_text']
 
 	ordering_fields = ([f.name for f in LegalOrder._meta.fields]
-	                   + ['names_count', 'unit_name', 'org_name', 'type_name'])
+	                   + ['names_count', 'unit_name', 'parent_unit_name',
+	                      'org_name', 'type_name'])
 	ordering = ['-created_date']
 
 	# PublicListMixin нь filter_backends атрибутыг биш ЭНЭ функцийг ашигладаг тул
@@ -90,6 +95,7 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 		      # FK талбаруудыг id‑ээр бус НЭРЭЭР нь эрэмбэлэх боломж
 		      .annotate(names_count=Count('names', distinct=True),
 		                unit_name=F('unit__unit'),
+	                parent_unit_name=F('unit__parent__unit'),
 		                org_name=F('org__name'),
 		                type_name=F('type__name'),
 		                # Огноог текстээр хайх боломжтой болгов ("2003-09")
@@ -121,6 +127,11 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 		year = p.get('year', None)
 		if year:
 			qs = qs.filter(order_date__year=year)
+		# ЗЗ нэгжийн НЭРЭЭР шүүх (сангаас хайх — "Сум, дүүрэг"‑ийн нэрээр)
+		unit_name = (p.get('unit_name') or '').strip()
+		if unit_name:
+			qs = qs.filter(Q(unit__unit__icontains=unit_name)
+			               | Q(unit__parent__unit__icontains=unit_name))
 		# Нэгжээр шүүх: sum сонгосон бол яг тэр сум, эс бөгөөс аймаг
 		# (аймаг өөрөө эсвэл түүнд харьяа сумаар).
 		sum_id = p.get('sum', None)
@@ -169,6 +180,42 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 			return Response({'detail': 'project шаардлагатай'}, status=400)
 		order.projects.add(project_id)
 		return Response({'detail': 'Төсөлд холбогдлоо', 'id': order.id}, status=200)
+
+	@action(detail=False, methods=['post'], url_path='attach-by-units')
+	def attach_by_units(self, request, *args, **kwargs):
+		"""Төслийн ХАМРАХ засаг захиргаанд (units) харьяалагдах БҮХ шийдвэрийг
+		сангаас нэг дор төсөлд холбоно. Аймаг сонгосон бол түүний доод шатны
+		(сум→баг) нэгжийнхийг бүгдийг нь хамруулна.
+		  POST {project: <id>} → {added, skipped, total}
+		"""
+		from core.models import Project
+		project_id = request.data.get('project')
+		if not project_id:
+			return Response({'detail': 'project шаардлагатай'}, status=400)
+		project = Project.objects.filter(pk=project_id).first()
+		if not project:
+			return Response({'detail': 'Төсөл олдсонгүй'}, status=404)
+		roots = list(project.units.values_list('id', flat=True))
+		if not roots:
+			return Response(
+				{'detail': 'Төсөлд хамрах засаг захиргаа тохируулаагүй байна.'},
+				status=400)
+		# Аймаг → сум → баг (3 давхар) хүртэлх удмыг цуглуулна
+		ids, frontier = set(roots), roots
+		for _ in range(3):
+			ch = list(AdminUnit.objects.filter(parent_id__in=frontier)
+			          .exclude(id__in=ids).values_list('id', flat=True))
+			if not ch:
+				break
+			ids.update(ch)
+			frontier = ch
+		matched = LegalOrder.objects.filter(unit_id__in=ids)
+		total = matched.count()
+		fresh = list(matched.exclude(projects__id=project.id))
+		if fresh:
+			project.projectorders.add(*fresh)
+		return Response({'added': len(fresh), 'skipped': total - len(fresh),
+		                 'total': total})
 
 	@action(detail=True, methods=['post'], url_path='detach-project')
 	def detach_project(self, request, *args, **kwargs):
@@ -536,12 +583,37 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 	queryset = ReCount.objects.all()
 	permission_classes = [IsAuthenticated]
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-	search_fields = ['draft', 'name__name']
-	ordering_fields = ['id', 'draft', 'name__name', 'status__name', 'step__name']
+	search_fields = ['draft', 'name__name', 'name__number']
+	# Ангиллын 3 түвшнээр эрэмбэлэх — queryset дээр annotate‑лагдсан
+	ordering_fields = ['id', 'draft', 'name__name', 'name__number',
+	                   'step__name', 'type_l1', 'type_l2', 'type_l3']
 	ordering = ['-id']
 
 	def get_queryset(self):
-		qs = ReCount.objects.select_related('project', 'step', 'name').prefetch_related('statuses')
+		qs = (ReCount.objects
+		      .select_related('project', 'step', 'name', 'name__type',
+		                      'name__type__parent', 'name__type__parent__parent')
+		      .prefetch_related('statuses')
+		      # Ангиллын түвшин бүрийн НЭР — эрэмбэлэхэд. type нь НАВЧ тул
+		      # язгуураас (l1) тоолохын тулд гүнээс хамааруулан сонгоно:
+		      #   gp байвал → l1=gp, l2=p,  l3=type
+		      #   p  байвал → l1=p,  l2=type
+		      #   эс бөгөөс → l1=type
+		      .annotate(
+		          type_l1=Coalesce('name__type__parent__parent__name',
+		                           'name__type__parent__name',
+		                           'name__type__name'),
+		          type_l2=Case(
+		              When(name__type__parent__parent__isnull=False,
+		                   then=F('name__type__parent__name')),
+		              When(name__type__parent__isnull=False,
+		                   then=F('name__type__name')),
+		              default=Value(None), output_field=CharField()),
+		          type_l3=Case(
+		              When(name__type__parent__parent__isnull=False,
+		                   then=F('name__type__name')),
+		              default=Value(None), output_field=CharField()),
+		      ))
 		project_id = self.request.query_params.get('project')
 		if project_id:
 			qs = qs.filter(project_id=project_id)
@@ -549,7 +621,76 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		step_id = self.request.query_params.get('step')
 		if step_id:
 			qs = qs.filter(step_id=step_id)
+		# Нэрийн АНГИЛАЛ — сонгосон түвшин + түүний бүх удам
+		type_id = self.request.query_params.get('type')
+		if type_id:
+			from apps.geoname.apiviews import descendant_type_ids
+			qs = qs.filter(name__type_id__in=descendant_type_ids(type_id))
+		# ТӨЛӨВ — олон сонголт (таслалаар). Аль нэг нь таарвал орно.
+		# 'none' тэмдэгт → төлөв ОГТ тодорхойлоогүй (хоосон) тооллогууд.
+		st = (self.request.query_params.get('statuses') or '').strip()
+		if st:
+			parts = [x.strip() for x in st.split(',') if x.strip()]
+			ids = [int(x) for x in parts if x.isdigit()]
+			cond = Q()
+			if ids:
+				cond |= Q(statuses__id__in=ids)
+			if 'none' in parts:
+				cond |= Q(statuses__isnull=True)
+			if cond:
+				qs = qs.filter(cond).distinct()
+		# БАЙРШИЛГҮЙ — тооллогын loc ч, нэрийн geoloc ч байхгүй
+		if self.request.query_params.get('no_geom') in ('1', 'true', 'True'):
+			qs = qs.filter(loc__isnull=True).filter(
+				Q(name__isnull=True) | Q(name__geoloc__isnull=True))
 		return qs
+
+	@action(detail=False, methods=['post'], url_path='import-by-units')
+	def import_by_units(self, request, *args, **kwargs):
+		"""Батлагдсан нэрийн сангаас — төслийн хамрах ЗЗ нэгжид (аймаг сонгосон
+		бол доод шатны сум/баг хүртэл) багтах БҮХ батлагдсан нэрийг тухайн
+		төслийн дахин тооллого (ReCount) руу нэг дор импортлоно.
+
+		  POST {project: <id>, step: <id|optional>} → {added, skipped, total}
+		Аль хэдийн бүртгэгдсэн нэрийг давхардуулахгүй.
+		"""
+		from core.models import Project
+		from apps.geoname.apiviews import descendant_unit_ids
+		project_id = request.data.get('project')
+		if not project_id:
+			return Response({'detail': 'project шаардлагатай'}, status=400)
+		project = Project.objects.filter(pk=project_id).first()
+		if not project:
+			return Response({'detail': 'Төсөл олдсонгүй'}, status=404)
+		roots = list(project.units.values_list('id', flat=True))
+		if not roots:
+			return Response(
+				{'detail': 'Төсөлд хамрах засаг захиргаа тохируулаагүй байна.'},
+				status=400)
+		# Нэгжийн ГИШҮҮНЧЛЭЛ (M2M) ба ОРОН ЗАЙН давхцлаар аль алинаар нь цуглуулна
+		ids = set()
+		for root in roots:
+			ids |= set(GeoName.objects
+			           .filter(is_approved=True,
+			                   unit__id__in=descendant_unit_ids(root))
+			           .values_list('id', flat=True))
+			au = (AdminUnit.objects.filter(id=root)
+			      .exclude(geom__isnull=True).first())
+			if au:
+				ids |= set(GeoName.objects
+				           .filter(is_approved=True, geoloc__intersects=au.geom)
+				           .values_list('id', flat=True))
+		total = len(ids)
+		exists = set(ReCount.objects.filter(project=project, name_id__in=ids)
+		             .values_list('name_id', flat=True))
+		fresh = [i for i in ids if i not in exists]
+		step_id = request.data.get('step') or None
+		if fresh:
+			ReCount.objects.bulk_create(
+				[ReCount(project=project, name_id=i, step_id=step_id)
+				 for i in fresh], batch_size=1000)
+		return Response({'added': len(fresh), 'skipped': total - len(fresh),
+		                 'total': total})
 
 	def perform_create(self, serializer):
 		instance = serializer.save()
@@ -1037,7 +1178,10 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			pass
 		pid = request.query_params.get('project')
 		name_q = (request.query_params.get('name') or '').strip()
-		conds = ["lvl.name = 'Сум/Дүүрэг'"]
+		# ЗӨВХӨН геометртэй тодруулалт — тооллогын өөрийн loc, эс бөгөөс
+		# холбогдсон нэрийн geoloc байх ёстой (газрын зурагт зурагдана).
+		conds = ["lvl.name = 'Сум/Дүүрэг'",
+		         '(r.loc IS NOT NULL OR g.geoloc IS NOT NULL)']
 		params = []
 		if pid:
 			conds.append('r.project_id = %s')
