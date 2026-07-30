@@ -19,7 +19,7 @@ import { LoadingButton } from "@mui/lab";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
-import { statusColorByName } from "./recountStatus";
+import { statusColor } from "./recountStatus";
 
 // ----------------------------------------------------------------------
 // Тооллогын мөрийг ЗАСАХ — төлөв (олон), нэрийн ангилал (3 түвшин), тайлбар.
@@ -165,8 +165,8 @@ export default function RecountEditDialog({ open, row, onClose, onSaved }) {
                       checked={checked.has(s.id)}
                       onChange={() => toggle(s.id)}
                       sx={{
-                        color: statusColorByName(s.name),
-                        "&.Mui-checked": { color: statusColorByName(s.name) },
+                        color: statusColor(s),
+                        "&.Mui-checked": { color: statusColor(s) },
                       }}
                     />
                   }

@@ -11,7 +11,7 @@ import {
 } from "@mui/material";
 
 import Iconify from "src/components/iconify";
-import { statusColorByName } from "src/components/map/recountStatus";
+import { statusColor } from "src/components/map/recountStatus";
 
 // ----------------------------------------------------------------------
 // Суурин судалгаа — дахин тооллогын нэг мөр. Нэр, ангиллын 3 түвшин,
@@ -84,7 +84,7 @@ export default function SuurinTableRow({ row: r, onLocation, onMenu, menuOpen })
                 sx={{ py: 0.25 }}
               >
                 {r.statuses.map((st) => {
-                  const col = statusColorByName(st.name);
+                  const col = statusColor(st);
                   return (
                     <Chip
                       key={st.id}

@@ -45,6 +45,8 @@ export default function FeatureTabPanel({
   // Мөрийн 3 цэгийн цэс: (row, action) — "edit" | "reverse" | "delete"
   onRowAction,
   onFieldCalc,
+  onAddName,
+  onLinkName,
 }) {
   const [rowMenu, setRowMenu] = useState(null);
   const cols = useMemo(() => tab.cols || [], [tab.cols]);
@@ -120,6 +122,8 @@ export default function FeatureTabPanel({
     <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {!tab.loading && !tab.error && (
         <FeatureTableToolbar
+          onAddName={onAddName}
+          onLinkName={onLinkName}
           cols={cols}
           searchCols={visibleCols}
           searchCol={tab.searchCol}
@@ -374,6 +378,8 @@ export default function FeatureTabPanel({
 
 FeatureTabPanel.propTypes = {
   onFieldCalc: PropTypes.func,
+  onAddName: PropTypes.func,
+  onLinkName: PropTypes.func,
   onRowAction: PropTypes.func,
   tab: PropTypes.object,
   onPatch: PropTypes.func,

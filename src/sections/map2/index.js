@@ -75,6 +75,7 @@ import GeoJSON from "ol/format/GeoJSON";
 import { boundingExtent } from "ol/extent";
 import {
   registerMapDraw,
+  registerClearDraw,
   registerMapExtent,
   commitMapEdit,
   cancelMapEdit,
@@ -111,7 +112,8 @@ import FeatureTabPanel from "src/components/map/FeatureTabPanel";
 import RecountEditDialog from "src/components/map/RecountEditDialog";
 import FieldCalcDialog from "src/components/map/FieldCalcDialog";
 import RecountLegend from "src/components/map/RecountLegend";
-import { statusColorByName } from "src/components/map/recountStatus";
+import MapAddName from "src/components/map/MapAddName";
+import { statusColor } from "src/components/map/recountStatus";
 import MapHeader from "src/components/map/MapHeader";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { usePathname } from "next/navigation";
@@ -630,6 +632,38 @@ function Map2() {
   // Төслийн ажлын талбай (ProjectArea) — Тодруулалт панелийн хөлөөс ирнэ.
   // null → давхарга унтраалттай.
   const [projectAreas, setProjectAreas] = useState(null);
+  // Доод attribute хүснэгтийн toolbar‑аас нээгдсэн нэрийн форм.
+  // {mode:"new"|"link", type:{id,name,desc}, geom, top, left}
+  const [tabNameForm, setTabNameForm] = useState(null);
+  // Формыг толгойн мөрөөс нь чирэх (drag) — курсорын шилжилтээр top/left
+  const tabFormDragRef = useRef(null);
+  const startTabFormDrag = useCallback((e) => {
+    e.preventDefault();
+    tabFormDragRef.current = { x: e.clientX, y: e.clientY };
+    const onMove = (ev) => {
+      const d = tabFormDragRef.current;
+      if (!d) return;
+      const dx = ev.clientX - d.x;
+      const dy = ev.clientY - d.y;
+      tabFormDragRef.current = { x: ev.clientX, y: ev.clientY };
+      setTabNameForm((prev) =>
+        prev
+          ? {
+              ...prev,
+              top: Math.max(0, prev.top + dy),
+              left: Math.max(0, prev.left + dx),
+            }
+          : prev,
+      );
+    };
+    const onUp = () => {
+      tabFormDragRef.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, []);
   const projectAreaLayerRef = useRef(null);
   // Доод status bar — курсорын солбицол (DMS) ба масштаб
   const [cursorCoords, setCursorCoords] = useState({ lon: null, lat: null });
@@ -2225,11 +2259,67 @@ function Map2() {
     });
   }, []);
 
+  // Attribute хүснэгтийн toolbar → геометр зуруулаад, түүний ХАЖУУД
+  // нэрийн формыг нээнэ. ЗӨВХӨН төслийн газрын зураг дээр ажиллана.
+  const openTabNameForm = useCallback(
+    async (tab, mode) => {
+      const map = mapObjRef.current;
+      if (!map || !recountProjectId) return;
+      const desc = (tab?.geomDesc || "").trim();
+      const drawType =
+        desc === "Шугам"
+          ? "LineString"
+          : desc === "Талбай"
+            ? "Polygon"
+            : "Point";
+      window.dispatchEvent(
+        new CustomEvent("map:notice", {
+          detail: {
+            title: "Зурах:",
+            text: `Газрын зураг дээр ${desc || "цэг"} зурна уу (ESC — болих)`,
+          },
+        }),
+      );
+      const gj = await startTypedDraw(drawType);
+      if (!gj) return;
+      // Формыг зурсан геометрийн хажууд байрлуулна
+      let flat = gj.coordinates;
+      while (Array.isArray(flat[0])) flat = flat[0];
+      let top = 120;
+      let left = 120;
+      try {
+        const px = map.getPixelFromCoordinate(fromLonLat(flat));
+        const rect = map.getTargetElement().getBoundingClientRect();
+        top = Math.min(rect.top + px[1], window.innerHeight - 420);
+        left = Math.min(rect.left + px[0] + 16, window.innerWidth - 380);
+      } catch (e) {
+        /* байрлал тодорхойлж чадсангүй — анхдагчаар */
+      }
+      setTabNameForm({
+        mode,
+        type: { id: tab.typeId, name: tab.label, desc: tab.geomDesc },
+        geom: gj,
+        top: Math.max(top, 60),
+        left: Math.max(left, 12),
+      });
+    },
+    [recountProjectId, startTypedDraw],
+  );
+
   // Map2 ↔ popup гүүр — зурах функцийг бүртгэнэ
   useEffect(() => {
     registerMapDraw(startTypedDraw);
     return () => registerMapDraw(null);
   }, [startTypedDraw]);
+
+  // Түр зурсан геометрийг арилгах гүүр (хадгалсны дараа)
+  const clearDrawnGeom = useCallback(() => {
+    radiusCircleSourceRef.current?.clear();
+  }, []);
+  useEffect(() => {
+    registerClearDraw(clearDrawnGeom);
+    return () => registerClearDraw(null);
+  }, [clearDrawnGeom]);
 
   // Байрлал засах (QGIS маягаар) — дамжуулсан GeoJSON геометрийг (EPSG:4326,
   // geoname detail‑ийн `geom`) засах давхаргад оруулж, Modify+Snap‑аар vertex/цэг
@@ -2572,7 +2662,7 @@ function Map2() {
         const items = res?.data?.results || res?.data || [];
         const map = {};
         items.forEach((s) => {
-          map[s.id] = statusColorByName(s.name);
+          map[s.id] = statusColor(s);
         });
         recountStatusColorById = map;
         recountLayerRef.current?.changed();
@@ -2580,7 +2670,7 @@ function Map2() {
           items.map((s) => ({
             id: s.id,
             name: s.name,
-            color: statusColorByName(s.name),
+            color: statusColor(s),
           })),
         );
       })
@@ -2691,7 +2781,7 @@ function Map2() {
 
   // Доод хүснэгтэд ШИНЭ ТАБ нээнэ (аль хэдийн нээлттэй бол идэвхжүүлнэ)
   const openFeatureTab = useCallback(
-    async ({ key, label, layer, cql }) => {
+    async ({ key, label, layer, cql, typeId = null, geomDesc = null }) => {
       setActiveTabKey(key);
       let exists = false;
       setFeatureTabs((prev) => {
@@ -2705,6 +2795,9 @@ function Map2() {
                 label,
                 layer,
                 cql,
+                // Тодруулалтын ангилал (Constant) — toolbar‑ын «нэмэх»/«холбох»
+                typeId,
+                geomDesc,
                 loading: true,
                 rows: [],
                 cols: [],
@@ -2830,6 +2923,18 @@ function Map2() {
     },
     [fetchWfs, patchTab],
   );
+
+  // Тодруулалт өөрчлөгдөх бүрд (нэмэх/засах/устгах) НЭЭЛТТЭЙ attribute
+  // хүснэгтүүдийг ч дахин татна — зурагтай зэрэгцэн шинэчлэгдэнэ.
+  useEffect(() => {
+    const h = () => {
+      (featureTabsRef.current || []).forEach((t) => {
+        if (t.layer === "geoname:recount_view") reloadTab(t.key);
+      });
+    };
+    window.addEventListener("recount:changed", h);
+    return () => window.removeEventListener("recount:changed", h);
+  }, [reloadTab]);
 
   // Мөрийн үйлдэл — засах / геометр эргүүлэх / устгах
   const handleRowAction = useCallback(
@@ -3011,6 +3116,10 @@ function Map2() {
           label: node.name || `Ангилал ${id}`,
           layer,
           cql,
+          typeId: id,
+          // ЗӨВХӨН навч (нэг төрөлтэй) ангилал л «нэмэх/холбох»‑ыг зөвшөөрнө.
+          // Бүлэг (олон дэд төрөлтэй) табд геометрийн төрөл тодорхойгүй.
+          geomDesc: (node.children || []).length ? null : node.desc || null,
         });
         return;
       }
@@ -4644,6 +4753,63 @@ function Map2() {
           </Paper>
         )}
 
+        {tabNameForm && (
+          <Paper
+            elevation={8}
+            sx={{
+              position: "fixed",
+              top: tabNameForm.top,
+              left: tabNameForm.left,
+              zIndex: 1400,
+              width: 340,
+              maxHeight: "70vh",
+              overflowY: "auto",
+              borderRadius: 1,
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              onMouseDown={startTabFormDrag}
+              sx={{
+                px: 1.5,
+                py: 0.75,
+                bgcolor: "#0675c9",
+                color: "#fff",
+                cursor: "move",
+                userSelect: "none",
+              }}
+            >
+              <Typography variant="subtitle2">
+                {tabNameForm.mode === "link"
+                  ? "Батлагдсан нэрийн байр зүйн холболт"
+                  : "Шинэ нэр нэмэх"}
+              </Typography>
+              <IconButton
+                size="small"
+                sx={{ color: "#fff" }}
+                onClick={() => {
+                  clearDrawnGeom();
+                  setTabNameForm(null);
+                }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+            <MapAddName
+              projectId={recountProjectId}
+              presetType={tabNameForm.type}
+              presetGeom={tabNameForm.geom}
+              initialApproved={tabNameForm.mode === "link"}
+              onClose={() => {
+                clearDrawnGeom();
+                setTabNameForm(null);
+              }}
+            />
+          </Paper>
+        )}
+
         <NameSidebar
           open={sidebarOpen}
           onClose={() => {
@@ -4889,6 +5055,16 @@ function Map2() {
                       handleRowAction(t.key, row, action)
                     }
                     onFieldCalc={() => setFieldCalcTab(t.key)}
+                    onAddName={
+                      recountProjectId && t.typeId && t.geomDesc
+                        ? () => openTabNameForm(t, "new")
+                        : undefined
+                    }
+                    onLinkName={
+                      recountProjectId && t.typeId && t.geomDesc
+                        ? () => openTabNameForm(t, "link")
+                        : undefined
+                    }
                     onZoomTo={(geometry) => {
                       const map = mapObjRef.current;
                       if (!map || !geometry) return;

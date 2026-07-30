@@ -50,7 +50,7 @@ export default function RecountLegend({ statuses, counts }) {
           color: "#fff",
         }}
       >
-        <Typography variant="subtitle2">Таних тэмдэг (тооллого)</Typography>
+        <Typography variant="subtitle2">Таних тэмдэг</Typography>
         <IconButton size="small" sx={{ color: "#fff", p: 0.25 }}>
           {open ? (
             <ExpandMoreIcon fontSize="small" />

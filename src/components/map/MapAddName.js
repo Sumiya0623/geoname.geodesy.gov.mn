@@ -21,7 +21,12 @@ import { enqueueSnackbar } from "notistack";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetConstantsFordropdown } from "src/api/constant";
 
-import { requestMapDraw, getMapExtent, requestRecountReload } from "./mapDraw";
+import {
+  requestMapDraw,
+  getMapExtent,
+  requestClearDraw,
+  requestRecountReload,
+} from "./mapDraw";
 
 // Ангиллын desc (Цэг/Шугам/Талбай) → OpenLayers Draw төрөл
 function olDrawType(desc) {
@@ -38,7 +43,17 @@ const DRAW_LABEL = { Point: "цэг", LineString: "шугам", Polygon: "тал
 // (статус "шинэ", draft=нэр, loc=зурсан геометр) үүснэ.
 // ----------------------------------------------------------------------
 
-export default function MapAddName({ onClose, projectId }) {
+export default function MapAddName({
+  onClose,
+  projectId,
+  // ── Урьдчилан тохируулсан горим (attribute хүснэгтийн toolbar‑аас) ──
+  // presetType: {id, name, desc} — ангиллыг сонгуулахгүй, шууд сет хийнэ
+  presetType = null,
+  // presetGeom: аль хэдийн зурсан геометр (GeoJSON, 4326) — дахин зуруулахгүй
+  presetGeom = null,
+  // Эхлэхдээ «Батлагдсан нэр» (байр зүйн холболт) горимд байх эсэх
+  initialApproved = false,
+}) {
   const [cat1, setCat1] = useState(null);
   const [cat2, setCat2] = useState(null);
   const [cat3, setCat3] = useState(null);
@@ -46,13 +61,17 @@ export default function MapAddName({ onClose, projectId }) {
   const [cat2Opts, setCat2Opts] = useState([]);
   const [cat3Opts, setCat3Opts] = useState([]);
   const [nm, setNm] = useState("");
-  const [statusName, setStatusName] = useState("шинэ"); // шинэ→Маягт6, батлагдаагүй→Маягт2
-  const [drawType, setDrawType] = useState(null);
-  const [geojson, setGeojson] = useState(null);
+  // Төлөв — Constant (RECOUNT_STATUS)‑оос ирнэ. Хуучин нь нэрээр hardcode
+  // байсан тул DB дээрх нэр өөрчлөгдөхөд төлөв огт оногдохгүй байсан.
+  const [statusId, setStatusId] = useState(null);
+  const [drawType, setDrawType] = useState(
+    presetType ? olDrawType(presetType.desc) : null,
+  );
+  const [geojson, setGeojson] = useState(presetGeom);
   const [saving, setSaving] = useState(false);
 
   // Батлагдсан нэрэнд геометр оноох горим (байршил зөрүүтэй)
-  const [approvedMode, setApprovedMode] = useState(false);
+  const [approvedMode, setApprovedMode] = useState(!!initialApproved);
   const [apprName, setApprName] = useState(null); // сонгосон батлагдсан GeoName
   const [apprOpts, setApprOpts] = useState([]);
   const [apprLoading, setApprLoading] = useState(false);
@@ -60,6 +79,21 @@ export default function MapAddName({ onClose, projectId }) {
 
   const { constants: rStatuses } = useGetConstantsFordropdown("RECOUNT_STATUS");
   const { constants: rSteps } = useGetConstantsFordropdown("RECOUNT_STEPS");
+  // Шинэ нэр бүртгэхэд СОНГОЖ болох төлвүүд: Constant дээр `desc`‑д маягтаа
+  // бичсэн (жиш. "Маягт 6") мөрүүд. Хоосон бол бүх төлвийг үзүүлнэ.
+  const statusOptions = useMemo(() => {
+    const withForm = rStatuses.filter((s) => (s.desc || "").trim());
+    return withForm.length ? withForm : rStatuses;
+  }, [rStatuses]);
+
+  // Анхдагч: "Шинээр үүссэн" (code=5), эс бөгөөс эхний сонголт
+  useEffect(() => {
+    if (statusId || !statusOptions.length) return;
+    const def =
+      statusOptions.find((s) => String(s.code) === "5") || statusOptions[0];
+    setStatusId(def?.id || null);
+  }, [statusOptions, statusId]);
+
   const rStep = useMemo(
     () => rSteps.find((s) => s.name === "Суурин судалгаа") || null,
     [rSteps],
@@ -130,6 +164,9 @@ export default function MapAddName({ onClose, projectId }) {
         });
         if (text && text.trim()) params.set("search", text.trim());
         if (ext) params.set("unit_bbox", ext.join(","));
+        // Хүснэгтийн давхаргаас нээсэн бол ЗӨВХӨН тухайн ангиллын нэрс
+        const tId = presetType?.id || cat3?.id || cat2?.id || cat1?.id;
+        if (tId) params.set("type", tId);
         const res = await axiosInstance.get(
           endpoints.geoname.list(params.toString()),
         );
@@ -142,9 +179,12 @@ export default function MapAddName({ onClose, projectId }) {
     }, 350);
   };
 
-  // Батлагдсан нэр сонгоход — төрлөөсөө зурах хэрэгслийг тогтооно
+  // Батлагдсан нэр сонгоход — төрлөөсөө зурах хэрэгслийг тогтооно.
+  // Хүснэгтийн toolbar‑аас (presetGeom) нээгдсэн бол геометр АЛЬ ХЭДИЙН
+  // зурагдсан тул түүнийг цэвэрлэхгүй, зурах хэрэгслийг ч дахин тооцохгүй.
   const onSelectApproved = async (name) => {
     setApprName(name);
+    if (presetGeom) return;
     setGeojson(null);
     setDrawType(null);
     const typeId = name?.type_id || name?.type?.id || name?.type;
@@ -179,7 +219,7 @@ export default function MapAddName({ onClose, projectId }) {
     setCat2Opts([]);
     setCat3Opts([]);
     setNm("");
-    setDrawType(null);
+    setDrawType(presetType ? olDrawType(presetType.desc) : null);
     setGeojson(null);
     setApprName(null);
     setApprOpts([]);
@@ -210,8 +250,9 @@ export default function MapAddName({ onClose, projectId }) {
       if (approvedMode) {
         // Батлагдсан нэр — "байршил" (зөрүүтэй) БА "ижил" (нэр нь батлагдсантай
         // ижил тул) хоёуланг нь автоматаар онооно.
-        const statusIds = ["байршил", "ижил"]
-          .map((n) => rStatuses.find((s) => s.name === n)?.id)
+        // Байршил зөрүүтэй (code=4) + Алдаагүй/ижил (code=1)
+        const statusIds = ["4", "1"]
+          .map((c) => rStatuses.find((s) => String(s.code) === c)?.id)
           .filter(Boolean);
         await axiosInstance.post(endpoints.recount.create, {
           project_id: projectId,
@@ -224,20 +265,25 @@ export default function MapAddName({ onClose, projectId }) {
           `"${apprName.name}" — байршил, ижил төлөвөөр геометр оногдлоо`,
         );
       } else {
-        const statusId =
-          rStatuses.find((s) => s.name === statusName)?.id || null;
+        const typeId = presetType?.id || cat3?.id || cat2?.id || cat1?.id;
         await axiosInstance.post(endpoints.recount.create, {
           project_id: projectId,
           draft: nm.trim(),
+          ...(typeId ? { type_id: typeId } : {}),
           ...(rStep?.id ? { step_id: rStep.id } : {}),
           ...(statusId ? { status_ids: [statusId] } : {}),
           loc: geojson,
         });
-        enqueueSnackbar(`"${nm}" — ${statusName} төлөвөөр бүртгэгдлээ`);
+        const stName =
+          statusOptions.find((s) => s.id === statusId)?.name || "төлөвгүй";
+        enqueueSnackbar(`"${nm}" — ${stName} төлөвөөр бүртгэгдлээ`);
       }
       // Хадгалсны дараа форм ХООСОРНО ч НЭЭЛТТЭЙ хэвээр (дараалан нэр нэмэхэд).
       reset();
+      requestClearDraw(); // түр зурсан дүрсийг арилгана
       requestRecountReload(); // газрын зурагт шинэ recount тусна
+      // Хүснэгтийн toolbar‑аас нээсэн (нэг удаагийн) форм бол хаана
+      if (presetGeom) onClose?.();
     } catch (e) {
       enqueueSnackbar(e?.response?.data?.detail || "Бүртгэхэд алдаа гарлаа", {
         variant: "warning",
@@ -263,21 +309,24 @@ export default function MapAddName({ onClose, projectId }) {
 
   return (
     <Box sx={{ p: 1.5 }}>
-      {/* Горим сэлгэх: шинэ нэр ↔ батлагдсан нэрэнд геометр оноох */}
-      <FormControlLabel
-        sx={{ mb: 1 }}
-        control={
-          <Switch
-            size="small"
-            checked={approvedMode}
-            onChange={(e) => {
-              setApprovedMode(e.target.checked);
-              reset();
-            }}
-          />
-        }
-        label={<Typography variant="body2">Батлагдсан нэр</Typography>}
-      />
+      {/* Горим сэлгэх: шинэ нэр ↔ батлагдсан нэрэнд геометр оноох.
+          Preset (хүснэгтийн toolbar‑аас) үед горим тодорхой тул нуугдана. */}
+      {!presetType && !presetGeom && (
+        <FormControlLabel
+          sx={{ mb: 1 }}
+          control={
+            <Switch
+              size="small"
+              checked={approvedMode}
+              onChange={(e) => {
+                setApprovedMode(e.target.checked);
+                reset();
+              }}
+            />
+          }
+          label={<Typography variant="body2">Батлагдсан нэр</Typography>}
+        />
+      )}
       <Divider sx={{ mb: 1.5 }} />
 
       {approvedMode ? (
@@ -298,6 +347,7 @@ export default function MapAddName({ onClose, projectId }) {
             }
             isOptionEqualToValue={(o, v) => o?.id === v?.id}
             noOptionsText="Харагдаж буй хүрээнд батлагдсан нэр алга"
+            slotProps={{ popper: { sx: { zIndex: 1600 } } }}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -317,11 +367,18 @@ export default function MapAddName({ onClose, projectId }) {
           <Typography variant="overline" color="text.secondary">
             Ангилал
           </Typography>
-          <Stack direction="row" spacing={1} sx={{ mt: 0.5, mb: 1.5 }}>
-            {ac(cat1, 1, cat1Opts, false, "Үндсэн")}
-            {ac(cat2, 2, cat2Opts, !cat1?.id, "Анхдагч")}
-            {ac(cat3, 3, cat3Opts, !cat2?.id, "Дэд")}
-          </Stack>
+          {presetType ? (
+            <Typography variant="body2" sx={{ mt: 0.5, mb: 1.5 }}>
+              <b>{presetType.name}</b>
+              {presetType.desc ? ` · ${presetType.desc}` : ""}
+            </Typography>
+          ) : (
+            <Stack direction="row" spacing={1} sx={{ mt: 0.5, mb: 1.5 }}>
+              {ac(cat1, 1, cat1Opts, false, "Үндсэн")}
+              {ac(cat2, 2, cat2Opts, !cat1?.id, "Анхдагч")}
+              {ac(cat3, 3, cat3Opts, !cat2?.id, "Дэд")}
+            </Stack>
+          )}
 
           <TextField
             size="small"
@@ -337,30 +394,45 @@ export default function MapAddName({ onClose, projectId }) {
             size="small"
             label="Төлөв"
             fullWidth
-            value={statusName}
-            onChange={(e) => setStatusName(e.target.value)}
+            value={statusId || ""}
+            onChange={(e) => setStatusId(Number(e.target.value) || null)}
             sx={{ mb: 1.5 }}
+            SelectProps={{ MenuProps: { sx: { zIndex: 1600 } } }}
           >
-            <MenuItem value="шинэ">Шинэ нэр (Маягт 6)</MenuItem>
-            <MenuItem value="батлагдаагүй">
-              Батлагдаагүй / уламжлалт (Маягт 2)
-            </MenuItem>
+            {statusOptions.map((s) => (
+              <MenuItem key={s.id} value={s.id}>
+                {s.name}
+                {(s.desc || "").trim() ? ` (${s.desc.trim()})` : ""}
+              </MenuItem>
+            ))}
           </TextField>
         </>
       )}
 
       {drawType && (
         <Stack spacing={1} sx={{ mb: 1.5 }}>
-          <Typography variant="body2">
-            Зурах төрөл: <b>{DRAW_LABEL[drawType]}</b>
-          </Typography>
-          <Button variant="outlined" startIcon={<DrawIcon />} onClick={onDraw}>
-            Газрын зураг дээр зурах
-          </Button>
-          {geojson && (
+          {presetGeom && geojson ? (
             <Typography variant="caption" color="success.main">
-              ✓ Геометр зурагдсан
+              ✓ {DRAW_LABEL[drawType]} үүссэн
             </Typography>
+          ) : (
+            <>
+              <Typography variant="body2">
+                Зурах төрөл: <b>{DRAW_LABEL[drawType]}</b>
+              </Typography>
+              <Button
+                variant="outlined"
+                startIcon={<DrawIcon />}
+                onClick={onDraw}
+              >
+                Газрын зураг дээр зурах
+              </Button>
+              {geojson && (
+                <Typography variant="caption" color="success.main">
+                  ✓ Геометр зурагдсан
+                </Typography>
+              )}
+            </>
           )}
         </Stack>
       )}
@@ -380,4 +452,7 @@ export default function MapAddName({ onClose, projectId }) {
 MapAddName.propTypes = {
   onClose: PropTypes.func,
   projectId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  presetType: PropTypes.object,
+  presetGeom: PropTypes.object,
+  initialApproved: PropTypes.bool,
 };

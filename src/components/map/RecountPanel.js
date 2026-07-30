@@ -797,7 +797,7 @@ export default function RecountPanel({
                 }
                 label={
                   <Typography variant="body2">
-                    Ажлын талбай
+                    Суурин судалгааны талбай
                     {areaOn && areas.length ? ` (${areas.length})` : ""}
                   </Typography>
                 }

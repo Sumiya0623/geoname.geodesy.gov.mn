@@ -48,6 +48,11 @@ export default function FeatureTableToolbar({
   onReset,
   onClose,
   onFieldCalc,
+  // Тодруулалтын (recount) таб дээр — шинэ нэр нэмэх / батлагдсан нэрийг
+  // байр зүйн байрлалтай холбох. Товч дарж зураг дээр геометр зурсны дараа
+  // форм нь зурсан геометрийн хажууд нээгдэнэ.
+  onAddName,
+  onLinkName,
 }) {
   const [colMenu, setColMenu] = useState(null);
 
@@ -95,6 +100,26 @@ export default function FeatureTableToolbar({
           </MenuItem>
         ))}
       </TextField>
+
+      {onAddName && (
+        <Tooltip title="Шинэ нэр нэмэх — зурсан геометрийн дагуу (төрөл нь энэ давхаргаар сет хийгдсэн)">
+          <IconButton size="small" color="primary" onClick={onAddName}>
+            <Iconify icon="mingcute:add-line" />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      {onLinkName && (
+        <Tooltip title="Батлагдсан нэрийн байр зүйн холболт">
+          <IconButton size="small" color="primary" onClick={onLinkName}>
+            <Iconify icon="solar:link-circle-bold" />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      {(onAddName || onLinkName) && (
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+      )}
 
       {onFieldCalc && (
         <Tooltip title="Field Calculator — талбарыг бөөнөөр шинэчлэх">
@@ -213,4 +238,6 @@ FeatureTableToolbar.propTypes = {
   onReset: PropTypes.func,
   onClose: PropTypes.func,
   onFieldCalc: PropTypes.func,
+  onAddName: PropTypes.func,
+  onLinkName: PropTypes.func,
 };

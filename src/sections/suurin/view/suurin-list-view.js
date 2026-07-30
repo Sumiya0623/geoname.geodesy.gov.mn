@@ -46,7 +46,7 @@ import RecountMap from "./recount-map";
 
 import SuurinTableRow from "../suurin-table-row";
 import SuurinTableToolbar from "../suurin-table-toolbar";
-import { statusColorByName } from "src/components/map/recountStatus";
+import { statusColor } from "src/components/map/recountStatus";
 
 // ----------------------------------------------------------------------
 // Суурин судалгаа — Дахин тооллого (ReCount). ЗЗ нэгж + ангилал сонгоход тухайн
@@ -774,7 +774,7 @@ export default function SuurinListView({
           </Typography>
           <Stack>
             {statuses.map((st) => {
-              const col = statusColorByName(st.name);
+              const col = statusColor(st);
               const on = (editDlg?.statusIds || []).includes(st.id);
               return (
                 <FormControlLabel
@@ -843,9 +843,7 @@ export default function SuurinListView({
       {/* зөрүүтэй / алдаатай — бичих диалог (draft) */}
       <Dialog open={!!dlg} onClose={() => setDlg(null)} fullWidth maxWidth="xs">
         <DialogTitle>
-          {dlg?.statusName === "батлагдаагүй"
-            ? "Батлагдаагүй нэр"
-            : "Алдаатай нэр"}
+          {dlg?.statusName === "Уламжлалт" ? "Уламжлалт нэр" : "Зөрүүтэй нэр"}
         </DialogTitle>
         <DialogContent>
           <Typography variant="caption" color="text.secondary">

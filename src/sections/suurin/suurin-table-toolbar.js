@@ -18,7 +18,7 @@ import {
 } from "@mui/material";
 
 import Iconify from "src/components/iconify";
-import { statusColorByName } from "src/components/map/recountStatus";
+import { statusColor } from "src/components/map/recountStatus";
 
 // ----------------------------------------------------------------------
 // Суурин судалгаа — хүснэгтийн toolbar: нэрээр хайх, ангиллын 3 түвшин,
@@ -126,7 +126,7 @@ export default function SuurinTableToolbar({
       >
         {[...statuses, { id: "none", name: "Тодорхойгүй" }].map((st) => {
           const col =
-            st.id === "none" ? "#94a3b8" : statusColorByName(st.name);
+            st.id === "none" ? "#94a3b8" : statusColor(st);
           const on = selectedStatuses.includes(st.id);
           return (
             <MenuItem

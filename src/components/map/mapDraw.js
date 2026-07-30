@@ -64,3 +64,14 @@ export function requestRecountReload() {
     window.dispatchEvent(new Event("recount:changed"));
   }
 }
+
+// ── Түр зурсан геометрийг зурагнаас арилгах гүүр ──
+// Форм дээр хадгалсны дараа (эсвэл болиход) зурсан түр дүрсийг цэвэрлэнэ —
+// бодит объект нь recount давхаргаас дахин ачаалагдаж харагдана.
+let _clearDrawFn = null;
+export function registerClearDraw(fn) {
+  _clearDrawFn = fn;
+}
+export function requestClearDraw() {
+  if (typeof _clearDrawFn === "function") _clearDrawFn();
+}

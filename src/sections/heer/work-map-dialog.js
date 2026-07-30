@@ -162,7 +162,10 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
       </DialogTitle>
       <DialogContent dividers sx={{ p: 0 }}>
         <Stack direction={{ xs: "column", md: "row" }} sx={{ minHeight: 560 }}>
-          <Stack spacing={2.5} sx={{ p: 2.5, width: { md: 340 }, flexShrink: 0 }}>
+          <Stack
+            spacing={2.5}
+            sx={{ p: 2.5, width: { md: 340 }, flexShrink: 0 }}
+          >
             <Alert severity="info" sx={{ py: 0.5 }}>
               Тухайн төслийн дахин тооллогын цэгүүдээр зурагдана.
               {recountCount != null ? ` Тооллого: ${recountCount}` : ""}
@@ -202,7 +205,12 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
                 <Typography variant="caption" color="text.secondary">
                   Хуудас (сум тус бүр нэг хуудас) — үзэх хуудсаа сонгоно уу
                 </Typography>
-                <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mt: 0.75 }}>
+                <Stack
+                  direction="row"
+                  flexWrap="wrap"
+                  gap={0.75}
+                  sx={{ mt: 0.75 }}
+                >
                   {units.map((u, i) => (
                     <Chip
                       key={u.id}
@@ -217,7 +225,9 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
               </Box>
             )}
 
-            <Box sx={{ p: 1.5, bgcolor: "background.neutral", borderRadius: 1 }}>
+            <Box
+              sx={{ p: 1.5, bgcolor: "background.neutral", borderRadius: 1 }}
+            >
               <Typography variant="caption" color="text.secondary">
                 Масштаб (авто)
               </Typography>
@@ -241,9 +251,11 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
             </Box>
 
             {!!meta?.status_legend?.length && (
-              <Box sx={{ p: 1.5, bgcolor: "background.neutral", borderRadius: 1 }}>
+              <Box
+                sx={{ p: 1.5, bgcolor: "background.neutral", borderRadius: 1 }}
+              >
                 <Typography variant="caption" color="text.secondary">
-                  Таних тэмдэг (тооллого)
+                  Таних тэмдэг
                 </Typography>
                 <Stack spacing={0.75} sx={{ mt: 0.75 }}>
                   {meta.status_legend.map((s) => (

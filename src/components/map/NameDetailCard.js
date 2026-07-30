@@ -35,7 +35,7 @@ import {
   requestMapEditGeom,
   requestRecountReload,
 } from "./mapDraw";
-import { statusColorByName } from "./recountStatus";
+import { statusColor } from "./recountStatus";
 
 // Нэрийн геометрийн төрлийг OpenLayers Draw төрөл рүү буулгана
 function olDrawType(gt) {
@@ -570,7 +570,7 @@ export default function NameDetailCard({
               {parseStatusIds(name.status_ids).map((id) => {
                 const st = rStatuses.find((s) => String(s.id) === String(id));
                 if (!st) return null;
-                const c = statusColorByName(st.name);
+                const c = statusColor(st);
                 return (
                   <Chip
                     key={id}
@@ -668,7 +668,7 @@ export default function NameDetailCard({
                     /* "шинэ"‑г зөвхөн анх байсан бол харуулна (засахад шинэ нэмэхгүй) */
                     .filter((s) => s.name !== "шинэ" || hadShine)
                     .map((s) => {
-                      const c = statusColorByName(s.name);
+                      const c = statusColor(s);
                       return (
                         <FormControlLabel
                           key={s.id}
