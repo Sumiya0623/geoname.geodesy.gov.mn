@@ -27,7 +27,9 @@ class AdminUnitSerializer(serializers.ModelSerializer):
 class ConstantDropDownSerializer(serializers.ModelSerializer):
 	class Meta:
 		model = Constant
-		fields = ['id','name','parent','desc']
+		# color — газрын зураг/legend/chip‑үүд төлвийн өнгийг ЭНДЭЭС авна
+		# code  — тогтмолыг НЭРЭЭР нь биш кодоор нь таних (нэр өөрчлөгдөж болно)
+		fields = ['id','name','parent','desc','color','code']
 
 class MailLogSerializer(serializers.ModelSerializer):
 	category = ConstantDropDownSerializer(read_only=True)

@@ -358,7 +358,8 @@ GEONAME_SEARCH_VIEW = 'geoname_view'
 # nomek_codes баганууд CQL‑д зориулагдсан.
 _GEONAME_SEARCH_SQL = """SELECT g.id, g.name, g.number, g.is_approved, g.geoloc,
     COALESCE(g.is_border, false) AS is_border,
-    g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
+    g.type_id,
+    t.parent_id AS type_l2, t2.parent_id AS type_l1,
     json_build_array(t.parent_id, g.type_id) AS type,
     COALESCE(' '||(SELECT string_agg(gu.adminunit_id::text,' ') FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' ','') AS unit_ids,
     COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes,
@@ -397,12 +398,24 @@ _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.draft,
     r.name_id AS name_id,
     COALESCE(r.loc, g.geoloc) AS geoloc,
     GeometryType(COALESCE(r.loc, g.geoloc)) AS geom_type,
-    g.type_id, t.parent_id AS type_l2, t2.parent_id AS type_l1,
-    json_build_array(t.parent_id, g.type_id) AS type,
+    COALESCE(g.type_id, r.type_id) AS type_id,
+    t.parent_id AS type_l2, t2.parent_id AS type_l1,
+    json_build_array(t.parent_id, COALESCE(g.type_id, r.type_id)) AS type,
+    CASE WHEN g.type_id IS NOT NULL THEN 'name' ELSE 'draft' END AS type_src,
+    CASE WHEN g.id IS NOT NULL THEN 'name' ELSE 'geom' END AS unit_src,
     COALESCE(g.name, r.draft) AS name,
     g.number AS number,
     COALESCE(g.is_border, false) AS is_border,
-    COALESCE(' '||(SELECT string_agg(gu.adminunit_id::text,' ') FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' ','') AS unit_ids,
+    COALESCE(
+        CASE WHEN g.id IS NOT NULL THEN
+            ' '||(SELECT string_agg(gu.adminunit_id::text,' ')
+                  FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' '
+        ELSE
+            -- GeoName‑гүй (draft) тодруулалт — зурсан байрлалаар нь ЗЗ нэгжийг
+            -- орон зайгаар тодорхойлно (эс бөгөөс нэгжийн шүүлтэд алдагдана)
+            ' '||(SELECT string_agg(au.id::text,' ') FROM core_adminunit au
+                  WHERE au.geom IS NOT NULL AND ST_Intersects(au.geom, r.loc))||' '
+        END, '') AS unit_ids,
     COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes,
     COALESCE(
         ' '||(SELECT string_agg(rs.constant_id::text,' ') FROM core_recount_statuses rs WHERE rs.recount_id=r.id)||' ',
@@ -410,7 +423,7 @@ _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.draft,
     ) AS status_ids
 FROM core_recount r
 LEFT JOIN core_geoname g  ON g.id = r.name_id
-LEFT JOIN core_constant t  ON t.id = g.type_id
+LEFT JOIN core_constant t  ON t.id = COALESCE(g.type_id, r.type_id)
 LEFT JOIN core_constant t2 ON t2.id = t.parent_id
 WHERE COALESCE(r.loc, g.geoloc) IS NOT NULL
   AND NOT ST_IsEmpty(COALESCE(r.loc, g.geoloc))"""
@@ -808,7 +821,9 @@ def ensure_recount_view():
                     "SELECT column_name FROM information_schema.columns "
                     "WHERE table_name=%s", [RECOUNT_VIEW])
                 cols = {r[0] for r in c.fetchall()}
-                if 'geom_type' not in cols:
+                # type_src — draft‑ийн ангиллыг тооцдог болсон хувилбарын тэмдэг
+                if ('geom_type' not in cols or 'type_src' not in cols
+                        or 'unit_src' not in cols):
                     c.execute('DROP VIEW public."%s" CASCADE' % RECOUNT_VIEW)
                     exists = False
             if not exists:

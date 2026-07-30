@@ -431,6 +431,9 @@ class ReCount(models.Model):
 	step=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_STEPS'},verbose_name='Төрөл',related_name='recountsteps',blank=True, null=True)
 	name=models.ForeignKey(GeoName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='recounts',blank=True, null=True)
 	draft=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Төсөл')
+	# Ангилал — GeoName‑гүй (draft) тодруулалтын төрөл. GeoName холбогдсон бол
+	# түүний type давамгайлна (recount_view: COALESCE(g.type_id, r.type_id)).
+	type=models.ForeignKey(Constant,on_delete=models.SET_NULL,limit_choices_to={'key':'GEONAME_TYPES'},verbose_name='Ангилал',related_name='recounttypes',blank=True,null=True)
 	nomeks=models.ManyToManyField(Nomek,related_name='recount100',verbose_name='Нэрлэвэр',blank=True)
 	loc=models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
 	# Төлөв — ОЛОН (M2M): байршил зөрүүтэй + нэр алдаатай зэрэг зэрэг байж болно.

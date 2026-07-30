@@ -283,6 +283,12 @@ class ReCountSerializer(serializers.ModelSerializer):
 		queryset=Constant.objects.filter(key='RECOUNT_STATUS'),
 		source='statuses', many=True, write_only=True, required=False,
 	)
+	# Ангилал — draft (GeoName‑гүй) тодруулалтын төрөл
+	type = ConstantDropSerializer(read_only=True)
+	type_id = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.filter(key='GEONAME_TYPES'),
+		source='type', write_only=True, required=False, allow_null=True,
+	)
 	# GeoName — заавал биш. Байхгүй бол null (frontend харуулахгүй).
 	name = GeoNameRefSerializer(read_only=True)
 	name_id = serializers.PrimaryKeyRelatedField(
@@ -306,7 +312,7 @@ class ReCountSerializer(serializers.ModelSerializer):
 		fields = [
 			'id', 'project', 'project_id', 'step', 'step_id',
 			'statuses', 'status_ids',
-			'name', 'name_id', 'draft', 'loc',
+			'name', 'name_id', 'draft', 'loc', 'type', 'type_id',
 		]
 
 	def get_loc(self, obj):
