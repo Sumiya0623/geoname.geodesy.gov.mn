@@ -45,6 +45,9 @@ const emptyForm = {
   id: null,
   register: "",
   full_name: "",
+  last_name: "",
+  first_name: "",
+  email: "",
   phone: "",
   position: "",
   org_title: "",
@@ -136,23 +139,51 @@ export default function TeamListView({ projectId, stepName, onCount }) {
     const reg = (form.register || "").trim();
     if (!reg) return;
     try {
+      // 1) Системд бүртгэлтэй эсэх
       const res = await axiosInstance.get(endpoints.champaign.findPerson(reg));
       const d = res?.data || {};
-      setLookup(d);
       if (d.found) {
+        setLookup(d);
         setForm((p) => ({
           ...p,
           full_name: d.full_name || p.full_name,
           phone: d.phone || p.phone,
           person: d.id,
         }));
-        enqueueSnackbar("Хэрэглэгч олдлоо — мэдээлэл бөглөгдлөө");
-      } else {
-        setForm((p) => ({ ...p, person: null }));
-        enqueueSnackbar("Хэрэглэгч олдсонгүй — гараар бөглөнө үү", {
-          variant: "info",
-        });
+        enqueueSnackbar("Системд бүртгэлтэй — мэдээлэл бөглөгдлөө");
+        return;
       }
+      // 2) Олдохгүй бол ХУР системээс иргэний мэдээлэл (зөвлөлтэй ижил)
+      if (reg.length === 10) {
+        try {
+          const hur = await axiosInstance.post(endpoints.request.checkUser, {
+            register: reg,
+          });
+          const raw = hur?.data || {};
+          const c = raw.result || raw.results || raw;
+          const last = c.last_name || c.lastname || c.surname || "";
+          const first = c.first_name || c.firstname || c.name || "";
+          if (last || first) {
+            setLookup({ found: true, hur: true });
+            setForm((p) => ({
+              ...p,
+              full_name: `${last} ${first}`.trim(),
+              phone: c.phone || p.phone,
+              email: c.email || "",
+              last_name: last,
+              first_name: first,
+              person: null,
+            }));
+            enqueueSnackbar("ХУР‑аас иргэний мэдээлэл татагдлаа");
+            return;
+          }
+        } catch (e) {
+          /* ХУР‑аас олдсонгүй — гараар бөглөнө */
+        }
+      }
+      setLookup({ found: false });
+      setForm((p) => ({ ...p, person: null }));
+      enqueueSnackbar("Олдсонгүй — гараар бөглөнө үү", { variant: "info" });
     } catch (e) {
       setLookup(null);
     }
@@ -184,6 +215,24 @@ export default function TeamListView({ projectId, stepName, onCount }) {
     }
     setSaving(true);
     try {
+      // Регистр байвал системийн хэрэглэгчийг олох/үүсгэнэ (зөвлөлтэй ижил)
+      let personId = form.person || null;
+      if (!personId && form.register.trim()) {
+        try {
+          const [ln, ...rest] = form.full_name.trim().split(/\s+/);
+          const pr = await axiosInstance.post(endpoints.council.ensurePerson, {
+            register: form.register.trim(),
+            last_name: form.last_name || (rest.length ? ln : ""),
+            first_name: form.first_name || (rest.length ? rest.join(" ") : ln),
+            email: form.email || "",
+            phone: form.phone || "",
+            ...(formUnit ? { unit: formUnit } : {}),
+          });
+          personId = pr?.data?.id || null;
+        } catch (e) {
+          /* хэрэглэгч үүсээгүй ч гишүүнийг бүртгэнэ */
+        }
+      }
       const body = {
         project: projectId,
         unit: formUnit || null,
@@ -193,7 +242,7 @@ export default function TeamListView({ projectId, stepName, onCount }) {
         phone: form.phone.trim() || null,
         org_title: form.org_title.trim() || null,
         position: form.position || null,
-        person: form.person || null,
+        person: personId,
       };
       if (form.id) {
         await axiosInstance.patch(

@@ -301,7 +301,6 @@ export const endpoints = {
       `/api/g/basemap/layer-extent/?layer=${encodeURIComponent(layer)}`,
   },
 
-
   // GeoServer — backend нь /api/g/ дээр (ws/st/fs/rule/group/item).
   // api/map.js болон газрын зургийн давхаргын мод (fs/geoserver) үүнийг ашиглана.
   geoserver: {
