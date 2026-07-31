@@ -74,7 +74,9 @@ export default function BaseMapNewEditForm({
       try {
         paramsObj = JSON.parse(form.params);
       } catch (e) {
-        enqueueSnackbar("Нэмэлт параметр буруу JSON байна", { variant: "error" });
+        enqueueSnackbar("Нэмэлт параметр буруу JSON байна", {
+          variant: "error",
+        });
         return;
       }
     }
@@ -95,7 +97,10 @@ export default function BaseMapNewEditForm({
     setSaving(true);
     try {
       if (isEdit) {
-        await axiosInstance.put(endpoints.basemap.edit(currentItem.id), payload);
+        await axiosInstance.put(
+          endpoints.basemap.edit(currentItem.id),
+          payload,
+        );
         enqueueSnackbar("Хадгалагдлаа");
       } else {
         await axiosInstance.post(endpoints.basemap.create, payload);
@@ -195,7 +200,11 @@ export default function BaseMapNewEditForm({
           />
         )}
 
-        <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="center">
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={2}
+          alignItems="center"
+        >
           <TextField
             size="small"
             sx={{ width: { xs: "100%", md: 120 } }}
@@ -241,7 +250,12 @@ export default function BaseMapNewEditForm({
           getOptionLabel={(o) => o?.name || ""}
           isOptionEqualToValue={(o, v) => o.id === v.id}
           value={roles.filter((r) => form.role_ids.includes(r.id))}
-          onChange={(_e, v) => setF("role_ids", v.map((x) => x.id))}
+          onChange={(_e, v) =>
+            setF(
+              "role_ids",
+              v.map((x) => x.id),
+            )
+          }
           renderInput={(params) => (
             <TextField {...params} label="Харах эрх (role) — хоосон бол бүгд" />
           )}
@@ -253,6 +267,7 @@ export default function BaseMapNewEditForm({
           </LoadingButton>
           <LoadingButton
             variant="contained"
+            color="primary"
             loading={saving}
             onClick={handleSubmit}
           >

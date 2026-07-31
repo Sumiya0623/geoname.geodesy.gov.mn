@@ -122,7 +122,7 @@ export default function FeatureTableToolbar({
       )}
 
       {onFieldCalc && (
-        <Tooltip title="Field Calculator — талбарыг бөөнөөр шинэчлэх">
+        <Tooltip title="Талбар тооцоолуур — баганын утгыг бөөнөөр шинэчлэх">
           <IconButton size="small" onClick={onFieldCalc}>
             <Iconify icon="tabler:math-function" />
           </IconButton>

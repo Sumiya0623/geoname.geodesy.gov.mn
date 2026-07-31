@@ -5,7 +5,6 @@ import "ol-ext/dist/ol-ext.css";
 import Map from "ol/Map";
 import View from "ol/View";
 import Feature from "ol/Feature";
-import XYZ from "ol/source/XYZ";
 import WKT from "ol/format/WKT";
 import Point from "ol/geom/Point";
 import Draw from "ol/interaction/Draw";
@@ -20,7 +19,8 @@ import { Fill, Style, Stroke, Circle as CircleStyle } from "ol/style";
 import { fromLonLat, transformExtent } from "ol/proj";
 import { useRef, useEffect } from "react";
 
-import { makeGwcWmtsLayer } from "src/sections/map2/layers-wmts";
+import { buildOlBaseLayer } from "src/sections/map2/layers-wmts";
+import { useGetBaseLayers } from "src/api/map";
 
 import { Box, Card } from "@mui/material";
 
@@ -42,54 +42,6 @@ const BORDER_STYLE = new Style({
   stroke: new Stroke({ color: "#d32f2f", width: 3, lineDash: [8, 6] }),
 });
 
-// Суурь давхаргууд (LayerSwitcher‑т radio‑оор гарна)
-const BASES = [
-  {
-    title: "Зураглал",
-    make: () =>
-      new TileLayer({
-        source: new XYZ({
-          url: "https://{a-c}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          crossOrigin: "anonymous",
-        }),
-      }),
-  },
-  {
-    title: "Хиймэл дагуул",
-    make: () =>
-      new TileLayer({
-        source: new XYZ({
-          url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-          crossOrigin: "anonymous",
-        }),
-      }),
-  },
-  {
-    // geoname:geoname — нэрсийн M100k растер (GWC, зөвхөн WebMercatorQuad → WMTS)
-    title: "Нэрийн зураг (M100k)",
-    make: () => makeGwcWmtsLayer({ workspace: "geoname", layer: "geoname" }),
-  },
-  {
-    title: "Байр зүй M100k",
-    make: () =>
-      new TileLayer({
-        source: new TileWMS({
-          url: `${GEOSERVER}/gwc/service/wms`,
-          params: {
-            LAYERS: "point:raster",
-            FORMAT: "image/png",
-            TRANSPARENT: "true",
-            TILED: "true",
-            VERSION: "1.1.1",
-          },
-          crossOrigin: "anonymous",
-          serverType: "geoserver",
-          hidpi: false, // GWC 256×256 — HiDPI 282px зөрүүнээс сэргийлнэ
-        }),
-      }),
-  },
-];
-
 export default function RecountMap({
   cqlFilter,
   layer = "geoname:core_recount",
@@ -103,6 +55,10 @@ export default function RecountMap({
   onMoveEnd,
   borders,
 }) {
+  // Суурь давхаргууд — /settings/gis?tab=basemap дээр удирддаг DB тохиргоо
+  // (төслийн том газрын зурагтай ЯГ ижил жагсаалт, дараалал, эрхийн шүүлт).
+  const { baseLayers: baseCfgs } = useGetBaseLayers();
+
   const elRef = useRef(null);
   const mapRef = useRef(null);
   const overlayRef = useRef(null);
@@ -120,13 +76,16 @@ export default function RecountMap({
 
   useEffect(() => {
     if (!elRef.current || mapRef.current) return undefined;
+    // Тохиргоо ирэхээс өмнө зураг үүсгэхгүй (давхарга дутуу үүсэхээс сэргийлнэ)
+    if (!baseCfgs.length) return undefined;
 
-    // Суурь давхаргууд — баг (radio), эхний "Байр зүй M100k" идэвхтэй
-    const baseLayers = BASES.map((b, i) => {
-      const L = b.make();
-      L.set("title", b.title);
+    // Суурь давхаргууд — DB‑ийн жагсаалтаар (radio). Эхнийх нь идэвхтэй.
+    const bases = baseCfgs.filter((c) => (c.layer_type || "base") === "base");
+    const baseLayers = bases.map((cfg, i) => {
+      const L = buildOlBaseLayer(cfg);
+      L.set("title", cfg.label || cfg.key || "Суурь");
       L.set("baseLayer", true);
-      L.setVisible(i === BASES.length - 1);
+      L.setVisible(i === 0);
       return L;
     });
 
@@ -137,7 +96,7 @@ export default function RecountMap({
       source: new TileWMS({
         url: `${GEOSERVER}/geoname/wms`,
         params: {
-          LAYERS: "geoname:names",
+          LAYERS: "geoname:geoname_view",
           FORMAT: "image/png",
           TRANSPARENT: "true",
           TILED: "true",
@@ -148,6 +107,7 @@ export default function RecountMap({
       }),
     });
     namesLayer.set("title", "Нэр (таних тэмдэг)");
+    namesLayer.setVisible(!!cqlFilter);
 
     // Дахин тооллого — тухайн төслийн recount
     const overlay = new TileLayer({
@@ -168,6 +128,7 @@ export default function RecountMap({
       }),
     });
     overlay.set("title", "Дахин тооллого");
+    overlay.setVisible(!!cqlFilter);
     overlayRef.current = overlay;
 
     // Сонгосон обьектыг тод харуулах давхарга — switcher‑т харуулахгүй
@@ -233,7 +194,7 @@ export default function RecountMap({
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [baseCfgs.length]);
 
   // CQL шүүлт (төсөл/үе шат) шинэчлэгдэхэд
   useEffect(() => {
@@ -245,7 +206,8 @@ export default function RecountMap({
 
   // Шинэ бичлэг нэмэгдэх/устахад зургийн давхаргыг дахин татах
   useEffect(() => {
-    if (refreshKey && overlayRef.current) overlayRef.current.getSource().refresh();
+    if (refreshKey && overlayRef.current)
+      overlayRef.current.getSource().refresh();
   }, [refreshKey]);
 
   // Олон нэгж харагдвал хилийг тодруулах (locate‑ийн borders GeoJSON)
@@ -303,7 +265,11 @@ export default function RecountMap({
       highlightSrcRef.current?.addFeature(new Feature(geom));
       // Navigate
       if (geom.getType() === "Point") {
-        view.animate({ center: geom.getCoordinates(), zoom: 15, duration: 600 });
+        view.animate({
+          center: geom.getCoordinates(),
+          zoom: 14,
+          duration: 600,
+        });
       } else {
         view.fit(geom.getExtent(), {
           padding: [80, 80, 80, 80],

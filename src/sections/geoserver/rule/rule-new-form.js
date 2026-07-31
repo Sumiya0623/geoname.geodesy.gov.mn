@@ -41,7 +41,7 @@ export default memo(function RuleQuickForm({
           then: (schema) => schema.required("Утга шаардлагатай"),
           otherwise: (schema) => schema.notRequired(),
         }),
-      })
+      }),
     ),
   });
 
@@ -50,7 +50,7 @@ export default memo(function RuleQuickForm({
       filters: currentRule?.filters || [],
       filtersLogic: currentRule?.join_op || "AND",
     }),
-    [currentRule]
+    [currentRule],
   );
 
   const methods = useForm({
@@ -98,7 +98,7 @@ export default memo(function RuleQuickForm({
       const response = await axiosInstance[method](URL, request_body);
       if (response.status === 200 || response.status === 201) {
         enqueueSnackbar(
-          `Дүрэм амжилттай ${currentRule ? "өөрчлөгдлөө" : "нэмэгдлээ"}`
+          `Дүрэм амжилттай ${currentRule ? "өөрчлөгдлөө" : "нэмэгдлээ"}`,
         );
         reset();
         onCloseForm();
@@ -127,7 +127,12 @@ export default memo(function RuleQuickForm({
         <Button variant="outlined" color="inherit" onClick={onCloseForm}>
           Хаах
         </Button>
-        <LoadingButton type="submit" variant="contained" loading={isSubmitting}>
+        <LoadingButton
+          type="submit"
+          variant="contained"
+          color="primary"
+          loading={isSubmitting}
+        >
           {currentRule ? "Хадгалах" : "Үүсгэх"}
         </LoadingButton>
       </Stack>

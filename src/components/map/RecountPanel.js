@@ -898,7 +898,7 @@ export default function RecountPanel({
           <ListItemIcon>
             <ZoomExtentIcon sx={{ fontSize: 18 }} />
           </ListItemIcon>
-          <ListItemText>Zoom to Layer</ListItemText>
+          <ListItemText>Давхарга руу ойртох</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => runNodeAction("features")}>
           <ListItemIcon>

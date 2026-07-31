@@ -1,4 +1,9 @@
+import OSM from "ol/source/OSM";
+import XYZ from "ol/source/XYZ";
+import TileWMS from "ol/source/TileWMS";
+import ImageWMS from "ol/source/ImageWMS";
 import TileLayer from "ol/layer/Tile";
+import ImageLayer from "ol/layer/Image";
 import LayerGroup from "ol/layer/Group";
 import WMTS from "ol/source/WMTS";
 import WMTSTileGrid from "ol/tilegrid/WMTS";
@@ -177,4 +182,128 @@ export function getWmtsDebugConfig() {
     MAX_ZOOM,
     matrixIds,
   };
+}
+
+
+// ----------------------------------------------------------------------
+// BaseMapLayer (backend) тохиргооноос OpenLayers давхарга бүтээнэ.
+// Газрын зургийн бүх хуудас (том зураг, байршил харах цонх …) НЭГ л энэ
+// функцийг ашиглана — hardcode давхарга байхгүй.
+// ----------------------------------------------------------------------
+export function buildOlBaseLayer(cfg) {
+  const p = cfg?.params || {};
+  const st = cfg?.source_type;
+  // Хоосон зураг (blank) — source‑гүй давхарга: юу ч зурахгүй, зөвхөн дэвсгэр
+  // (цагаан/тунгалаг) үлдэнэ. Хэрэглэгч зөвхөн өөрийн overlay датаг харах үед.
+  if (st === "blank") return new TileLayer({});
+  if (st === "osm") return new TileLayer({ source: new OSM() });
+  if (st === "xyz")
+    return new TileLayer({
+      source: new XYZ({
+        url: cfg.url,
+        ...(p.maxZoom ? { maxZoom: p.maxZoom } : {}),
+      }),
+    });
+  const gsBase = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+  const parts = String(cfg?.gs_layer || "").split(":");
+  const ws = cfg?.workspace || parts[0] || "";
+  const layerName = parts.length > 1 ? parts[1] : parts[0];
+  // Амьд WMS давхарга (workspace‑ийн /wms) — өндөр зумд бүрэн чанартай рендер
+  const liveWms = (minZoom) =>
+    new TileLayer({
+      source: new TileWMS({
+        url: `${gsBase}/${ws}/wms`,
+        params: {
+          LAYERS: cfg.gs_layer,
+          STYLES: p.styles || "",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          TILED: "true",
+          VERSION: "1.1.1",
+          ...(p.cql ? { CQL_FILTER: p.cql } : {}),
+        },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+        hidpi: false,
+      }),
+      visible: true,
+      ...(minZoom != null ? { minZoom } : {}),
+    });
+
+  // UNTILED WMS — харагдах хэсгийг НЭГ зураг болгон рендерлэнэ. Тайлын зах дээр
+  // label тасрахгүй/алгасахгүй (params.untiled=true бол нэр бүрэн харагдана).
+  const untiledWms = (minZoom) =>
+    new ImageLayer({
+      source: new ImageWMS({
+        url: `${gsBase}/${ws}/wms`,
+        params: {
+          LAYERS: cfg.gs_layer,
+          STYLES: p.styles || "",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          VERSION: "1.1.1",
+          ...(p.cql ? { CQL_FILTER: p.cql } : {}),
+        },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+        ratio: 1,
+      }),
+      visible: true,
+      ...(minZoom != null ? { minZoom } : {}),
+    });
+
+  if (st === "wmts") {
+    // WMTS (GWC кэш, WebMercatorQuad) — layer нэр workspace‑гүй
+    const wmts = makeGwcWmtsLayer({
+      workspace: ws,
+      layer: layerName,
+      visible: true,
+    });
+    // params.wmts_max өгвөл: z≤wmts_max GWC кэш, z>wmts_max АМЬД WMS (чанар
+    // унахгүй — WMS эх өгөгдлөөс бүрэн нягтралаар рендерлэнэ). Group‑оор нэгтгэнэ.
+    const wmtsMax = Number(p.wmts_max ?? p.wmtsMax);
+    if (wmtsMax) {
+      wmts.setMaxZoom(wmtsMax); // z ≤ wmtsMax
+      return new LayerGroup({ layers: [wmts, liveWms(wmtsMax)] }); // wms: z > wmtsMax
+    }
+    return wmts;
+  }
+  // wms — cached=true бол GWC кэш (WMS‑C), эс бөгөөс workspace‑ийн амьд WMS.
+  // params.untiled=true бол z ≥ untiled_min (default 8)‑д UNTILED (нэг зураг) —
+  // label бүрэн харагдана; түүнээс доош tiled (хурдан). Group‑оор нэгтгэнэ.
+  const cached = !!p.cached;
+  if (!cached) {
+    if (p.untiled) {
+      const umin = Number(p.untiled_min ?? p.untiledMin ?? 7);
+      const tiled = liveWms(); // z < umin: tiled (хурдан)
+      tiled.setMaxZoom(umin);
+      return new LayerGroup({ layers: [tiled, untiledWms(umin)] }); // z ≥ umin: untiled
+    }
+    return liveWms();
+  }
+  const cachedWms = new TileLayer({
+    source: new TileWMS({
+      url: `${gsBase}/gwc/service/wms`,
+      params: {
+        LAYERS: cfg.gs_layer,
+        STYLES: p.styles || "",
+        FORMAT: "image/png",
+        TRANSPARENT: "true",
+        TILED: "true",
+        VERSION: "1.1.1",
+        ...(p.cql ? { CQL_FILTER: p.cql } : {}),
+      },
+      serverType: "geoserver",
+      crossOrigin: "anonymous",
+      hidpi: false, // GWC 256×256 — HiDPI 282px зөрүүнээс сэргийлнэ
+    }),
+    visible: true,
+  });
+  // wms + cached + wmts_max: z≤max кэш, z>max амьд
+  const cmax = Number(p.wmts_max ?? p.wmtsMax);
+  if (cmax) {
+    cachedWms.setMaxZoom(cmax);
+    return new LayerGroup({ layers: [cachedWms, liveWms(cmax)] });
+  }
+  return cachedWms;
 }

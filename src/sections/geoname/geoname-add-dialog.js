@@ -301,6 +301,7 @@ export default function GeonameAddDialog({
       </Button>
       <LoadingButton
         variant="contained"
+        color="primary"
         loading={saving}
         onClick={handleSubmit}
       >

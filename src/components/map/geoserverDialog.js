@@ -49,6 +49,7 @@ import {
 
 import MapAddName from "./MapAddName";
 import RasterPrintPanel from "../../sections/raster/print-map-panel";
+import WorkMapDialog from "../../sections/workmap/work-map-dialog";
 import NameCategoryTree from "./NameCategoryTree";
 import RecountPanel from "./RecountPanel";
 import RecountUnitTree from "./RecountUnitTree";
@@ -748,7 +749,13 @@ function GeoserverDialog({
                         <FilterIcon sx={{ fontSize: 18 }} />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Газар зүйн нэрийн зураг хэвлэх">
+                    <Tooltip
+                      title={
+                        addProjectId
+                          ? "Хээрийн тодруулалтын зураг хэвлэх"
+                          : "Газар зүйн нэрийн зураг хэвлэх"
+                      }
+                    >
                       <IconButton
                         size="small"
                         onClick={() => setPrintOpen(true)}
@@ -816,10 +823,20 @@ function GeoserverDialog({
                       />
                     )}
                   </Box>
-                  <RasterPrintPanel
-                    open={printOpen}
-                    onClose={() => setPrintOpen(false)}
-                  />
+                  {/* Хэвлэх — ТӨСЛИЙН газрын зураг дээр ТОДРУУЛАЛТЫН (recount)
+                      ажлын зураг, бусад үед батлагдсан нэрийн зураг. */}
+                  {addProjectId ? (
+                    <WorkMapDialog
+                      open={printOpen}
+                      projectId={addProjectId}
+                      onClose={() => setPrintOpen(false)}
+                    />
+                  ) : (
+                    <RasterPrintPanel
+                      open={printOpen}
+                      onClose={() => setPrintOpen(false)}
+                    />
+                  )}
                   <Divider />
                   <Box sx={{ p: 1.5, textAlign: "center", flexShrink: 0 }}>
                     <Typography variant="caption" color="text.secondary">

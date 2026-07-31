@@ -46,12 +46,22 @@ export function useGetRecountForms({
   if (sum) params.set("sum_geom", sum);
   if (aimag) params.set("aimag_geom", aimag);
   if (type) params.set("type", type);
-  if (tab) params.set("tab", tab);
+  // `tab` нь ЗӨВХӨН шүүлт (сум/аймаг/төрөл) идэвхтэй үед л backend‑д нөлөөлнө.
+  // Шүүлтгүй үед URL‑д оруулахгүй → таб солих бүрд дахин татахгүй (тоонууд
+  // 0 болоод буцаж ирэх анивчилт алга).
+  const hasFilter = !!(sum || aimag || type);
+  if (tab && hasFilter) params.set("tab", tab);
   const URL = `/api/r/recount/forms/?${params.toString()}`;
   const { data, isLoading, mutate } = useSWR(
     projectId ? [URL, axiosInstance, "get"] : null,
     fetcher,
-    { shouldRetryOnError: false },
+    {
+      shouldRetryOnError: false,
+      // Дахин татах хооронд ХУУЧИН датаг хадгална (тоонууд 0 болж анивчихгүй)
+      keepPreviousData: true,
+      revalidateOnFocus: false,
+      dedupingInterval: 15000,
+    },
   );
   return useMemo(
     () => ({

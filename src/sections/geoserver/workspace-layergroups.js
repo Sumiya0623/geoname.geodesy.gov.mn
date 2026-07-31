@@ -54,7 +54,7 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
   const [selected, setSelected] = useState(""); // одоо засаж буй group нэр эсвэл NEW
   const { group, groupMutation } = useGetWorkspaceLayergroup(
     workspaceId,
-    selected && selected !== NEW ? selected : null
+    selected && selected !== NEW ? selected : null,
   );
 
   const [name, setName] = useState("");
@@ -90,7 +90,9 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
   const addRow = useCallback(() => {
     if (!addPick) return;
     setRows((prev) =>
-      prev.some((r) => r.name === addPick) ? prev : [...prev, { name: addPick }]
+      prev.some((r) => r.name === addPick)
+        ? prev
+        : [...prev, { name: addPick }],
     );
     setAddPick("");
   }, [addPick]);
@@ -106,7 +108,7 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
     try {
       await axiosInstance.post(
         endpoints.workspace.gsSaveLayergroup(workspaceId),
-        { name: name.trim(), mode: "SINGLE", layers: rows }
+        { name: name.trim(), mode: "SINGLE", layers: rows },
       );
       enqueueSnackbar("Layer group хадгалагдлаа", { variant: "success" });
       await groupsMutation();
@@ -133,7 +135,7 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
     try {
       await axiosInstance.post(
         endpoints.workspace.gsDeleteLayergroup(workspaceId),
-        { name: selected }
+        { name: selected },
       );
       enqueueSnackbar("Layer group устлаа", { variant: "success" });
       confirm.onFalse();
@@ -250,15 +252,16 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
             color="text.secondary"
             sx={{ display: "block", mb: 1 }}
           >
-            Дээд мөр (№1) = газрын зураг дээр хамгийн дээр (foreground) харагдана.
-            Жишээ: нуурыг элснээс дээр байлгахын тулд нуурыг элсний мөрөөс дээр
-            зөөнө.
+            Дээд мөр (№1) = газрын зураг дээр хамгийн дээр (foreground)
+            харагдана. Жишээ: нуурыг элснээс дээр байлгахын тулд нуурыг элсний
+            мөрөөс дээр зөөнө.
           </Typography>
 
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell width={64}>Эрэмбэ</TableCell>{/* 1 = хамгийн дээр (foreground) */}
+                <TableCell width={64}>Эрэмбэ</TableCell>
+                {/* 1 = хамгийн дээр (foreground) */}
                 <TableCell>Layer</TableCell>
                 <TableCell align="right" width={140}>
                   Зөөх / устгах
@@ -307,7 +310,11 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
               ))}
               {!rows.length && (
                 <TableRow>
-                  <TableCell colSpan={3} align="center" sx={{ color: "text.secondary" }}>
+                  <TableCell
+                    colSpan={3}
+                    align="center"
+                    sx={{ color: "text.secondary" }}
+                  >
                     Layer нэмнэ үү.
                   </TableCell>
                 </TableRow>
@@ -318,6 +325,7 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
           <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
             <LoadingButton
               variant="contained"
+              color="primary"
               loading={saving}
               onClick={handleSave}
             >

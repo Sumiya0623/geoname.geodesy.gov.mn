@@ -120,26 +120,22 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
     }
     setPrinting(true);
     try {
-      const res = await axiosInstance.post(
-        endpoints.raster.workPrint,
+      // Backend нь PDF‑ийг ТӨСӨЛД хадгалж (PrintMap), файлын холбоос буцаана
+      const res = await axiosInstance.post(endpoints.raster.workPrint, {
+        project: projectId,
+        units: unitIds,
         // Арын сканердсан зураг тул 250dpi нь 35МБ/50сек болдог — 170 хангалттай
-        { project: projectId, units: unitIds, dpi: 170 },
-        { responseType: "blob" },
-      );
-      const blob = res?.data;
-      if (!blob || (blob.type && !blob.type.includes("pdf"))) {
-        let msg = "Зураг үүсгэхэд алдаа гарлаа";
-        try {
-          msg = JSON.parse(await blob.text())?.detail || msg;
-        } catch (_) {
-          /* JSON биш бол анхдагч мессеж */
-        }
-        enqueueSnackbar(msg, { variant: "warning" });
+        dpi: 170,
+      });
+      const url = res?.data?.file_url;
+      if (!url) {
+        enqueueSnackbar("Зураг үүсгэхэд алдаа гарлаа", { variant: "warning" });
         return;
       }
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      enqueueSnackbar("Ажлын зураг үүслээ");
+      enqueueSnackbar("Ажлын зураг үүсэж, жагсаалтад хадгалагдлаа");
+      window.open(url, "_blank", "noopener,noreferrer");
+      onDone?.();
+      handleClose();
     } catch (error) {
       enqueueSnackbar(
         error?.response?.data?.detail || "Зураг үүсгэхэд алдаа гарлаа",

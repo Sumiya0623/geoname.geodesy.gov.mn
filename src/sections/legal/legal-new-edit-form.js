@@ -133,13 +133,9 @@ export default function LegalNewEditForm({
   const aimagValue = watch("aimag");
 
   // Аймаг/Нийслэл ба Сум/Дүүрэг (parent=сонгосон аймаг) сонголтын жагсаалт
-  const { units: aimagOptions } = useUnitDropdown(
-    "Аймаг/Нийслэл",
-    null,
-    needAimag,
-  );
+  const { units: aimagOptions } = useUnitDropdown("Аймаг", null, needAimag);
   const { units: sumOptions } = useUnitDropdown(
-    "Сум/Дүүрэг",
+    "Сум",
     aimagValue?.id,
     needSum && !!aimagValue?.id,
   );

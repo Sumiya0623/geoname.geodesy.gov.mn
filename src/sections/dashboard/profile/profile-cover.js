@@ -191,6 +191,7 @@ export default function ProfileCover({ user }) {
           {isDirty && (
             <LoadingButton
               variant="contained"
+              color="primary"
               size="small"
               sx={{ mt: 1 }}
               onClick={handleSave}

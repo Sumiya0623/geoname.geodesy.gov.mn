@@ -236,7 +236,13 @@ export const endpoints = {
     delete: (id) => `/api/r/recount/${id}/`,
     wms: (request_body) => `/api/r/recount/wms/?${request_body}`,
     typeTree: (request_body) => `/api/r/recount/type-tree/?${request_body}`,
+    // Ангиллын тоо — жагсаалттай ижил шүүлтээр (хүснэгтийн дээд таб)
+    typeSummary: (request_body) =>
+      `/api/r/recount/type-summary/?${request_body}`,
     unitTree: (request_body) => `/api/r/recount/unit-tree/?${request_body}`,
+    // Хээрийн зураг (Photo — тодруулалт дээр шууд)
+    addPhoto: (id) => `/api/r/recount/${id}/add-photo/`,
+    delPhoto: (id) => `/api/r/recount/${id}/del-photo/`,
     reverseGeom: (id) => `/api/r/recount/${id}/reverse-geom/`,
     // Төслийн хамрах талбайд (units) багтах бүх батлагдсан нэрийг импортлох
     importByUnits: `/api/r/recount/import-by-units/`,
@@ -388,18 +394,24 @@ export const endpoints = {
   },
 
   champaign: {
-    list: (request_body) => `/api/account/project/?${request_body}`,
-    details: (id) => `/api/account/project/${id}/`,
-    sync: (request_body = "") => `/api/account/project/sync/?${request_body}`,
-    dropdown: (params) => `/api/account/project/?pagination=false${params}`,
+    list: (request_body) => `/api/n/project/?${request_body}`,
+    details: (id) => `/api/n/project/${id}/`,
+    sync: (request_body = "") => `/api/n/project/sync/?${request_body}`,
+    dropdown: (params) => `/api/n/project/?pagination=false${params}`,
     // Төслийн хамрах ЗЗ нэгж — тусдаа эрхтэй (unit_add / unit_remove)
-    unitAdd: (id) => `/api/account/project/${id}/unit-add/`,
-    unitRemove: (id) => `/api/account/project/${id}/unit-remove/`,
+    unitAdd: (id) => `/api/n/project/${id}/unit-add/`,
+    unitRemove: (id) => `/api/n/project/${id}/unit-remove/`,
     // Төслийн ажлын талбай (ProjectArea) — газрын зураг дээр зурсан polygon
     areas: (projectId) =>
-      `/api/account/project-area/?pagination=false&project=${projectId}`,
-    areaCreate: () => `/api/account/project-area/`,
-    areaDetail: (id) => `/api/account/project-area/${id}/`,
+      `/api/n/project-area/?pagination=false&project=${projectId}`,
+    areaCreate: () => `/api/n/project-area/`,
+    areaDetail: (id) => `/api/n/project-area/${id}/`,
+    // Багийн бүрэлдэхүүн (ProjectMember) — үе шат + сум тус бүрээр
+    members: (request_body) => `/api/n/project-member/?${request_body}`,
+    memberCreate: () => `/api/n/project-member/`,
+    memberDetail: (id) => `/api/n/project-member/${id}/`,
+    findPerson: (register) =>
+      `/api/n/project-member/find-person/?register=${encodeURIComponent(register)}`,
   },
 
   public: {

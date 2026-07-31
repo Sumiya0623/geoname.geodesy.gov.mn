@@ -61,7 +61,10 @@ export default function RuleNewEditForm({
   const { fields = [] } = useGetStyleFields({ layerId });
 
   const Schema = useMemo(() => buildSchema(), []);
-  const defaultValues = useMemo(() => buildDefaults(currentRule), [currentRule]);
+  const defaultValues = useMemo(
+    () => buildDefaults(currentRule),
+    [currentRule],
+  );
 
   const methods = useForm({
     resolver: yupResolver(Schema),
@@ -186,7 +189,7 @@ export default function RuleNewEditForm({
       const res = await axiosInstance[method](URL, fd);
       if (res?.status === 200 || res?.status === 201) {
         enqueueSnackbar(
-          `Дүрэм амжилттай ${currentRule ? "хадгалагдлаа" : "үүсгэлээ"}`
+          `Дүрэм амжилттай ${currentRule ? "хадгалагдлаа" : "үүсгэлээ"}`,
         );
         onCloseForm?.();
         refetch?.();
@@ -292,6 +295,7 @@ export default function RuleNewEditForm({
           <LoadingButton
             type="submit"
             variant="contained"
+            color="primary"
             loading={isSubmitting}
             disabled={isSubmitting}
           >

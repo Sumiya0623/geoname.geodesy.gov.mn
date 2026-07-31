@@ -19,8 +19,8 @@ import Iconify from "src/components/iconify";
 import { useCallback, useState, useEffect } from "react";
 import { useGetChampaign } from "src/api/champaign";
 import { BeltgelListView } from "src/sections/beltgel/view";
-import { SuurinListView } from "src/sections/suurin/view";
-import { HeerView } from "src/sections/heer/view";
+import SuurinView from "./suurin-view";
+import HeerView from "./heer-view";
 import { MayagtView } from "src/sections/mayagt/view";
 import ProjectDetailsContent from "../champaign-details-content";
 
@@ -94,8 +94,7 @@ function StepIcon({ active, completed, icon, step }) {
           completed || active
             ? t.palette.primary.main
             : alpha(t.palette.text.disabled, 0.12),
-        color: (t) =>
-          completed || active ? "#fff" : t.palette.text.disabled,
+        color: (t) => (completed || active ? "#fff" : t.palette.text.disabled),
         boxShadow: (t) =>
           active ? `0 0 0 4px ${alpha(t.palette.primary.main, 0.2)}` : "none",
       }}
@@ -126,9 +125,7 @@ function StepIcon({ active, completed, icon, step }) {
               : t.palette.text.disabled,
           border: (t) =>
             `1px solid ${
-              completed || active
-                ? t.palette.primary.main
-                : t.palette.divider
+              completed || active ? t.palette.primary.main : t.palette.divider
             }`,
         }}
       >
@@ -212,7 +209,7 @@ export default function ChampaignDetailsView() {
 
       {/* Алхмын контент — lazy (идэвхтэй алхам л mount хийгдэнэ) */}
       {currentTab === "beltgel" && <BeltgelListView projectId={id} />}
-      {currentTab === "suurin" && <SuurinListView projectId={id} />}
+      {currentTab === "suurin" && <SuurinView projectId={id} />}
       {currentTab === "heer" && <HeerView projectId={id} />}
       {currentTab === "result" && <MayagtView projectId={id} />}
     </Container>

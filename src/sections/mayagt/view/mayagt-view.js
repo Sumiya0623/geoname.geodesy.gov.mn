@@ -66,6 +66,30 @@ function useUnits(level, parentId, enabled = true) {
 
 const dash = (v) => (v === null || v === undefined || v === "" ? "—" : v);
 
+// Аравтын градус → градус°минут'секунд" (PDF‑ийн _to_dms‑тэй ижил формат)
+const toDms = (value, pos, neg) => {
+  if (value === null || value === undefined || value === "") return "";
+  const num = Number(value);
+  if (Number.isNaN(num)) return String(value);
+  const hemi = num >= 0 ? pos : neg;
+  const v = Math.abs(num);
+  const d = Math.floor(v);
+  const mFull = (v - d) * 60;
+  const m = Math.floor(mFull);
+  const sec = (mFull - m) * 60;
+  return `${d}° ${m}' ${sec.toFixed(3)}" ${hemi}`;
+};
+
+// Солбицол — дэлгэц дээр НЭГ баганад, DMS хэлбэрээр
+// (PDF export нь хуучин шигээ өргөрөг/уртраг 2 баганаар)
+const latLon = (r) =>
+  r?.lat === null ||
+  r?.lat === undefined ||
+  r?.lon === null ||
+  r?.lon === undefined
+    ? ""
+    : `${toDms(r.lat, "N", "S")} · ${toDms(r.lon, "E", "W")}`;
+
 // Геометр төрөл → icon (дэвсгэр нэрийн icon‑той ижил: Цэг/Шугам/Талбай)
 const GEOM_ICON = {
   Point: { Ic: GeomPointIcon, color: "#16a34a" },
@@ -97,8 +121,8 @@ const COLS = {
   1: [
     { id: "draft", label: "Нэр", get: (r) => r.name },
     { id: "name", label: "УИХ‑аар батлагдсан", get: (r) => r.name },
-    { id: "nomek_100k", label: "1:100000", get: (r) => r.nomek_100k },
-    { id: "nomek_25k", label: "1:25000", get: (r) => r.nomek_25k },
+    { id: "nomek_100k", label: "М1:100000", get: (r) => r.nomek_100k },
+    { id: "nomek_25k", label: "М1:25000", get: (r) => r.nomek_25k },
   ],
   2: [
     {
@@ -106,24 +130,20 @@ const COLS = {
       label: "Уламжлалт (батлагдаагүй) нэр",
       get: (r) => r.draft || r.name,
     },
-    { id: "nomek_100k", label: "1:100000 нэрэлбэр", get: (r) => r.nomek_100k },
-    { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
-    { id: "lon", label: "Уртраг", get: (r) => r.lon },
+    { id: "nomek_100k", label: "М1:100000", get: (r) => r.nomek_100k },
+    { id: "ll", label: "Өргөрөг, Уртраг", get: latLon },
   ],
   3: [
-    { id: "draft", label: "Зөрүүтэй/алдаатай нэр", get: (r) => r.draft },
+    { id: "draft", label: "Зөв нэр", get: (r) => r.draft },
     { id: "name", label: "УИХ‑аар батлагдсан нэр", get: (r) => r.name },
-    { id: "nomek_100k", label: "1:100000 нэрэлбэр", get: (r) => r.nomek_100k },
-    { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
-    { id: "lon", label: "Уртраг", get: (r) => r.lon },
+    { id: "nomek_100k", label: "М1:100000", get: (r) => r.nomek_100k },
+    { id: "ll", label: "Солбицол", get: latLon },
   ],
   4: [
     { id: "name", label: "УИХ‑аар батлагдсан нэр", get: (r) => r.name },
-    { id: "nomek_25k", label: "1:25000 нэрэлбэр", get: (r) => r.nomek_25k },
-    { id: "lat", label: "Суурь — Өргөрөг", get: (r) => r.lat },
-    { id: "lon", label: "Суурь — Уртраг", get: (r) => r.lon },
-    { id: "clat", label: "Зөв — Өргөрөг", get: () => "" },
-    { id: "clon", label: "Зөв — Уртраг", get: () => "" },
+    { id: "nomek_25k", label: "М1:25000", get: (r) => r.nomek_25k },
+    { id: "ll", label: "Суурь зурагт", get: latLon },
+    { id: "cll", label: "Зөв солбицол", get: () => "" },
   ],
   5: [
     { id: "name", label: "Газар зүйн нэр", get: (r) => r.name },
@@ -132,8 +152,7 @@ const COLS = {
       label: "Зэргэлдээх суманд нэрлэж буй нэр",
       get: (r) => r.draft,
     },
-    { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
-    { id: "lon", label: "Уртраг", get: (r) => r.lon },
+    { id: "ll", label: "Солбицол", get: latLon },
     { id: "note", label: "Хэрхэн шийдвэрлэсэн (тайлбар)", get: () => "" },
   ],
   // Маягт 6, 8, 9 — одоохондоо дотроо хоосон (дата холбоогүй), зөвхөн PDF загвар
@@ -144,20 +163,20 @@ const COLS = {
       get: (r) => r.draft || r.name,
     },
     { id: "type", label: "Дэвсгэр нэр", get: (r) => r.gtype },
-    { id: "nomek_25k", label: "1:25000 нэрэлбэр", get: (r) => r.nomek_25k },
-    { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
-    { id: "lon", label: "Уртраг", get: (r) => r.lon },
+    { id: "nomek_25k", label: "М1:25000", get: (r) => r.nomek_25k },
+    { id: "ll", label: "Өргөрөг, Уртраг", get: latLon },
   ],
   8: [
     { id: "name", label: "УИХ-аар шинээр батлагдах нэр", get: (r) => r.name },
-    { id: "nomek_25k", label: "1:25000 нэрэлбэр", get: (r) => r.nomek_25k },
-    { id: "lat", label: "Өргөрөг", get: (r) => r.lat },
-    { id: "lon", label: "Уртраг", get: (r) => r.lon },
+    { id: "nomek_25k", label: "М1:25000", get: (r) => r.nomek_25k },
+    { id: "ll", label: "Өргөрөг, Уртраг", get: latLon },
   ],
+  // Хавсралт 9 — багийн бүрэлдэхүүн (ProjectMember)‑ээс бөглөгдөнө
   9: [
-    { id: "person", label: "Иргэний овог, нэр", get: () => "" },
-    { id: "register", label: "Регистрийн дугаар", get: () => "" },
-    { id: "phone", label: "Утасны дугаар", get: () => "" },
+    { id: "person", label: "Иргэний овог, нэр", get: (r) => r.name },
+    { id: "unit", label: "Сум/Дүүрэг", get: (r) => r.unit },
+    { id: "register", label: "Регистрийн дугаар", get: (r) => r.register },
+    { id: "phone", label: "Утасны дугаар", get: (r) => r.phone },
     { id: "sign", label: "Гарын үсэг", get: () => "" },
   ],
 };
@@ -190,7 +209,7 @@ export default function MayagtView({
   stepName = "Суурин судалгаа",
 }) {
   const { enqueueSnackbar } = useSnackbar();
-  const table = useTable({ defaultRowsPerPage: 25 });
+  const table = useTable({ defaultRowsPerPage: 25, defaultDense: true });
 
   const [tab, setTab] = useState("1");
   const [q, setQ] = useState("");
@@ -399,7 +418,6 @@ export default function MayagtView({
         >
           <TextField
             fullWidth
-            size="small"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Нэр / зураг дээрх нэр / нэрлэвэрээр хайх..."
@@ -451,7 +469,6 @@ export default function MayagtView({
               sx={{ maxWidth: 640, mb: 1.5 }}
             >
               <Autocomplete
-                size="small"
                 options={aimags}
                 value={aimag}
                 onChange={(e, v) => {
@@ -465,7 +482,6 @@ export default function MayagtView({
                 )}
               />
               <Autocomplete
-                size="small"
                 options={sums}
                 value={sum}
                 disabled={!aimag?.id}
@@ -488,7 +504,6 @@ export default function MayagtView({
               sx={{ mt: 0.5, maxWidth: 900 }}
             >
               <Autocomplete
-                size="small"
                 sx={{ flex: 1, minWidth: 0 }}
                 options={cat1Opts}
                 value={cat1}
@@ -500,7 +515,6 @@ export default function MayagtView({
                 )}
               />
               <Autocomplete
-                size="small"
                 sx={{ flex: 1, minWidth: 0 }}
                 disabled={!cat1?.id}
                 options={cat2Opts}
@@ -513,7 +527,6 @@ export default function MayagtView({
                 )}
               />
               <Autocomplete
-                size="small"
                 sx={{ flex: 1, minWidth: 0 }}
                 disabled={!cat2?.id}
                 options={cat3Opts}
@@ -545,7 +558,10 @@ export default function MayagtView({
           />
 
           <Scrollbar>
-            <Table size="small" sx={{ minWidth: 760 }}>
+            <Table
+              size={table.dense ? "small" : "medium"}
+              sx={{ minWidth: 760 }}
+            >
               <TableHeadCustom
                 headLabel={headLabel}
                 rowCount={filtered.length}

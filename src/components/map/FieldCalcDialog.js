@@ -129,8 +129,13 @@ export default function FieldCalcDialog({
   };
 
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Field Calculator</DialogTitle>
+    <Dialog
+      open={open}
+      onClose={busy ? undefined : onClose}
+      fullWidth
+      maxWidth="sm"
+    >
+      <DialogTitle>Талбар тооцоолуур</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
           <FormControlLabel
@@ -239,6 +244,7 @@ export default function FieldCalcDialog({
         </Button>
         <LoadingButton
           variant="contained"
+          color="primary"
           loading={busy}
           disabled={!canSave}
           onClick={handleSave}

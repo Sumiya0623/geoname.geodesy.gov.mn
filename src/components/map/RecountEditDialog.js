@@ -246,7 +246,12 @@ export default function RecountEditDialog({ open, row, onClose, onSaved }) {
         <Button color="inherit" onClick={onClose}>
           Болих
         </Button>
-        <LoadingButton variant="contained" loading={saving} onClick={handleSave}>
+        <LoadingButton
+          variant="contained"
+          color="primary"
+          loading={saving}
+          onClick={handleSave}
+        >
           Хадгалах
         </LoadingButton>
       </DialogActions>

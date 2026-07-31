@@ -59,13 +59,7 @@ export default function ChampaignListView({ user } = {}) {
       ordering: `${table.order === "desc" ? "-" : ""}${table.orderBy}`,
       ...filters,
     }),
-    [
-      filters,
-      table.order,
-      table.orderBy,
-      table.page,
-      table.rowsPerPage,
-    ],
+    [filters, table.order, table.orderBy, table.page, table.rowsPerPage],
   );
   const { champaigns, champaignsCount, champaignsLoading, champaignsMutation } =
     useGetChampaigns(requestBody);

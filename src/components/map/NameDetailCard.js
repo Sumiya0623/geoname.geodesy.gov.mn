@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 
 import {
@@ -8,6 +8,13 @@ import {
   Stack,
   Button,
   Dialog,
+  Step,
+  Stepper,
+  Autocomplete,
+  Tooltip,
+  StepButton,
+  StepContent,
+  IconButton,
   Checkbox,
   TextField,
   Typography,
@@ -27,6 +34,9 @@ import { HOST_API } from "src/config-global";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetRequestStatuses } from "src/api/request";
 import { useGetConstantsFordropdown } from "src/api/constant";
+import { angleToDirection } from "src/utils/geoDirection";
+import PhotoSlider from "src/components/photo-slider";
+import PhotoDirectionPicker from "src/components/photo-direction-picker";
 
 import {
   requestMapDraw,
@@ -82,15 +92,28 @@ export default function NameDetailCard({
     () => rSteps.find((s) => s.name === "Суурин судалгаа") || null,
     [rSteps],
   );
-  const statusIdByName = (nm) => rStatuses.find((s) => s.name === nm)?.id || null;
+  // RECOUNT_STATUS‑ыг НЭРЭЭР нь биш КОДООР нь таина (нэр өөрчлөгдөж болно):
+  //  1=Алдаагүй (ижил) · 2=Уламжлалт · 3=Нэр зөрүүтэй · 4=Байршил зөрүүтэй
+  //  5=Шинээр үүссэн
+  const statusIdByCode = (code) =>
+    rStatuses.find((s) => String(s.code) === String(code))?.id || null;
   const [saving, setSaving] = useState(false);
-  const [draftDlg, setDraftDlg] = useState(null); // {statusName, text}
+  const [draftDlg, setDraftDlg] = useState(null); // {status, text}
   const [rcEdit, setRcEdit] = useState(false); // recount төлөв засах горим
   const [rcConfirm, setRcConfirm] = useState(false); // recount устгах баталгаа
   const [rcStatusIds, setRcStatusIds] = useState(() => new Set()); // сонгосон төлвүүд
   const [rcDraft, setRcDraft] = useState(""); // "алдаатай" үеийн засвар нэр
+  // Тодруулалтын АНГИЛАЛ (draft үед) — 3 түвшний хамааралт сонголт
+  const [rcT1, setRcT1] = useState(null);
+  const [rcT2, setRcT2] = useState(null);
+  const [rcT3, setRcT3] = useState(null);
   const [editingGeom, setEditingGeom] = useState(false); // байрлал засах горим
   const [photos, setPhotos] = useState([]); // нэрийн зургууд
+  const [rcPhotos, setRcPhotos] = useState([]); // тодруулалтын хээрийн зургууд
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoDlg, setPhotoDlg] = useState(false); // зураг нэмэх диалог
+  const [stepView, setStepView] = useState(0); // задарсан үе шат (stepper)
+  const [newPhotos, setNewPhotos] = useState([]); // [{file, deg}] — компасаар
   const [inquireLoading, setInquireLoading] = useState(false); // лавлагаа гаргах
 
   // geoname id — recount дээр name_id, эс бол name.id
@@ -107,10 +130,16 @@ export default function NameDetailCard({
     axiosInstance
       .get(endpoints.recount.edit(name.id))
       .then((res) => {
-        if (active) setRcDetail(res?.data || null);
+        if (active) {
+          setRcDetail(res?.data || null);
+          setRcPhotos(res?.data?.photos || []);
+        }
       })
       .catch(() => {
-        if (active) setRcDetail(null);
+        if (active) {
+          setRcDetail(null);
+          setRcPhotos([]);
+        }
       });
     return () => {
       active = false;
@@ -136,6 +165,65 @@ export default function NameDetailCard({
       active = false;
     };
   }, [geonameId]);
+
+  // Үе шат (RECOUNT_STEPS) — тодруулалтын одоогийн үе шат ба «хээрийн» шат
+  const curStepIdx = rSteps.findIndex(
+    (st) => String(st.id) === String(rcDetail?.step?.id),
+  );
+  // Хээрийн үе шат — нэрээр нь биш ч болох ганц шинж: «хээр» гэсэн үг
+  const isFieldStep = (st) => (st?.name || "").toLowerCase().includes("хээр");
+  // Тодруулалт солигдоход одоогийн үе шат руу нь задална
+  useEffect(() => {
+    setStepView(curStepIdx >= 0 ? curStepIdx : 0);
+  }, [curStepIdx]);
+
+  // ── Тодруулалтын хээрийн зураг — нэмэх / устгах ──
+  const handleAddPhotos = async () => {
+    if (!name?.id || !newPhotos.length) return;
+    setPhotoBusy(true);
+    try {
+      const added = [];
+      // Олон зургийг нэг нэгээр (backend PNG 800×800 болгож хадгална)
+      for (let i = 0; i < newPhotos.length; i += 1) {
+        const fd = new FormData();
+        fd.append("file", newPhotos[i].file);
+        // Зовхис — компасын өнцгөөс (Хойд, Зүүн урд гэх мэт)
+        fd.append("desc", angleToDirection(newPhotos[i].deg));
+        // eslint-disable-next-line no-await-in-loop
+        const res = await axiosInstance.post(
+          endpoints.recount.addPhoto(name.id),
+          fd,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        );
+        if (res?.data?.id) added.push(res.data);
+      }
+      setRcPhotos((prev) => [...prev, ...added]);
+      setNewPhotos([]);
+      setPhotoDlg(false);
+      enqueueSnackbar(`${added.length} зураг нэмэгдлээ`);
+    } catch (e) {
+      enqueueSnackbar(
+        e?.response?.data?.detail || "Зураг нэмэхэд алдаа гарлаа",
+        {
+          variant: "warning",
+        },
+      );
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const handleDelPhoto = async (photoId) => {
+    if (!name?.id) return;
+    try {
+      await axiosInstance.post(endpoints.recount.delPhoto(name.id), {
+        photo_id: photoId,
+      });
+      setRcPhotos((prev) => prev.filter((p) => p.id !== photoId));
+    } catch (e) {
+      enqueueSnackbar("Зураг устгахад алдаа гарлаа", { variant: "warning" });
+    }
+  };
 
   // Байрлал засах — QGIS маягаар геометр засаад хадгална, дараа нь дахин дуудна.
   // Геометр аль хэдийн client дээр (name.geometry — WFS‑ээс ачаалагдсан) байгаа
@@ -172,9 +260,12 @@ export default function NameDetailCard({
       requestRecountReload();
       onAfterAction?.();
     } catch (e) {
-      enqueueSnackbar(e?.response?.data?.detail || "Байрлал хадгалахад алдаа гарлаа", {
-        variant: "warning",
-      });
+      enqueueSnackbar(
+        e?.response?.data?.detail || "Байрлал хадгалахад алдаа гарлаа",
+        {
+          variant: "warning",
+        },
+      );
     }
   };
 
@@ -186,28 +277,82 @@ export default function NameDetailCard({
       .filter(Boolean)
       .map(Number);
 
-  const errStatusId = statusIdByName("алдаатай");
-  const unapprovedStatusId = statusIdByName("батлагдаагүй");
-  const shineStatusId = statusIdByName("шинэ");
-  // recount АНХНААСАА "шинэ" статустай байсан эсэх (байсан бол checkbox‑д харуулна)
-  const hadShine = parseStatusIds(name?.status_ids).includes(shineStatusId);
-  // "алдаатай" ЭСВЭЛ "батлагдаагүй" сонгосон бол засварласан нэрийн талбар гарна
-  const showDraftField =
-    (errStatusId && rcStatusIds.has(errStatusId)) ||
-    (unapprovedStatusId && rcStatusIds.has(unapprovedStatusId));
-
   // Хилийн цэс (GeoName.is_border) — анхдагч тэмдэглээгүй
   const [rcBorder, setRcBorder] = useState(false);
+
+  // Ангиллын сонголт — ЗӨВХӨН батлагдсан нэргүй (draft) тодруулалтад.
+  // Ийм тодруулалтын төрөл нь ReCount.type дээр хадгалагдана.
+  const { constants: geoTypes } = useGetConstantsFordropdown("GEONAME_TYPES");
+  const childrenOf = useCallback(
+    (parentId) =>
+      geoTypes.filter((t) => (t.parent ?? null) === (parentId ?? null)),
+    [geoTypes],
+  );
+  const rcTy1 = useMemo(() => childrenOf(null), [childrenOf]);
+  const rcTy2 = useMemo(
+    () => (rcT1?.id ? childrenOf(rcT1.id) : []),
+    [childrenOf, rcT1],
+  );
+  const rcTy3 = useMemo(
+    () => (rcT2?.id ? childrenOf(rcT2.id) : []),
+    [childrenOf, rcT2],
+  );
+  // Хадгалахад — сонгосон хамгийн ГҮН ангилал
+  const rcTypeId = rcT3?.id || rcT2?.id || rcT1?.id || null;
+
+  // Ангилал солиход доод түвшнүүдийг цэвэрлэнэ
+  const setRcTypeLevel = (level, v) => {
+    if (level === 1) {
+      setRcT1(v);
+      setRcT2(null);
+      setRcT3(null);
+    } else if (level === 2) {
+      setRcT2(v);
+      setRcT3(null);
+    } else {
+      setRcT3(v);
+    }
+  };
+
+  const showTypeField = !name?.name_id; // draft (батлагдсан нэргүй) тодруулалт
+
+  // Нэр оруулах талбар — Constant(RECOUNT_STATUS).label === "true" бүхий
+  // төлвүүдэд гарна. Төлвийн нэр/тоо цаашид өөрчлөгдөхөөс хамаарахгүй:
+  // аль төлөв нэр шаардахыг Тогтмол дээрээс л удирдана.
+  const needsName = (st) =>
+    String(st?.label || "")
+      .trim()
+      .toLowerCase() === "true";
+  const activeNameStatus = rStatuses.find(
+    (st) => needsName(st) && rcStatusIds.has(st.id),
+  );
+  // «Хилийн цэс» нь ЗӨВХӨН GeoName.is_border‑ийг өөрчилнө — нэр оруулахгүй.
+  const showDraftField = !!activeNameStatus;
+  // Гарчиг нь сонгосон төлвийн НЭРЭЭР бүрдэнэ (статик текст барихгүй)
+  const draftLabel = activeNameStatus
+    ? `${activeNameStatus.name} — нэр`
+    : "Нэр";
 
   // Засах горимыг нээхэд ХУУЧИН төлвүүдийг set хийнэ. draft default = одоогийн нэр.
   const openRcEdit = () => {
     setRcStatusIds(new Set(parseStatusIds(name.status_ids)));
     // Хилийн цэс (GeoName.is_border) — анхдагч false
-    setRcBorder(
-      name.is_border === true || name.is_border === "true",
-    );
+    setRcBorder(name.is_border === true || name.is_border === "true");
     // Засварласан нэр = ЗӨВХӨН draft (засвар). Батлагдсан нэр биш. Байхгүй бол хоосон.
     setRcDraft(name.draft || "");
+    // Одоогийн ангиллын ЗАМЫГ (l1 → l2 → l3) сэргээж сет хийнэ
+    const byId = new Map(geoTypes.map((t) => [t.id, t]));
+    const chain = [];
+    let cur = rcDetail?.type?.id ? byId.get(rcDetail.type.id) : null;
+    const seen = new Set();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      chain.unshift(cur);
+      cur = cur.parent != null ? byId.get(cur.parent) : null;
+    }
+    setRcT1(chain[0] || null);
+    setRcT2(chain[1] || null);
+    setRcT3(chain[2] || null);
     setRcEdit(true);
   };
   const toggleRcStatus = (id, on) =>
@@ -226,6 +371,8 @@ export default function NameDetailCard({
         status_ids: [...rcStatusIds],
         // "алдаатай"/"батлагдаагүй" сонгосон бол засварласан нэрийг draft‑д хадгална
         ...(showDraftField ? { draft: rcDraft.trim() } : {}),
+        // Ангилал — зөвхөн draft тодруулалтад (батлагдсан нэрийнх нь өөрийн type)
+        ...(showTypeField && rcTypeId ? { type_id: rcTypeId } : {}),
       });
       // Хилийн цэс нь ТООЛЛОГЫН биш, ГАЗАР ЗҮЙН НЭРийн шинж чанар тул
       // geoname‑ийг тусад нь шинэчилнэ (батлагдсан нэртэй холбоотой үед л).
@@ -266,7 +413,7 @@ export default function NameDetailCard({
     }
   };
 
-  const saveRecount = async (statusName, draftText, loc) => {
+  const saveRecount = async (status, draftText, loc) => {
     setSaving(true);
     try {
       await axiosInstance.post(endpoints.recount.create, {
@@ -274,10 +421,16 @@ export default function NameDetailCard({
         name_id: name.id,
         draft: draftText || "",
         ...(rStep?.id ? { step_id: rStep.id } : {}),
-        ...(statusIdByName(statusName) ? { status_ids: [statusIdByName(statusName)] } : {}),
-        ...(loc ? { loc } : coord ? { loc: { type: "Point", coordinates: coord } } : {}),
+        ...(status?.id ? { status_ids: [status.id] } : {}),
+        ...(loc
+          ? { loc }
+          : coord
+            ? { loc: { type: "Point", coordinates: coord } }
+            : {}),
       });
-      enqueueSnackbar(`"${name.name}" — ${statusName} төлөвөөр бүртгэгдлээ`);
+      enqueueSnackbar(
+        `"${name.name}" — ${status?.name || ""} төлөвөөр бүртгэгдлээ`,
+      );
       onAfterAction?.();
     } catch (e) {
       enqueueSnackbar(e?.response?.data?.detail || "Бүртгэхэд алдаа гарлаа", {
@@ -288,12 +441,14 @@ export default function NameDetailCard({
     }
   };
 
-  // suurin‑тэй ижил логик: ижил→шууд, зөрүүтэй/алдаатай→draft диалог,
-  // байршил→зураг дээр геометр зурах (нэрийн төрлөөр Цэг/Шугам/Талбай)
-  const handleStatus = async (statusName) => {
-    if (statusName === "ижил") {
-      saveRecount("ижил", name.name);
-    } else if (statusName === "байршил") {
+  // Төлөв бүрийн үйлдэл нь Тогтмолын утгуудаас шийдэгдэнэ:
+  //   label="true"  → нэр бичих диалог нээнэ (зөв/уламжлалт/шинэ нэр…)
+  //   code=LOC_CODE → газрын зураг дээр байрлалыг нь зурна
+  //   бусад         → шууд бүртгэнэ
+  const LOC_CODE = "4"; // Байршил зөрүүтэй — байрлалыг зурж тэмдэглэнэ
+  const handleStatus = async (st) => {
+    if (!st) return;
+    if (String(st.code) === LOC_CODE) {
       const dtype = olDrawType(geomType);
       enqueueSnackbar(
         `"${name.name}" — газрын зураг дээр ${DRAW_LABEL[dtype]} зурна уу (ESC — болих)`,
@@ -301,9 +456,15 @@ export default function NameDetailCard({
       );
       const geojson = await requestMapDraw(dtype);
       if (!geojson) return; // ESC / болих
-      await saveRecount("байршил", name.name, geojson);
+      await saveRecount(st, name.name, geojson);
+    } else if (
+      String(st.label || "")
+        .trim()
+        .toLowerCase() === "true"
+    ) {
+      setDraftDlg({ status: st, text: name.name || "" });
     } else {
-      setDraftDlg({ statusName, text: name.name || "" });
+      await saveRecount(st, name.name);
     }
   };
 
@@ -367,15 +528,21 @@ export default function NameDetailCard({
     if (!geonameId || inquireLoading) return;
     setInquireLoading(true);
     try {
-      const res = await axiosInstance.post(endpoints.geoname.inquire(geonameId), {});
+      const res = await axiosInstance.post(
+        endpoints.geoname.inquire(geonameId),
+        {},
+      );
       const code = res?.data?.code;
       // ЗААВАЛ /api/ доогуур — nginx дээр /inquire/<code> нь frontend‑ийн
       // QR шалгах хуудас руу очдог тул баримт харагдахгүй болно.
       if (code) window.open(`${HOST_API}/api/inquire/${code}/`, "_blank");
     } catch (e) {
-      enqueueSnackbar(e?.response?.data?.detail || "Лавлагаа гаргахад алдаа гарлаа", {
-        variant: "warning",
-      });
+      enqueueSnackbar(
+        e?.response?.data?.detail || "Лавлагаа гаргахад алдаа гарлаа",
+        {
+          variant: "warning",
+        },
+      );
     } finally {
       setInquireLoading(false);
     }
@@ -402,272 +569,303 @@ export default function NameDetailCard({
           />
         </Box>
       ) : (
-      <Box sx={{ p: 2 }}>
-        {typePath.length > 0 && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.5,
-              mb: 1,
-              flexWrap: "wrap",
-            }}
-          >
-            {typePath.map((t, i) => (
-              <React.Fragment key={t.id}>
-                {i > 0 && (
-                  <Typography variant="caption" color="text.disabled">
-                    ›
-                  </Typography>
-                )}
-                <Chip
-                  size="small"
-                  label={t.name}
-                  variant={i === typePath.length - 1 ? "filled" : "outlined"}
-                  color={i === typePath.length - 1 ? "primary" : "default"}
-                  sx={{ height: 20, fontSize: 11 }}
-                />
-              </React.Fragment>
-            ))}
-          </Box>
-        )}
-
-        <Typography variant="h6">{name?.number}</Typography>
-        {name.name && <Typography variant="body1">{name.name}</Typography>}
-
-        {/* Дэлгэрэнгүй — geoname рүү. Recount дээр холбоотой geoname (name_id)‑руу;
-            draft (geoname‑гүй) recount дээр линк харагдахгүй. */}
-        {(name?._isRecount ? name?.name_id : name?.id) && (
-          <Button
-            component="a"
-            href={`/dashboard/geoname/${
-              name?._isRecount ? name.name_id : name.id
-            }`}
-            target="_blank"
-            rel="noopener noreferrer"
-            size="small"
-            endIcon={<OpenInNewIcon fontSize="small" />}
-            sx={{
-              alignSelf: "flex-start",
-              textTransform: "none",
-              px: 0.5,
-              my: 0.5,
-            }}
-          >
-            Дэлгэрэнгүй мэдээлэл
-          </Button>
-        )}
-
-        {/* Нэрийн зургууд — хэвтээ зурвас (дарж томоор нээнэ) */}
-        {photos.length > 0 && (
-          <Box
-            sx={{
-              display: "flex",
-              gap: 1,
-              overflowX: "auto",
-              py: 1,
-              mt: 0.5,
-            }}
-          >
-            {photos.map((p) => (
-              <Box
-                key={p.id}
-                component="img"
-                src={p.url}
-                alt="зураг"
-                onClick={() => window.open(p.url, "_blank")}
-                sx={{
-                  height: 72,
-                  minWidth: 96,
-                  width: 96,
-                  objectFit: "cover",
-                  borderRadius: 1,
-                  flexShrink: 0,
-                  cursor: "pointer",
-                  border: "1px solid",
-                  borderColor: "divider",
-                }}
-              />
-            ))}
-          </Box>
-        )}
-
-        {/* Байрлал засах — QGIS маягаар геометр засах. ЗӨВХӨН төслийн газрын
-            зураг (champaign/<id>/map) дээр — бусад газар харагдахгүй. */}
-        {geonameId && recountProjectId && (
-          <Box sx={{ mt: 0.5 }}>
-            {editingGeom ? (
-              <Stack direction="row" spacing={0.5} alignItems="center">
-                <Typography
-                  variant="caption"
-                  color="info.main"
-                  sx={{ mr: 0.5 }}
-                >
-                  Газрын зураг дээр засаж байна…
-                </Typography>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => commitMapEdit()}
-                >
-                  Хадгалах
-                </Button>
-                <Button
-                  size="small"
-                  color="inherit"
-                  onClick={() => cancelMapEdit()}
-                >
-                  Болих
-                </Button>
-              </Stack>
-            ) : (
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={handleEditGeom}
-                sx={{ textTransform: "none" }}
-              >
-                Байрлал засах
-              </Button>
-            )}
-          </Box>
-        )}
-
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-          {approved !== undefined && (
-            <Chip
-              size="small"
-              label={
-                approved === true
-                  ? "Батлагдсан"
-                  : approved === false
-                    ? "Батлагдаагүй"
-                    : `${createdDate || ""} Хэлэлцүүлэг`.trim()
-              }
-              variant="outlined"
-              color={
-                approved === true
-                  ? "success"
-                  : approved === false
-                    ? "warning"
-                    : "info"
-              }
-              sx={{ fontWeight: "bold" }}
-            />
+        <Box sx={{ p: 2 }}>
+          {typePath.length > 0 && (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+                mb: 1,
+                flexWrap: "wrap",
+              }}
+            >
+              {typePath.map((t, i) => (
+                <React.Fragment key={t.id}>
+                  {i > 0 && (
+                    <Typography variant="caption" color="text.disabled">
+                      ›
+                    </Typography>
+                  )}
+                  <Chip
+                    size="small"
+                    label={t.name}
+                    variant={i === typePath.length - 1 ? "filled" : "outlined"}
+                    color={i === typePath.length - 1 ? "primary" : "default"}
+                    sx={{ height: 20, fontSize: 11 }}
+                  />
+                </React.Fragment>
+              ))}
+            </Box>
           )}
-        </Box>
 
-        {name?._isRecount ? (
-          /* Дарсан объект нь recount — төлөв + Засах/Устгах */
-          <Stack spacing={1} sx={{ mt: 1 }}>
-            <Stack direction="row" spacing={0.5} flexWrap="wrap">
+          <Typography variant="h6">{name?.number}</Typography>
+          {name.name && (
+            <Typography variant="body1">
+              {name.name}
+              {/* Дэлгэрэнгүй — нэрний АРД жижиг icon (шинэ таб).
+                  draft (geoname‑гүй) recount дээр харагдахгүй. */}
+              {(name?._isRecount ? name?.name_id : name?.id) && (
+                <Tooltip title="Дэлгэрэнгүй (шинэ таб)">
+                  <IconButton
+                    component="a"
+                    href={`/dashboard/geoname/${
+                      name?._isRecount ? name.name_id : name.id
+                    }`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    size="small"
+                    sx={{ ml: 0.5, p: 0.25, verticalAlign: "text-bottom" }}
+                  >
+                    <OpenInNewIcon sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Typography>
+          )}
+
+          {/* Дэлгэрэнгүй — geoname рүү. Recount дээр холбоотой geoname (name_id)‑руу;
+            draft (geoname‑гүй) recount дээр линк харагдахгүй. */}
+
+          {/* Нэрийн зургууд — хэвтээ зурвас (дарж томоор нээнэ) */}
+          {photos.length > 0 && (
+            <Box
+              sx={{
+                display: "flex",
+                gap: 1,
+                overflowX: "auto",
+                py: 1,
+                mt: 0.5,
+              }}
+            >
+              {photos.map((p) => (
+                <Box
+                  key={p.id}
+                  component="img"
+                  src={p.url}
+                  alt="зураг"
+                  onClick={() => window.open(p.url, "_blank")}
+                  sx={{
+                    height: 72,
+                    minWidth: 96,
+                    width: 96,
+                    objectFit: "cover",
+                    borderRadius: 1,
+                    flexShrink: 0,
+                    cursor: "pointer",
+                    border: "1px solid",
+                    borderColor: "divider",
+                  }}
+                />
+              ))}
+            </Box>
+          )}
+
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            {approved !== undefined && (
               <Chip
                 size="small"
-                color="info"
-                variant="filled"
-                label="Тодруулалт (recount)"
+                label={
+                  approved === true
+                    ? "Батлагдсан"
+                    : approved === false
+                      ? "Батлагдаагүй"
+                      : `${createdDate || ""} Хэлэлцүүлэг`.trim()
+                }
+                variant="outlined"
+                color={
+                  approved === true
+                    ? "success"
+                    : approved === false
+                      ? "warning"
+                      : "info"
+                }
+                sx={{ fontWeight: "bold" }}
               />
-              {parseStatusIds(name.status_ids).map((id) => {
-                const st = rStatuses.find((s) => String(s.id) === String(id));
-                if (!st) return null;
-                const c = statusColor(st);
-                return (
-                  <Chip
-                    key={id}
-                    size="small"
-                    variant="filled"
-                    label={st.name}
-                    sx={{ bgcolor: c, color: "#fff", fontWeight: 600 }}
-                  />
-                );
-              })}
-            </Stack>
-
-            {/* Холбогдох ТӨСЛИЙН мэдээлэл */}
-            {rcDetail?.project?.name && (
-              <Stack
-                direction="row"
-                spacing={0.5}
-                alignItems="center"
-                sx={{
-                  px: 1,
-                  py: 0.75,
-                  borderRadius: 1,
-                  bgcolor: "background.neutral",
-                }}
-              >
-                <Typography variant="caption" color="text.secondary">
-                  Төсөл:
-                </Typography>
-                <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                  {rcDetail.project.name}
-                  {rcDetail.project.dugaar &&
-                  rcDetail.project.dugaar !== "un"
-                    ? ` · №${rcDetail.project.dugaar}`
-                    : ""}
-                </Typography>
-                {rcDetail.step?.name && (
-                  <Chip
-                    size="small"
-                    variant="soft"
-                    color="default"
-                    label={rcDetail.step.name}
-                    sx={{ height: 18, fontSize: 10 }}
-                  />
-                )}
-              </Stack>
             )}
+          </Box>
 
-            {/* Тодруулалт засах/устгах — ЗӨВХӨН төслийн газрын зурагт.
+          {name?._isRecount ? (
+            /* Дарсан объект нь recount — төлөв + Засах/Устгах */
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              {/* Холбогдох ТӨСЛИЙН мэдээлэл */}
+              {rcDetail?.project?.name && (
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  alignItems="center"
+                  flexWrap="wrap"
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Төсөл:
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    {rcDetail.project.name}
+                    {rcDetail.project.dugaar && rcDetail.project.dugaar !== "un"
+                      ? ` · №${rcDetail.project.dugaar}`
+                      : ""}
+                  </Typography>
+                </Stack>
+              )}
+              {/* Үе шатууд (RECOUNT_STEPS) — босоо stepper. Тодруулалтын
+                  ОДООГИЙН үе шат идэвхтэйгээр нээгдэнэ; толгой дээр нь дарж
+                  өөр үе шатыг задалж болно. Хээрийн үе шатанд зургууд slider‑ээр. */}
+              {recountProjectId && rSteps.length > 0 && (
+                <Stepper
+                  nonLinear
+                  orientation="vertical"
+                  activeStep={stepView}
+                  sx={{ mt: 0.5, "& .MuiStepLabel-label": { fontSize: 13 } }}
+                >
+                  {rSteps.map((st, i) => (
+                    <Step key={st.id} completed={i < curStepIdx}>
+                      <StepButton onClick={() => setStepView(i)}>
+                        {st.name}
+                        {i === curStepIdx ? " · одоогийн" : ""}
+                      </StepButton>
+                      <StepContent>
+                        {/* Хээрийн шат — зургууд; эхний шат — төлвүүд;
+                            сүүлийн шат — хүлээгдэж буй тэмдэглэгээ */}
+                        {isFieldStep(st) ? (
+                          <PhotoSlider
+                            photos={rcPhotos}
+                            height={190}
+                            onAdd={() => setPhotoDlg(true)}
+                            onDelete={handleDelPhoto}
+                          />
+                        ) : i === 0 ? (
+                          <Stack
+                            direction="row"
+                            spacing={0.5}
+                            flexWrap="wrap"
+                            useFlexGap
+                          >
+                            {parseStatusIds(name.status_ids).length === 0 && (
+                              <Typography
+                                variant="caption"
+                                color="text.disabled"
+                              >
+                                Төлөв тэмдэглээгүй.
+                              </Typography>
+                            )}
+                            {parseStatusIds(name.status_ids).map((id) => {
+                              const sc = rStatuses.find(
+                                (x) => String(x.id) === String(id),
+                              );
+                              if (!sc) return null;
+                              const c = statusColor(sc);
+                              return (
+                                <Chip
+                                  key={id}
+                                  size="small"
+                                  variant="filled"
+                                  label={sc.name}
+                                  sx={{
+                                    bgcolor: c,
+                                    color: "#fff",
+                                    fontWeight: 600,
+                                  }}
+                                />
+                              );
+                            })}
+                          </Stack>
+                        ) : (
+                          <Typography variant="caption" color="warning.main">
+                            Хүлээгдэж байна
+                          </Typography>
+                        )}
+                      </StepContent>
+                    </Step>
+                  ))}
+                </Stepper>
+              )}
+
+              {/* Байрлал засах — QGIS маягаар геометр засах. ЗӨВХӨН төслийн газрын
+            зураг (champaign/<id>/map) дээр — бусад газар харагдахгүй. */}
+              {geonameId && recountProjectId && editingGeom && (
+                <Box sx={{ mt: 0.5 }}>
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    <Typography
+                      variant="caption"
+                      color="info.main"
+                      sx={{ mr: 0.5 }}
+                    >
+                      Газрын зураг дээр засаж байна…
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="primary"
+                      onClick={() => commitMapEdit()}
+                    >
+                      Хадгалах
+                    </Button>
+                    <Button
+                      size="small"
+                      color="inherit"
+                      onClick={() => cancelMapEdit()}
+                    >
+                      Болих
+                    </Button>
+                  </Stack>
+                </Box>
+              )}
+              {/* Тодруулалт засах/устгах — ЗӨВХӨН төслийн газрын зурагт.
                 /dashboard/map дээр зөвхөн харах (readonly). */}
-            {!recountProjectId ? null : rcConfirm ? (
-              <Stack direction="row" spacing={0.5} alignItems="center">
-                <Typography variant="body2" color="error">
-                  Устгах уу?
-                </Typography>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="error"
-                  disabled={saving}
-                  onClick={deleteRecount}
-                >
-                  Тийм
-                </Button>
-                <Button size="small" onClick={() => setRcConfirm(false)}>
-                  Үгүй
-                </Button>
-              </Stack>
-            ) : (
-              <Stack direction="row" spacing={0.5}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  disabled={saving}
-                  onClick={() => (rcEdit ? setRcEdit(false) : openRcEdit())}
-                >
-                  Төлөв засах
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  disabled={saving}
-                  onClick={() => setRcConfirm(true)}
-                >
-                  Устгах
-                </Button>
-              </Stack>
-            )}
+              {!recountProjectId ? null : rcConfirm ? (
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Typography variant="body2" color="error">
+                    Устгах уу?
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="error"
+                    disabled={saving}
+                    onClick={deleteRecount}
+                  >
+                    Тийм
+                  </Button>
+                  <Button size="small" onClick={() => setRcConfirm(false)}>
+                    Үгүй
+                  </Button>
+                </Stack>
+              ) : (
+                <Stack direction="row" spacing={0.5}>
+                  {geonameId && !editingGeom && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={handleEditGeom}
+                      sx={{ textTransform: "none" }}
+                    >
+                      Байрлал засах
+                    </Button>
+                  )}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={saving}
+                    onClick={() => (rcEdit ? setRcEdit(false) : openRcEdit())}
+                  >
+                    Төлөв засах
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    disabled={saving}
+                    onClick={() => setRcConfirm(true)}
+                  >
+                    Устгах
+                  </Button>
+                </Stack>
+              )}
 
-            {rcEdit && !rcConfirm && (
-              <Stack spacing={0.5}>
-                <Box sx={{ display: "flex", flexWrap: "wrap" }}>
-                  {rStatuses
-                    /* Засах үед "шинэ" хэрэггүй (зөвхөн шинээр бүртгэхэд) */
-                    /* "шинэ"‑г зөвхөн анх байсан бол харуулна (засахад шинэ нэмэхгүй) */
-                    .filter((s) => s.name !== "шинэ" || hadShine)
-                    .map((s) => {
+              {rcEdit && !rcConfirm && (
+                <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+                  <Box sx={{ display: "flex", flexWrap: "wrap" }}>
+                    {rStatuses.map((s) => {
                       const c = statusColor(s);
                       return (
                         <FormControlLabel
@@ -695,99 +893,200 @@ export default function NameDetailCard({
                       );
                     })}
 
-                  {/* Хилийн цэс (GeoName.is_border) — мөрийн БАРУУН ХЯЗГААРТ */}
-                  {!!name.name_id && (
-                    <FormControlLabel
-                      sx={{ ml: "auto", mr: 0 }}
-                      control={
-                        <Checkbox
-                          size="small"
-                          checked={rcBorder}
-                          onChange={(e) => setRcBorder(e.target.checked)}
-                        />
-                      }
-                      label={
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          Хилийн цэс
-                        </Typography>
-                      }
+                    {/* Хилийн цэс (GeoName.is_border) — мөрийн БАРУУН ХЯЗГААРТ */}
+                    {!!name.name_id && (
+                      <FormControlLabel
+                        sx={{ ml: "auto", mr: 0 }}
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={rcBorder}
+                            onChange={(e) => setRcBorder(e.target.checked)}
+                          />
+                        }
+                        label={
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            Хилийн цэс
+                          </Typography>
+                        }
+                      />
+                    )}
+                  </Box>
+                  {showDraftField && (
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label={draftLabel}
+                      value={rcDraft}
+                      onChange={(e) => setRcDraft(e.target.value)}
                     />
                   )}
-                </Box>
-                {showDraftField && (
-                  <TextField
+                  {/* Ангилал — батлагдсан нэргүй (Уламжлалт / Шинээр үүссэн
+                      гэх мэт) тодруулалт ЗААВАЛ ангилалтай байна */}
+                  {showTypeField && (
+                    <Stack direction="row" spacing={1}>
+                      <Autocomplete
+                        size="small"
+                        sx={{ flex: 1, minWidth: 0 }}
+                        value={rcT1}
+                        onChange={(_e, v) => setRcTypeLevel(1, v)}
+                        options={rcTy1}
+                        getOptionLabel={(o) => o?.name || ""}
+                        isOptionEqualToValue={(o, v) => o?.id === v?.id}
+                        renderInput={(params) => (
+                          <TextField {...params} label="Үндсэн" />
+                        )}
+                      />
+                      <Autocomplete
+                        size="small"
+                        sx={{ flex: 1, minWidth: 0 }}
+                        value={rcT2}
+                        disabled={!rcT1?.id || !rcTy2.length}
+                        onChange={(_e, v) => setRcTypeLevel(2, v)}
+                        options={rcTy2}
+                        getOptionLabel={(o) => o?.name || ""}
+                        isOptionEqualToValue={(o, v) => o?.id === v?.id}
+                        renderInput={(params) => (
+                          <TextField {...params} label="Дэд" />
+                        )}
+                      />
+                      <Autocomplete
+                        size="small"
+                        sx={{ flex: 1, minWidth: 0 }}
+                        value={rcT3}
+                        disabled={!rcT2?.id || !rcTy3.length}
+                        onChange={(_e, v) => setRcTypeLevel(3, v)}
+                        options={rcTy3}
+                        getOptionLabel={(o) => o?.name || ""}
+                        isOptionEqualToValue={(o, v) => o?.id === v?.id}
+                        renderInput={(params) => (
+                          <TextField {...params} label="Ангилал" />
+                        )}
+                      />
+                    </Stack>
+                  )}
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      size="small"
+                      color="inherit"
+                      variant="outlined"
+                      disabled={saving}
+                      onClick={() => setRcEdit(false)}
+                      sx={{ flexShrink: 0 }}
+                    >
+                      Буцах
+                    </Button>
+                    <Button
+                      fullWidth
+                      size="small"
+                      variant="contained"
+                      color="primary"
+                      disabled={saving}
+                      onClick={saveRecountStatuses}
+                    >
+                      Хадгалах
+                    </Button>
+                  </Stack>
+                </Stack>
+              )}
+            </Stack>
+          ) : recountProjectId ? (
+            /* Төслийн газрын зураг — тодруулалтын төлвүүд.
+               Жагсаалт, нэр, ӨНГӨ бүгд Constant(RECOUNT_STATUS)‑оос ирнэ. */
+            <Stack
+              direction="row"
+              spacing={0.5}
+              flexWrap="wrap"
+              useFlexGap
+              sx={{ mt: 1 }}
+            >
+              {rStatuses.map((st) => {
+                const c = statusColor(st);
+                return (
+                  <Button
+                    key={st.id}
+                    variant="outlined"
                     size="small"
-                    fullWidth
-                    label="Засварласан нэр"
-                    value={rcDraft}
-                    onChange={(e) => setRcDraft(e.target.value)}
-                  />
-                )}
+                    disabled={saving || !name?.id}
+                    onClick={() => handleStatus(st)}
+                    sx={{
+                      textTransform: "none",
+                      fontWeight: 600,
+                      fontSize: 11,
+                      px: 0.75,
+                      color: c,
+                      borderColor: c,
+                      "&:hover": { borderColor: c, bgcolor: `${c}14` },
+                    }}
+                  >
+                    {st.name}
+                  </Button>
+                );
+              })}
+            </Stack>
+          ) : (
+            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+              {name?.id && approved === true && (
                 <Button
-                  size="small"
                   variant="contained"
-                  disabled={saving}
-                  onClick={saveRecountStatuses}
+                  fullWidth
+                  size="small"
+                  color="primary"
+                  disabled={inquireLoading}
+                  startIcon={<DescriptionRounded fontSize="small" />}
+                  onClick={handleInquire}
+                  sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
                 >
-                  Хадгалах
+                  Лавлагаа авах
                 </Button>
-              </Stack>
-            )}
-          </Stack>
-        ) : recountProjectId ? (
-          /* Төслийн газрын зураг — рекаунтын төлөв (ижил/зөрүүтэй/алдаатай/байршил) */
-          <Stack direction="row" spacing={0.5} sx={{ mt: 1 }}>
-            {[
-              { s: "ижил", label: "Ижил", color: "success" },
-              { s: "батлагдаагүй", label: "Батлагдаагүй", color: "warning" },
-              { s: "алдаатай", label: "Алдаатай", color: "error" },
-              { s: "байршил", label: "Байршил", color: "info" },
-            ].map((b) => (
-              <Button
-                key={b.s}
-                variant="outlined"
-                fullWidth
-                size="small"
-                color={b.color}
-                disabled={saving || !name?.id}
-                onClick={() => handleStatus(b.s)}
-                sx={{ textTransform: "none", fontWeight: 600, fontSize: 11, px: 0.5 }}
-              >
-                {b.label}
-              </Button>
-            ))}
-          </Stack>
-        ) : (
-          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-            {name?.id && approved === true && (
+              )}
               <Button
                 variant="contained"
                 fullWidth
                 size="small"
-                color="primary"
-                disabled={inquireLoading}
-                startIcon={<DescriptionRounded fontSize="small" />}
-                onClick={handleInquire}
+                color="warning"
+                startIcon={<CheckOutlined fontSize="small" />}
+                onClick={() => setRequestModalOpen(true)}
                 sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
               >
-                Лавлагаа авах
+                Өөрчлөх хүсэлт
               </Button>
-            )}
-            <Button
-              variant="contained"
-              fullWidth
-              size="small"
-              color="warning"
-              startIcon={<CheckOutlined fontSize="small" />}
-              onClick={() => setRequestModalOpen(true)}
-              sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
-            >
-              Өөрчлөх хүсэлт
-            </Button>
-          </Stack>
-        )}
-      </Box>
+            </Stack>
+          )}
+        </Box>
       )}
+
+      {/* Тодруулалтын зураг нэмэх — олон зураг + зовхис (компас) */}
+      <Dialog
+        open={photoDlg}
+        onClose={() => setPhotoDlg(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Хээрийн зураг нэмэх</DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary">
+            {name?.name || name?.draft} — зураг бүрд объектоос авсан зовхисыг
+            компас дээр тааруулна.
+          </Typography>
+          <Box sx={{ mt: 1.5 }}>
+            <PhotoDirectionPicker value={newPhotos} onChange={setNewPhotos} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button color="inherit" onClick={() => setPhotoDlg(false)}>
+            Болих
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            disabled={photoBusy || !newPhotos.length}
+            onClick={handleAddPhotos}
+          >
+            Хадгалах
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Зөрүүтэй / Алдаатай — draft (зөв/тэмдэглэх) бичих диалог */}
       <Dialog
@@ -797,7 +1096,7 @@ export default function NameDetailCard({
         maxWidth="xs"
       >
         <DialogTitle>
-          {draftDlg?.statusName === "батлагдаагүй" ? "Батлагдаагүй" : "Алдаатай"} нэр
+          {draftDlg?.status?.name || "Тодруулалт"} — нэр
         </DialogTitle>
         <DialogContent>
           <Typography variant="caption" color="text.secondary">
@@ -821,11 +1120,12 @@ export default function NameDetailCard({
           </Button>
           <Button
             variant="contained"
+            color="primary"
             disabled={saving}
             onClick={() => {
               const d = draftDlg;
               setDraftDlg(null);
-              saveRecount(d.statusName, d.text);
+              saveRecount(d.status, d.text);
             }}
           >
             Хадгалах

@@ -36,6 +36,14 @@ function olDrawType(desc) {
 }
 const DRAW_LABEL = { Point: "цэг", LineString: "шугам", Polygon: "талбай" };
 
+// Батлагдсан нэрийн ЗЗ нэгж — "Завхан · Баянтэс" (аймаг эхэнд, дараа нь сум)
+function unitText(o) {
+  const us = o?.units || [];
+  const aimag = us.find((u) => (u.level || "").includes("Аймаг"));
+  const sum = us.find((u) => (u.level || "").includes("Сум"));
+  return [aimag?.name, sum?.name].filter(Boolean).join(" · ");
+}
+
 // ----------------------------------------------------------------------
 // Төслийн газрын зураг дээр ШИНЭ нэр нэмэх форм (зүүн панелд inline).
 // Ангилал (Үндсэн→Анхдагч→Дэд, dependent) → Нэр. Дэд (навч) сонгомогц
@@ -79,18 +87,22 @@ export default function MapAddName({
 
   const { constants: rStatuses } = useGetConstantsFordropdown("RECOUNT_STATUS");
   const { constants: rSteps } = useGetConstantsFordropdown("RECOUNT_STEPS");
-  // Шинэ нэр бүртгэхэд СОНГОЖ болох төлвүүд: Constant дээр `desc`‑д маягтаа
-  // бичсэн (жиш. "Маягт 6") мөрүүд. Хоосон бол бүх төлвийг үзүүлнэ.
+  // Шинэ нэр бүртгэхэд СОНГОЖ болох төлвүүд: Constant дээр label="true"
+  // (нэр шаарддаг) гэж тэмдэглэгдсэн мөрүүд. Нэг ч байхгүй бол бүгд.
   const statusOptions = useMemo(() => {
-    const withForm = rStatuses.filter((s) => (s.desc || "").trim());
-    return withForm.length ? withForm : rStatuses;
+    const named = rStatuses.filter(
+      (s) =>
+        String(s.label || "")
+          .trim()
+          .toLowerCase() === "true",
+    );
+    return named.length ? named : rStatuses;
   }, [rStatuses]);
 
   // Анхдагч: "Шинээр үүссэн" (code=5), эс бөгөөс эхний сонголт
   useEffect(() => {
     if (statusId || !statusOptions.length) return;
-    const def =
-      statusOptions.find((s) => String(s.code) === "5") || statusOptions[0];
+    const def = statusOptions[0];
     setStatusId(def?.id || null);
   }, [statusOptions, statusId]);
 
@@ -237,6 +249,14 @@ export default function MapAddName({
       enqueueSnackbar("Нэр бичнэ үү", { variant: "warning" });
       return;
     }
+    // Ямар ч нэр АНГИЛАЛГҮЙ бүртгэгдэх ёсгүй
+    if (
+      !approvedMode &&
+      !(presetType?.id || cat3?.id || cat2?.id || cat1?.id)
+    ) {
+      enqueueSnackbar("Ангилал сонгоно уу", { variant: "warning" });
+      return;
+    }
     if (approvedMode && !apprName?.id) {
       enqueueSnackbar("Батлагдсан нэр сонгоно уу", { variant: "warning" });
       return;
@@ -346,6 +366,21 @@ export default function MapAddName({
               o?.name ? `${o.name}${o.number ? ` (${o.number})` : ""}` : ""
             }
             isOptionEqualToValue={(o, v) => o?.id === v?.id}
+            renderOption={(props, o) => (
+              <li {...props} key={o.id}>
+                <Stack sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" noWrap>
+                    {o.name}
+                    {o.number ? ` (${o.number})` : ""}
+                  </Typography>
+                  {unitText(o) && (
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {unitText(o)}
+                    </Typography>
+                  )}
+                </Stack>
+              </li>
+            )}
             noOptionsText="Харагдаж буй хүрээнд батлагдсан нэр алга"
             slotProps={{ popper: { sx: { zIndex: 1600 } } }}
             renderInput={(params) => (
@@ -356,6 +391,15 @@ export default function MapAddName({
             )}
             sx={{ mb: 1.5 }}
           />
+          {apprName && unitText(apprName) && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mt: -1, mb: 1 }}
+            >
+              {unitText(apprName)}
+            </Typography>
+          )}
           {apprName && (
             <Typography variant="body2" sx={{ mb: 1.5 }} color="warning.main">
               Төлөв: <b>Байршил зөрүүтэй</b> (автоматаар)
@@ -402,7 +446,7 @@ export default function MapAddName({
             {statusOptions.map((s) => (
               <MenuItem key={s.id} value={s.id}>
                 {s.name}
-                {(s.desc || "").trim() ? ` (${s.desc.trim()})` : ""}
+                {(s.desc || "").trim() ? ` (Маягт ${s.desc.trim()})` : ""}
               </MenuItem>
             ))}
           </TextField>
@@ -439,6 +483,7 @@ export default function MapAddName({
 
       <Button
         variant="contained"
+        color="primary"
         fullWidth
         disabled={saving || !geojson}
         onClick={onSave}
