@@ -9,7 +9,6 @@ urlpatterns = [
 	path('core/', include('core.urls')),
 	path('n/', include('apps.geoname.urls')),
  	path('r/', include('apps.request.urls')),
-	path('m/',include("apps.map.urls")),
 	path('g/', include('apps.geoserver.urls')),
     path('account/', include("apps.account.urls")),
 ]
