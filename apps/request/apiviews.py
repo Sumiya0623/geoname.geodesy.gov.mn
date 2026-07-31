@@ -657,11 +657,59 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				cond |= Q(statuses__isnull=True)
 			if cond:
 				qs = qs.filter(cond).distinct()
+		# ЗАСАГ ЗАХИРГААНЫ НЭГЖ — сонгосон нэгж + доод шатны удам. Батлагдсан
+		# нэрийн M2M‑ээр, эс бөгөөс тодруулалтын байршил (loc) нэгжид багтахаар.
+		unit_id = self.request.query_params.get('unit')
+		if unit_id:
+			from apps.geoname.apiviews import descendant_unit_ids
+			ids = descendant_unit_ids(unit_id)
+			cond = Q(name__unit__id__in=ids)
+			au = AdminUnit.objects.filter(id=unit_id).exclude(
+				geom__isnull=True).first()
+			if au is not None:
+				cond |= Q(loc__intersects=au.geom)
+			qs = qs.filter(cond).distinct()
+		# ХИЛИЙН ЦЭС (GeoName.is_border)
+		if self.request.query_params.get('is_border') in ('1', 'true', 'True'):
+			qs = qs.filter(name__is_border=True)
+		# ГЕОМЕТРИЙН ТӨРӨЛ — тодруулалтын loc, эс бөгөөс нэрийн geoloc
+		gtype = (self.request.query_params.get('geom_type') or '').strip()
+		if gtype:
+			from django.contrib.gis.db.models.functions import GeometryType
+			qs = qs.annotate(
+				g_type=Coalesce(GeometryType('loc'), GeometryType('name__geoloc'))
+			).filter(g_type__iendswith=gtype)
+		# ҮҮСГЭСЭН ХЭРЭГЛЭГЧ
+		user_id = self.request.query_params.get('user')
+		if user_id:
+			qs = qs.filter(user_id=user_id)
 		# БАЙРШИЛГҮЙ — тооллогын loc ч, нэрийн geoloc ч байхгүй
 		if self.request.query_params.get('no_geom') in ('1', 'true', 'True'):
 			qs = qs.filter(loc__isnull=True).filter(
 				Q(name__isnull=True) | Q(name__geoloc__isnull=True))
 		return qs
+
+	@action(detail=False, methods=['get'], url_path='users')
+	def users(self, request):
+		"""Тухайн төслийн тодруулалт ҮҮСГЭСЭН хэрэглэгчид (шүүлтийн сонголт).
+
+		  ?project=<id>[&step=<id>] → {results: [{id, full_name, photo}]}
+		"""
+		qs = self.get_queryset().exclude(user__isnull=True)
+		rows = (qs.values('user_id', 'user__first_name', 'user__last_name',
+		                  'user__username', 'user__photo')
+		        .distinct().order_by('user__last_name', 'user__first_name'))
+		seen, out = set(), []
+		for r in rows:
+			uid = r['user_id']
+			if uid in seen:
+				continue
+			seen.add(uid)
+			full = (f"{r['user__last_name'] or ''} {r['user__first_name'] or ''}".strip()
+			        or r['user__username'] or str(uid))
+			out.append({'id': uid, 'full_name': full,
+			            'photo': r['user__photo'] or None})
+		return Response({'results': out}, status=200)
 
 	@action(detail=False, methods=['get'], url_path='type-summary')
 	def type_summary(self, request):
