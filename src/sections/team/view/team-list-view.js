@@ -89,6 +89,9 @@ export default function TeamListView({ projectId, stepName, onCount }) {
 
   const fetchMembers = useCallback(() => {
     if (!projectId || !canView) return;
+    // Үе шат нэрээр өгсөн бол ТҮҮНИЙГ олтол татахгүй — эс бөгөөс шүүлтгүй
+    // хүсэлт явж, өөр үе шатны гишүүд орж ирнэ.
+    if (stepName && !stepId) return;
     setLoading(true);
     const q = new URLSearchParams({ project: projectId });
     if (stepId) q.set("step", stepId);
@@ -97,7 +100,7 @@ export default function TeamListView({ projectId, stepName, onCount }) {
       .then((res) => setMembers(res?.data?.results || res?.data || []))
       .catch(() => setMembers([]))
       .finally(() => setLoading(false));
-  }, [projectId, stepId, canView]);
+  }, [projectId, stepId, stepName, canView]);
 
   useEffect(() => {
     fetchMembers();

@@ -4,21 +4,12 @@ import PropTypes from "prop-types";
 import Container from "@mui/material/Container";
 import { useSettingsContext } from "src/components/settings";
 import { useParams } from "next/navigation";
-import {
-  Box,
-  Card,
-  Step,
-  Stepper,
-  StepButton,
-  StepConnector,
-  Typography,
-  stepConnectorClasses,
-} from "@mui/material";
+import { Box, Card, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import Iconify from "src/components/iconify";
-import { useCallback, useState, useEffect } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import { useGetChampaign } from "src/api/champaign";
-import { BeltgelListView } from "src/sections/beltgel/view";
+import BeltgelView from "./beltgel-view";
 import SuurinView from "./suurin-view";
 import HeerView from "./heer-view";
 import { MayagtView } from "src/sections/mayagt/view";
@@ -40,7 +31,7 @@ const STEPS = [
   },
   {
     value: "heer",
-    label: "Хээрийн судалгаа",
+    label: "Хээрийн тодруулалт",
     icon: "solar:map-point-wave-bold",
   },
   {
@@ -55,82 +46,35 @@ const STEPS = [
   },
 ];
 
-// Алхмуудын хооронд — өнгөт холбогч зураас (өнгөрсөн алхам нь дүүрсэн)
-function StepLine(props) {
-  return (
-    <StepConnector
-      {...props}
-      sx={{
-        top: 22,
-        [`& .${stepConnectorClasses.line}`]: {
-          borderTopWidth: 3,
-          borderRadius: 1,
-          borderColor: (t) => t.palette.divider,
-        },
-        [`&.${stepConnectorClasses.active} .${stepConnectorClasses.line}`]: {
-          borderColor: (t) => t.palette.primary.main,
-        },
-        [`&.${stepConnectorClasses.completed} .${stepConnectorClasses.line}`]: {
-          borderColor: (t) => t.palette.primary.main,
-        },
-      }}
-    />
-  );
-}
+// Алхмын дугаарын хэмжээ — холбогч зураас ЯГ ҮҮНИЙ голд таарна
+const STEP_ICON_SIZE = 28;
 
 function StepIcon({ active, completed, icon, step }) {
   return (
     <Box
       sx={{
-        width: 44,
-        height: 44,
+        width: STEP_ICON_SIZE,
+        height: STEP_ICON_SIZE,
         borderRadius: "50%",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         position: "relative",
         transition: "all .2s",
+        // Дууссан — ногоон (success), идэвхтэй — цэнхэр (primary), бусад — саарал
         bgcolor: (t) =>
-          completed || active
-            ? t.palette.primary.main
-            : alpha(t.palette.text.disabled, 0.12),
+          completed
+            ? t.palette.success.main
+            : active
+              ? t.palette.primary.main
+              : alpha(t.palette.text.disabled, 0.12),
         color: (t) => (completed || active ? "#fff" : t.palette.text.disabled),
-        boxShadow: (t) =>
-          active ? `0 0 0 4px ${alpha(t.palette.primary.main, 0.2)}` : "none",
       }}
     >
       <Iconify
         icon={completed ? "solar:check-circle-bold" : step.icon}
-        width={completed ? 26 : 24}
+        width={STEP_ICON_SIZE - 6}
       />
-      {/* Алхмын дугаар — доод баруун булангийн жижиг тэмдэг */}
-      <Box
-        sx={{
-          position: "absolute",
-          right: -2,
-          bottom: -2,
-          minWidth: 18,
-          height: 18,
-          px: 0.5,
-          borderRadius: "9px",
-          fontSize: 11,
-          fontWeight: 700,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          bgcolor: "background.paper",
-          color: (t) =>
-            completed || active
-              ? t.palette.primary.main
-              : t.palette.text.disabled,
-          border: (t) =>
-            `1px solid ${
-              completed || active ? t.palette.primary.main : t.palette.divider
-            }`,
-        }}
-      >
-        {icon}
-      </Box>
     </Box>
   );
 }
@@ -170,45 +114,91 @@ export default function ChampaignDetailsView() {
       <Card sx={{ p: 2, mb: 2 }}>
         <ProjectDetailsContent project={champaign} />
 
-        <Stepper
-          nonLinear
-          alternativeLabel
-          activeStep={activeIndex}
-          connector={<StepLine />}
-          sx={{ mt: 3, pt: 1, px: { xs: 1, md: 4 } }}
+        {/* Үе шатууд — дугаарууд хооронд ХОЛБОГЧ ЗУРААС, доор нь шошго.
+            MUI Stepper‑ийн байрлал 44px icon‑д тохирдоггүй тул энгийн flex
+            мөрөөр өөрсдөө байрлуулав (зураас нь дугаарын голд, 22px). */}
+        <Stack
+          direction="row"
+          alignItems="flex-start"
+          sx={{ mt: 3, px: { xs: 1, md: 4 } }}
         >
           {STEPS.map((step, i) => (
-            <Step key={step.value} completed={i < activeIndex}>
-              <StepButton
+            <React.Fragment key={step.value}>
+              {i > 0 && (
+                // Холбогч — icon‑той ЯГ ИЖИЛ өндөртэй хайрцаг дотор босоо
+                // голлуулсан тул зураас нь icon‑ы дунд түвшинд таарна
+                // (шошгыг тооцохгүй). Төгсгөлд нь чиглэлийн сум.
+                <Box
+                  sx={{
+                    flex: 1,
+                    height: STEP_ICON_SIZE,
+                    mx: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    color: (t) =>
+                      i < activeIndex
+                        ? t.palette.success.main
+                        : i === activeIndex
+                          ? t.palette.primary.main
+                          : t.palette.divider,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      flex: 1,
+                      height: 3,
+                      borderRadius: 1,
+                      bgcolor: "currentColor",
+                    }}
+                  />
+                  <Iconify
+                    icon="eva:arrow-ios-forward-fill"
+                    width={18}
+                    sx={{ ml: -0.75, flexShrink: 0 }}
+                  />
+                </Box>
+              )}
+              <Box
                 onClick={() => handleChangeTab(step.value)}
-                icon={i + 1}
-                sx={{ py: 1, borderRadius: 1 }}
-                StepIconComponent={(props) => (
-                  <StepIcon {...props} step={step} />
-                )}
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  minWidth: 110,
+                }}
               >
+                <StepIcon
+                  step={step}
+                  icon={i + 1}
+                  active={i === activeIndex}
+                  completed={i < activeIndex}
+                />
                 <Typography
                   variant="body2"
                   sx={{
+                    mt: 1,
+                    textAlign: "center",
                     fontWeight: i === activeIndex ? 700 : 500,
                     color:
                       i === activeIndex
                         ? "primary.main"
                         : i < activeIndex
-                          ? "text.primary"
+                          ? "success.main"
                           : "text.disabled",
                   }}
                 >
                   {step.label}
                 </Typography>
-              </StepButton>
-            </Step>
+              </Box>
+            </React.Fragment>
           ))}
-        </Stepper>
+        </Stack>
       </Card>
 
       {/* Алхмын контент — lazy (идэвхтэй алхам л mount хийгдэнэ) */}
-      {currentTab === "beltgel" && <BeltgelListView projectId={id} />}
+      {currentTab === "beltgel" && <BeltgelView projectId={id} />}
       {currentTab === "suurin" && <SuurinView projectId={id} />}
       {currentTab === "heer" && <HeerView projectId={id} />}
       {currentTab === "result" && <MayagtView projectId={id} />}

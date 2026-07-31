@@ -6,15 +6,15 @@ import {
   Stack,
   Button,
   Divider,
-  Tooltip,
   Checkbox,
   MenuItem,
   TextField,
   Typography,
   IconButton,
-  Autocomplete,
   InputAdornment,
   FormControlLabel,
+  Tooltip,
+  Badge,
 } from "@mui/material";
 
 import Iconify from "src/components/iconify";
@@ -29,14 +29,11 @@ export default function RecountTableToolbar({
   // хайлт
   search,
   onSearch,
-  // ангилал (cascade)
-  t1,
-  t2,
-  t3,
-  ty1,
-  ty2,
-  ty3,
-  onType,
+  // дэлгэрэнгүй хайлт
+  onAdvanced,
+  advancedActive,
+  canReset,
+  onReset,
   // төлөв
   statuses,
   selectedStatuses,
@@ -46,10 +43,6 @@ export default function RecountTableToolbar({
   // байршилгүй
   noGeom,
   onNoGeom,
-  // сангаас импортлох
-  importing,
-  canImport,
-  onImport,
 }) {
   return (
     <Stack
@@ -75,38 +68,6 @@ export default function RecountTableToolbar({
             </IconButton>
           ) : null,
         }}
-      />
-
-      {/* Ангилал — Үндсэн → Дэд → Ангилал (сонгосон хамгийн гүн нь үйлчилнэ).
-          «Ангилалгүй» сонголт нь төрөл огт тодорхойлоогүй мөрсийг шүүнэ. */}
-      <Autocomplete
-        value={t1}
-        onChange={(_e, v) => onType(1, v)}
-        options={[{ id: "none", name: "Ангилалгүй" }, ...ty1]}
-        getOptionLabel={(o) => o?.name || ""}
-        isOptionEqualToValue={(o, v) => o?.id === v?.id}
-        sx={{ width: { xs: 1, md: 190 }, flexShrink: 0 }}
-        renderInput={(params) => <TextField {...params} label="Үндсэн" />}
-      />
-      <Autocomplete
-        value={t2}
-        disabled={!t1?.id || t1.id === "none"}
-        onChange={(_e, v) => onType(2, v)}
-        options={ty2}
-        getOptionLabel={(o) => o?.name || ""}
-        isOptionEqualToValue={(o, v) => o?.id === v?.id}
-        sx={{ width: { xs: 1, md: 190 }, flexShrink: 0 }}
-        renderInput={(params) => <TextField {...params} label="Дэд" />}
-      />
-      <Autocomplete
-        value={t3}
-        disabled={!t2?.id || t1?.id === "none"}
-        onChange={(_e, v) => onType(3, v)}
-        options={ty3}
-        getOptionLabel={(o) => o?.name || ""}
-        isOptionEqualToValue={(o, v) => o?.id === v?.id}
-        sx={{ width: { xs: 1, md: 190 }, flexShrink: 0 }}
-        renderInput={(params) => <TextField {...params} label="Ангилал" />}
       />
 
       {/* Төлөв, шүүлт, импорт — мөрийн БАРУУН талд */}
@@ -186,30 +147,20 @@ export default function RecountTableToolbar({
           }
           label={<Typography variant="body2">Байршилгүй</Typography>}
         />
+        <Tooltip title="Дэлгэрэнгүй хайлт">
+          <IconButton color="inherit" onClick={onAdvanced}>
+            <Badge color="error" variant="dot" invisible={!advancedActive}>
+              <Iconify icon="solar:filter-bold" />
+            </Badge>
+          </IconButton>
+        </Tooltip>
 
-        <Tooltip title="Сангаас импортлох — төслийн хамрах засаг захиргаанд (аймаг сонгосон бол доод шатны сум, баг хүртэл) багтах бүх батлагдсан нэрийг дахин тооллого руу нэг дор нэмнэ">
-          <span>
-            <IconButton
-              color="primary"
-              disabled={importing || !canImport}
-              onClick={onImport}
-            >
-              <Iconify
-                icon="solar:refresh-circle-bold"
-                sx={
-                  importing
-                    ? {
-                        animation: "spin 1s linear infinite",
-                        "@keyframes spin": {
-                          from: { transform: "rotate(0deg)" },
-                          to: { transform: "rotate(360deg)" },
-                        },
-                      }
-                    : undefined
-                }
-              />
-            </IconButton>
-          </span>
+        <Tooltip title="Шүүлт цэвэрлэх">
+          <IconButton onClick={onReset}>
+            <Badge color="error" variant="dot" invisible={!canReset}>
+              <Iconify icon="solar:restart-bold" />
+            </Badge>
+          </IconButton>
         </Tooltip>
       </Stack>
     </Stack>
@@ -219,13 +170,10 @@ export default function RecountTableToolbar({
 RecountTableToolbar.propTypes = {
   search: PropTypes.string,
   onSearch: PropTypes.func,
-  t1: PropTypes.object,
-  t2: PropTypes.object,
-  t3: PropTypes.object,
-  ty1: PropTypes.array,
-  ty2: PropTypes.array,
-  ty3: PropTypes.array,
-  onType: PropTypes.func,
+  onAdvanced: PropTypes.func,
+  advancedActive: PropTypes.bool,
+  canReset: PropTypes.bool,
+  onReset: PropTypes.func,
   statuses: PropTypes.array,
   selectedStatuses: PropTypes.array,
   onStatuses: PropTypes.func,
@@ -233,7 +181,4 @@ RecountTableToolbar.propTypes = {
   onStMenu: PropTypes.func,
   noGeom: PropTypes.bool,
   onNoGeom: PropTypes.func,
-  importing: PropTypes.bool,
-  canImport: PropTypes.bool,
-  onImport: PropTypes.func,
 };

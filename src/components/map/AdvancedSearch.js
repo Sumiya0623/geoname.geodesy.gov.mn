@@ -180,13 +180,17 @@ export default function AdvancedSearch({
   }, [seed?.n]);
 
   // Засаг захиргаа — аймаг → сум → баг (dependent)
-  const { units: aimagOptions } = useGetLegalUnits("Аймаг", null, true);
+  const { units: aimagOptions } = useGetLegalUnits("Аймаг/Нийслэл", null, true);
   const { units: sumOptions } = useGetLegalUnits(
-    "Сум",
+    "Сум/Дүүрэг",
     f.aimag?.id,
     !!f.aimag?.id,
   );
-  const { units: bagOptions } = useGetLegalUnits("Баг", f.sum?.id, !!f.sum?.id);
+  const { units: bagOptions } = useGetLegalUnits(
+    "Баг/Хороо",
+    f.sum?.id,
+    !!f.sum?.id,
+  );
 
   // Ангилал — level1 → level2 → level3 (dependent, GEONAME_TYPES)
   const [cat1Opts, setCat1Opts] = useState([]);

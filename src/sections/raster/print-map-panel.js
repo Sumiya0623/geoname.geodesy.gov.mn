@@ -45,7 +45,10 @@ export default function RasterPrintPanel({ open, onClose, onDone }) {
 
   useEffect(() => {
     if (!open) return;
-    fetchAdjacentUnits({ level: "aimag", selected: aimags.map((a) => a.id) }).then(setAimagOpts);
+    fetchAdjacentUnits({
+      level: "aimag",
+      selected: aimags.map((a) => a.id),
+    }).then(setAimagOpts);
   }, [open, aimags]);
 
   useEffect(() => {
@@ -74,7 +77,11 @@ export default function RasterPrintPanel({ open, onClose, onDone }) {
       // cache-bust (_t) — browser ижил URL-ийг кэшлэхээс сэргийлнэ
       const t = new Date().getTime();
       axiosInstance
-        .get(endpoints.raster.preview(`units=${unitKey}&is_border=${isBorder ? "1" : "0"}&_t=${t}`))
+        .get(
+          endpoints.raster.preview(
+            `units=${unitKey}&is_border=${isBorder ? "1" : "0"}&_t=${t}`,
+          ),
+        )
         .then((res) => {
           setPreviewImg(res.data?.image || null);
           setMeta(res.data || null);
@@ -124,7 +131,9 @@ export default function RasterPrintPanel({ open, onClose, onDone }) {
     }
   };
 
-  const scaleText = meta?.scale ? `1 : ${Number(meta.scale).toLocaleString()}` : "—";
+  const scaleText = meta?.scale
+    ? `1 : ${Number(meta.scale).toLocaleString()}`
+    : "—";
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl">
@@ -134,7 +143,10 @@ export default function RasterPrintPanel({ open, onClose, onDone }) {
       </DialogTitle>
       <DialogContent dividers sx={{ p: 0 }}>
         <Stack direction={{ xs: "column", md: "row" }} sx={{ minHeight: 560 }}>
-          <Stack spacing={2.5} sx={{ p: 2.5, width: { md: 320 }, flexShrink: 0 }}>
+          <Stack
+            spacing={2.5}
+            sx={{ p: 2.5, width: { md: 320 }, flexShrink: 0 }}
+          >
             <Autocomplete
               multiple
               size="small"
@@ -142,7 +154,9 @@ export default function RasterPrintPanel({ open, onClose, onDone }) {
               value={aimags}
               onChange={(_e, v) => {
                 setAimags(v);
-                setSums((prev) => prev.filter((s) => v.some((a) => a.id === s.parent_id)));
+                setSums((prev) =>
+                  prev.filter((s) => v.some((a) => a.id === s.parent_id)),
+                );
               }}
               getOptionLabel={(o) => o?.unit || ""}
               isOptionEqualToValue={(o, v) => o.id === v.id}
@@ -161,20 +175,33 @@ export default function RasterPrintPanel({ open, onClose, onDone }) {
                 <TextField
                   {...p}
                   label="Сум / Дүүрэг"
-                  placeholder={aimags.length ? "Хил залгаагаар..." : "Эхлээд аймаг"}
+                  placeholder={
+                    aimags.length ? "Хил залгаагаар..." : "Эхлээд аймаг"
+                  }
                 />
               )}
             />
             <FormControlLabel
-              control={<Switch checked={isBorder} onChange={(e) => setIsBorder(e.target.checked)} />}
+              control={
+                <Switch
+                  checked={isBorder}
+                  onChange={(e) => setIsBorder(e.target.checked)}
+                />
+              }
               label="Хилийн цэс (зөвхөн хилийн нэрс)"
             />
-            <Box sx={{ p: 1.5, bgcolor: "background.neutral", borderRadius: 1 }}>
+            <Box
+              sx={{ p: 1.5, bgcolor: "background.neutral", borderRadius: 1 }}
+            >
               <Typography variant="caption" color="text.secondary">
                 Масштаб (авто)
               </Typography>
               <Typography variant="h6">{scaleText}</Typography>
-              <Typography variant="caption" color="text.secondary" display="block">
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+              >
                 Цаас: A0{" "}
                 {meta?.orientation
                   ? meta.orientation === "landscape"
@@ -215,7 +242,11 @@ export default function RasterPrintPanel({ open, onClose, onDone }) {
               <img
                 src={previewImg}
                 alt="preview"
-                style={{ maxWidth: "100%", maxHeight: 540, boxShadow: "0 0 10px rgba(0,0,0,0.35)" }}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: 540,
+                  boxShadow: "0 0 10px rgba(0,0,0,0.35)",
+                }}
               />
             ) : (
               <Typography variant="body2" color="text.secondary">

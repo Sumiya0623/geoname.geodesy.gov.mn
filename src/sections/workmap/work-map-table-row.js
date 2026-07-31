@@ -1,6 +1,5 @@
 import PropTypes from "prop-types";
 
-import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import MenuItem from "@mui/material/MenuItem";
 import TableRow from "@mui/material/TableRow";
@@ -42,22 +41,21 @@ export default function WorkMapTableRow({
         <TableCell sx={{ whiteSpace: "nowrap" }}>
           {scale ? `1 : ${Number(scale).toLocaleString()}` : "-"}
         </TableCell>
+        {/* Үүсгэсэн хэрэглэгч — нэгдсэн ProfileAvatar компонентоор */}
         <TableCell sx={{ whiteSpace: "nowrap" }}>
-          {/* Хэрэглэгчийн мэдээлэл — нэгдсэн ProfileAvatar компонентоор */}
           <Stack direction="row" alignItems="center" spacing={1}>
             <ProfileAvatar user={row.user} size={28} />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="body2" noWrap>
-                {row.user_name || row.user?.full_name || "-"}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap>
-                {row.created_date
-                  ? fDate(row.created_date, "yyyy.MM.dd HH:mm")
-                  : ""}
-              </Typography>
-            </Box>
+            <Typography variant="body2" noWrap>
+              {row.user_name || row.user?.full_name || "-"}
+            </Typography>
           </Stack>
         </TableCell>
+
+        {/* Огноо — богино хэлбэр */}
+        <TableCell sx={{ whiteSpace: "nowrap" }}>
+          {row.created_date ? fDate(row.created_date, "yyyy.MM.dd") : "-"}
+        </TableCell>
+
         <TableCell align="right" sx={{ px: 1 }}>
           <IconButton
             color={popover.open ? "inherit" : "default"}

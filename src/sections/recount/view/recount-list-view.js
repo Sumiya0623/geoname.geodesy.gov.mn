@@ -15,6 +15,8 @@ import {
   Button,
   Dialog,
   Divider,
+  Tooltip,
+  Collapse,
   TableRow,
   TextField,
   TableBody,
@@ -44,6 +46,7 @@ import RecountMap from "./recount-map";
 
 import RecountTableRow from "../recount-table-row";
 import RecountTableStatus from "../recount-table-status";
+import RecountAdvancedSearch, { EMPTY_ADV } from "../recount-advanced-search";
 import RecountTableToolbar from "../recount-table-toolbar";
 import { statusColor } from "src/components/map/recountStatus";
 
@@ -98,8 +101,6 @@ export default function RecountListView({
   const [t1, setT1] = useState(null);
   const [t2, setT2] = useState(null);
   const [t3, setT3] = useState(null);
-  const selType = t3 || t2 || t1;
-
   const [busyId, setBusyId] = useState(null);
   const [dlg, setDlg] = useState(null); // {geoname, statusName, text}
 
@@ -122,6 +123,18 @@ export default function RecountListView({
   const [locDlg, setLocDlg] = useState(null); // {title, geom} — байршил харах
   const [stMenu, setStMenu] = useState(null); // төлвийн сонголтын цэсний anchor
   const [noGeom, setNoGeom] = useState(false); // зөвхөн байршилгүй нэрс
+  const [advOpen, setAdvOpen] = useState(false); // дэлгэрэнгүй хайлт нээлттэй
+  const [adv, setAdv] = useState(EMPTY_ADV); // дэлгэрэнгүй хайлтын утгууд
+  // Дэлгэрэнгүй хайлтын ангилал — хамгийн гүн сонголт үйлчилнэ
+  const advType = adv.t3 || adv.t2 || adv.t1;
+  // Дэлгэрэнгүй хайлтад ямар нэг утга сонгогдсон эсэх (icon дээрх улаан цэг)
+  const advActive =
+    !!adv.aimag ||
+    !!adv.sum ||
+    !!adv.user ||
+    !!advType ||
+    !!adv.geomType ||
+    !!adv.isBorder;
   const [rowMenu, setRowMenu] = useState(null); // мөрийн 3 цэгийн цэс
   const [dense, setDense] = useState(true); // хүснэгтийн нягт горим (стандарт)
   const [editDlg, setEditDlg] = useState(null); // {id, name, draft, statusIds}
@@ -152,6 +165,22 @@ export default function RecountListView({
     [geoTypes],
   );
 
+  // Шүүлтэд гарах — тухайн төслийн тодруулалт үүсгэсэн хэрэглэгчид
+  const { data: userData } = useSWR(
+    projectId
+      ? [
+          endpoints.recount.users(
+            new URLSearchParams({ project: projectId }).toString(),
+          ),
+          axiosInstance,
+          "get",
+        ]
+      : null,
+    fetcher,
+    { shouldRetryOnError: false },
+  );
+  const userOptions = useMemo(() => userData?.results || [], [userData]);
+
   const { constants: steps } = useGetConstantsFordropdown("RECOUNT_STEPS");
   const { constants: statuses } = useGetConstantsFordropdown("RECOUNT_STATUS");
   const stepObj = useMemo(
@@ -177,8 +206,14 @@ export default function RecountListView({
             ordering: `${rOrder === "desc" ? "-" : ""}${rOrderBy}`,
             ...(rdq ? { search: rdq } : {}),
             ...(stepObj?.id ? { step: stepObj.id } : {}),
-            ...(selType?.id ? { type: selType.id } : {}),
+            ...(advType?.id ? { type: advType.id } : {}),
+            ...(adv.sum?.id || adv.aimag?.id
+              ? { unit: adv.sum?.id || adv.aimag?.id }
+              : {}),
+            ...(adv.geomType ? { geom_type: adv.geomType } : {}),
+            ...(adv.isBorder ? { is_border: 1 } : {}),
             ...(rStatuses.length ? { statuses: rStatuses.join(",") } : {}),
+            ...(adv.user?.id ? { user: adv.user.id } : {}),
             ...(noGeom ? { no_geom: 1 } : {}),
           }
         : null,
@@ -190,8 +225,9 @@ export default function RecountListView({
       rOrder,
       rOrderBy,
       rdq,
-      selType,
       rStatuses,
+      adv,
+      advType,
       noGeom,
     ],
   );
@@ -305,17 +341,49 @@ export default function RecountListView({
             setRPage(0);
           }}
           action={
-            <Button
-              variant="outlined"
-              color="primary"
-              startIcon={<Iconify icon="solar:map-bold" />}
-              onClick={() =>
-                router.push(`/dashboard/champaign/${projectId}/map/`)
-              }
-              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
-            >
-              Газрын зураг
-            </Button>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Tooltip title="Сангаас холбох — төслийн хамрах засаг захиргаанд (аймаг сонгосон бол доод шатны сум, баг хүртэл) багтах бүх батлагдсан нэрийг дахин тооллого руу нэг дор нэмнэ">
+                <span>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    disabled={importing || !projectUnitIds.length}
+                    startIcon={
+                      <Iconify
+                        icon="solar:refresh-circle-bold"
+                        sx={
+                          importing
+                            ? {
+                                animation: "spin 1s linear infinite",
+                                "@keyframes spin": {
+                                  from: { transform: "rotate(0deg)" },
+                                  to: { transform: "rotate(360deg)" },
+                                },
+                              }
+                            : undefined
+                        }
+                      />
+                    }
+                    onClick={handleImportByUnits}
+                    sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
+                  >
+                    Сангаас холбох
+                  </Button>
+                </span>
+              </Tooltip>
+
+              <Button
+                variant="outlined"
+                color="primary"
+                startIcon={<Iconify icon="solar:map-bold" />}
+                onClick={() =>
+                  router.push(`/dashboard/champaign/${projectId}/map/`)
+                }
+                sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
+              >
+                Газрын зураг
+              </Button>
+            </Stack>
           }
         />
 
@@ -324,25 +392,6 @@ export default function RecountListView({
           search={rq}
           onSearch={(v) => {
             setRq(v);
-            setRPage(0);
-          }}
-          t1={t1}
-          t2={t2}
-          t3={t3}
-          ty1={ty1}
-          ty2={ty2}
-          ty3={ty3}
-          onType={(level, v) => {
-            if (level === 1) {
-              setT1(v);
-              setT2(null);
-              setT3(null);
-            } else if (level === 2) {
-              setT2(v);
-              setT3(null);
-            } else {
-              setT3(v);
-            }
             setRPage(0);
           }}
           statuses={statuses}
@@ -359,15 +408,36 @@ export default function RecountListView({
           }}
           stMenu={stMenu}
           onStMenu={setStMenu}
+          onAdvanced={() => setAdvOpen((v) => !v)}
+          advancedActive={advActive}
+          canReset={advActive || !!rq || !!rStatuses.length || noGeom}
+          onReset={() => {
+            setAdv(EMPTY_ADV);
+            setRq("");
+            setRStatuses([]);
+            setNoGeom(false);
+            setRPage(0);
+          }}
           noGeom={noGeom}
           onNoGeom={(v) => {
             setNoGeom(v);
             setRPage(0);
           }}
-          importing={importing}
-          canImport={!!projectUnitIds.length}
-          onImport={handleImportByUnits}
         />
+
+        {/* Дэлгэрэнгүй хайлт — toolbar‑ын доор */}
+        <Collapse in={advOpen} timeout="auto" unmountOnExit>
+          <RecountAdvancedSearch
+            open={advOpen}
+            value={adv}
+            users={userOptions}
+            onApply={(v) => {
+              setAdv(v);
+              setRPage(0);
+            }}
+          />
+        </Collapse>
+
         <TableContainer>
           <Scrollbar>
             <Table size={dense ? "small" : "medium"} sx={{ minWidth: 600 }}>

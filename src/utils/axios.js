@@ -151,8 +151,7 @@ export const endpoints = {
     edit: (id) => `/api/r/request/${id}/`,
     delete: (id) => `/api/r/request/${id}/`,
     details: (id) => `/api/r/request/${id}/`,
-    geonames: (request_body) =>
-      `/api/n/geoname/dropdown/?${request_body}`,
+    geonames: (request_body) => `/api/n/geoname/dropdown/?${request_body}`,
     status: (request_body) => `/api/core/status/?${request_body}`,
     upload: (id) => `/api/r/request/${id}/upload/`,
     locate: (request_body) => `/api/r/request/locate/?${request_body}`,
@@ -189,7 +188,8 @@ export const endpoints = {
     preview: (request_body) => `/api/n/raster/preview/?${request_body}`,
     // Ажлын зураг (хээрийн судалгаа — төслийн дахин тооллогоор)
     workUnits: (request_body) => `/api/n/raster/work-units/?${request_body}`,
-    workPreview: (request_body) => `/api/n/raster/work-preview/?${request_body}`,
+    workPreview: (request_body) =>
+      `/api/n/raster/work-preview/?${request_body}`,
     workPrint: `/api/n/raster/work-print/`,
   },
 
@@ -239,6 +239,8 @@ export const endpoints = {
     // Ангиллын тоо — жагсаалттай ижил шүүлтээр (хүснэгтийн дээд таб)
     typeSummary: (request_body) =>
       `/api/r/recount/type-summary/?${request_body}`,
+    // Тодруулалт үүсгэсэн хэрэглэгчид (шүүлтийн сонголт)
+    users: (request_body) => `/api/r/recount/users/?${request_body}`,
     unitTree: (request_body) => `/api/r/recount/unit-tree/?${request_body}`,
     // Хээрийн зураг (Photo — тодруулалт дээр шууд)
     addPhoto: (id) => `/api/r/recount/${id}/add-photo/`,
@@ -291,7 +293,8 @@ export const endpoints = {
     edit: (id) => `/api/g/basemap/${id}/`,
     delete: (id) => `/api/g/basemap/${id}/`,
     details: (id) => `/api/g/basemap/${id}/`,
-    available: (request_body) => `/api/g/basemap/available/?${request_body || ""}`,
+    available: (request_body) =>
+      `/api/g/basemap/available/?${request_body || ""}`,
     forMap: `/api/g/basemap/for-map/`,
     // Давхаргын хил (Zoom to Layer) — ?layer=<ws:name>
     layerExtent: (layer) =>
@@ -331,7 +334,8 @@ export const endpoints = {
       remove: (id) => `/api/g/fs/remove/${id}/`,
       geoserver: (request_body) => `/api/g/fs/geoserver/?${request_body}`,
       attributes: (request_body) => `/api/g/fs/attributes/?${request_body}`,
-      stylefields: (request_body) => `/api/g/nameclass/style-fields/?${request_body}`,
+      stylefields: (request_body) =>
+        `/api/g/nameclass/style-fields/?${request_body}`,
       baseLayers: `/api/g/fs/baselayers/`,
     },
     style: {

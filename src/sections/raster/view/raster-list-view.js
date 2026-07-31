@@ -1,7 +1,9 @@
 "use client";
 
+import PropTypes from "prop-types";
+
 import { isEqual } from "lodash";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 
 import {
   Card,
@@ -47,7 +49,7 @@ const TABLE_HEAD = [
   { id: "", width: 48 },
 ];
 
-export default function RasterListView() {
+export default function RasterListView({ embedded = false, onCount }) {
   const settings = useSettingsContext();
   const { enqueueSnackbar } = useSnackbar();
   const table = useTable({
@@ -102,6 +104,13 @@ export default function RasterListView() {
     rastersMutation,
   } = useGetRasters(requestBody);
 
+  // Нийт тоог эцэг хуудсанд мэдэгдэнэ (collapse‑ийн толгойд харуулна)
+  const onCountRef = useRef(onCount);
+  onCountRef.current = onCount;
+  useEffect(() => {
+    onCountRef.current?.(rastersCount);
+  }, [rastersCount]);
+
   const handleDelete = useCallback(
     async (id) => {
       try {
@@ -118,17 +127,22 @@ export default function RasterListView() {
   const notFound = rastersEmpty && !rastersLoading;
 
   return (
-    <Container maxWidth={settings.themeStretch ? false : "xxl"}>
-      <CustomBreadcrumbs
-        heading="Газар зүйн нэрийн зургийн хэвлэлийн эх"
-        links={[
-          { name: "Дашбоард", href: paths.dashboard.root },
-          { name: "Хэвлэлийн эх" },
-        ]}
-        sx={{ mb: 3 }}
-      />
+    <Container
+      maxWidth={embedded ? false : settings.themeStretch ? false : "xxl"}
+      disableGutters={embedded}
+    >
+      {!embedded && (
+        <CustomBreadcrumbs
+          heading="Газар зүйн нэрийн зургийн хэвлэлийн эх"
+          links={[
+            { name: "Дашбоард", href: paths.dashboard.root },
+            { name: "Хэвлэлийн эх" },
+          ]}
+          sx={{ mb: 3 }}
+        />
+      )}
 
-      <Card>
+      <Card sx={embedded ? { boxShadow: "none" } : undefined}>
         <RasterTableToolbar
           filters={filters}
           onFilters={handleFilters}
@@ -186,3 +200,8 @@ export default function RasterListView() {
     </Container>
   );
 }
+
+RasterListView.propTypes = {
+  embedded: PropTypes.bool,
+  onCount: PropTypes.func,
+};

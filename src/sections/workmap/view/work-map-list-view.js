@@ -39,9 +39,10 @@ const TABLE_HEAD = [
   { id: "", label: "Nº", width: 48 },
   { id: "title", label: "Нэр" },
   { id: "", label: "Нэгж", width: 190 },
-  { id: "name_count", label: "Нэр", width: 100, align: "center" },
+  { id: "name_count", label: "Нэрийн тоо", width: 110, align: "center" },
   { id: "scale", label: "Масштаб", width: 110 },
-  { id: "created_date", label: "Үүсгэсэн", width: 230 },
+  { id: "", label: "Хэрэглэгч", width: 190 },
+  { id: "created_date", label: "Огноо", width: 120 },
   { id: "", width: 48 },
 ];
 
