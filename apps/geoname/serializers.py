@@ -4,7 +4,11 @@ from rest_framework import serializers
 from django.contrib.gis.geos import Point, GEOSGeometry
 from django.contrib.contenttypes.models import ContentType
 
-from core.models import Constant, GeoName, LegalOrder, Photo, Attach, PrintMap, Nomek
+from django.db.models import Count, Q
+
+from core.serializers import ProfileDropDownSerializer
+from core.models import (Constant, GeoName, LegalOrder, Photo, Attach, PrintMap,
+                         Nomek, AdminUnit, Project, ProjectArea, ProjectMember)
 
 
 class PrintMapSerializer(serializers.ModelSerializer):
@@ -12,12 +16,15 @@ class PrintMapSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
     units_text = serializers.SerializerMethodField()
     user_name = serializers.SerializerMethodField()
+    # Хэрэглэгчийн бүтэн мэдээлэл — frontend дээр ProfileAvatar‑аар харуулна
+    user = ProfileDropDownSerializer(read_only=True)
     year = serializers.SerializerMethodField()
 
     class Meta:
         model = PrintMap
         fields = ['id', 'title', 'units_text', 'name_count', 'is_border',
-                  'scale', 'file_url', 'user_name', 'created_date', 'year']
+                  'scale', 'file_url', 'user', 'user_name', 'created_date',
+                  'year']
 
     def get_file_url(self, obj):
         try:
@@ -259,3 +266,131 @@ class GeoNameSerializer(serializers.ModelSerializer):
 
 	def update(self, instance, validated_data):
 		return super().update(instance, self._apply_geoloc(validated_data))
+
+
+# ----------------------------------------------------------------------
+# ТӨСӨЛ (гэрээт ажил) ба түүнд хамаарах бүртгэлүүд:
+#   • ProjectUnitSerializer   — төслийн хамрах засаг захиргааны нэгж
+#   • ProjectAreaSerializer   — газрын зураг дээр зурсан ажлын талбай
+#   • ProjectMemberSerializer — багийн бүрэлдэхүүн (үе шат + сум тус бүрээр)
+#   • ProjectSerializer       — төсөл өөрөө
+# ----------------------------------------------------------------------
+
+
+class ProjectUnitSerializer(serializers.ModelSerializer):
+    """Төслийн хамрах ЗЗ нэгж — толгойн chip‑д зориулж эцгийн нэртэй."""
+    parent_unit = serializers.CharField(source='parent.unit', read_only=True,
+                                        default=None)
+    level_name = serializers.CharField(source='level.name', read_only=True,
+                                       default=None)
+
+    class Meta:
+        model = AdminUnit
+        fields = ['id', 'unit', 'parent', 'parent_unit', 'level_name']
+
+
+class ProjectAreaSerializer(serializers.ModelSerializer):
+    """Төслийн ажлын талбай — газрын зураг дээр зурсан polygon.
+
+    area нь GeoJSON‑оор орж/гарна. Зурагт label болгон харуулахад
+    user_name (үүсгэсэн хэрэглэгч) + is_finished (төлөв) хэрэгтэй.
+    """
+    area = serializers.SerializerMethodField()
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectArea
+        fields = ['id', 'project', 'area', 'is_finished',
+                  'user', 'user_name', 'created_date']
+        read_only_fields = ['user', 'created_date']
+
+    def get_area(self, obj):
+        return json.loads(obj.area.geojson) if obj.area else None
+
+    def get_user_name(self, obj):
+        u = obj.user
+        return (getattr(u, 'full_name', None) or getattr(u, 'username', None)
+                or '') if u else ''
+
+    def _apply_area(self, validated_data):
+        raw = self.initial_data.get('area')
+        if raw in (None, ''):
+            return validated_data
+        try:
+            g = GEOSGeometry(raw if isinstance(raw, str) else json.dumps(raw))
+            if not g.srid:
+                g.srid = 4326
+            validated_data['area'] = g
+        except Exception:
+            raise serializers.ValidationError({'area': 'Буруу геометр'})
+        return validated_data
+
+    def create(self, validated_data):
+        return super().create(self._apply_area(validated_data))
+
+    def update(self, instance, validated_data):
+        return super().update(instance, self._apply_area(validated_data))
+
+
+class ProjectMemberSerializer(serializers.ModelSerializer):
+    """Төслийн багийн бүрэлдэхүүн — унших талд нэр/албан тушаал/шийдвэр дэлгэрнэ."""
+    unit_name = serializers.CharField(source='unit.unit', read_only=True, default=None)
+    parent_unit = serializers.CharField(source='unit.parent.unit', read_only=True, default=None)
+    position_name = serializers.CharField(source='position.name', read_only=True, default=None)
+    step_name = serializers.CharField(source='step.name', read_only=True, default=None)
+    doc_name = serializers.CharField(source='doc.name', read_only=True, default=None)
+    doc_number = serializers.CharField(source='doc.order_number', read_only=True, default=None)
+    person_name = serializers.SerializerMethodField()
+    # Системийн хэрэглэгчийн профайл — ProfileAvatar‑д зориулав
+    person_profile = ProfileDropDownSerializer(source='person', read_only=True)
+
+    class Meta:
+        model = ProjectMember
+        fields = ['id', 'project', 'unit', 'unit_name', 'parent_unit',
+                  'full_name', 'register', 'phone', 'org_title',
+                  'position', 'position_name', 'step', 'step_name',
+                  'doc', 'doc_name', 'doc_number',
+                  'person', 'person_name', 'person_profile', 'created_date']
+        read_only_fields = ['created_date']
+
+    def get_person_name(self, obj):
+        u = obj.person
+        return (getattr(u, 'full_name', None) or getattr(u, 'username', None)) if u else None
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+	org=ProfileDropDownSerializer(read_only=True)
+	# Бэлтгэл табын chip‑үүд: ЗӨВХӨН энэ төсөлд бүртгэгдсэн (≥1 legal орд бүхий)
+	# LEGAL_TYPES төрлүүд + орд тоо. Зөвхөн detail (retrieve) дээр (жагсаалтад null).
+	registered_types = serializers.SerializerMethodField()
+	# Хамрах ЗЗ нэгж — уншихад дэлгэрэнгүй, бичихэд id‑гийн жагсаалт
+	units = ProjectUnitSerializer(many=True, read_only=True)
+	unit_ids = serializers.PrimaryKeyRelatedField(
+		queryset=AdminUnit.objects.all(), source='units',
+		many=True, write_only=True, required=False,
+	)
+
+	class Meta:
+		model = Project
+		fields = '__all__'
+
+	def get_registered_types(self, obj):
+		view = self.context.get('view')
+		if not view or getattr(view, 'action', None) != 'retrieve':
+			return None
+		types = (
+			Constant.objects.filter(key='LEGAL_TYPES')
+			.annotate(order_count=Count('legalorgs', filter=Q(legalorgs__projects=obj), distinct=True))
+			.filter(order_count__gt=0)
+			.order_by('id')
+		)
+		return [
+			{
+				'id': t.id,
+				'name': t.name,
+				'label': t.label or t.name,
+				'code': t.code,
+				'order_count': t.order_count,
+			}
+			for t in types
+		]

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.contenttypes.models import ContentType
 
+from core.serializers import ProfileDropDownSerializer
 from core.models import (
 	Constant, AdminUnit, LegalOrder,
 	GeoName, RequestName, NameOption, NameContact, Photo, Attach,
@@ -302,6 +303,53 @@ class ReCountSerializer(serializers.ModelSerializer):
 	# Төслийн нэр/дугаар (тодруулалт дээр дарахад popup‑д харуулна)
 	project = serializers.SerializerMethodField()
 	loc = serializers.SerializerMethodField()
+	# Ангиллын 3 түвшин — GeoName‑тэй бол түүний, эс бөгөөс тодруулалтын
+	# ӨӨРИЙН type‑ээс (draft). Хүснэгтэд шууд харуулна.
+	type_l1 = serializers.SerializerMethodField()
+	type_l2 = serializers.SerializerMethodField()
+	type_l3 = serializers.SerializerMethodField()
+	# Үүсгэсэн хэрэглэгч (ProfileAvatar‑д зориулж бүтэн профайл) + огноо
+	user = ProfileDropDownSerializer(read_only=True)
+
+	def _type_chain(self, obj):
+		"""Язгуураас навч хүртэлх ангиллын нэрсийн жагсаалт."""
+		t = (obj.name.type if obj.name_id and obj.name.type_id else None) or obj.type
+		chain, seen = [], set()
+		while t and t.id not in seen:
+			seen.add(t.id)
+			chain.append(t.name)
+			t = t.parent
+		chain.reverse()
+		return chain
+
+	def get_type_l1(self, obj):
+		c = self._type_chain(obj)
+		return c[0] if len(c) > 0 else None
+
+	def get_type_l2(self, obj):
+		c = self._type_chain(obj)
+		return c[1] if len(c) > 1 else None
+
+	def get_type_l3(self, obj):
+		c = self._type_chain(obj)
+		return c[2] if len(c) > 2 else None
+	# Хээрийн зургууд (Photo — generic FK)
+	photos = serializers.SerializerMethodField()
+
+	def get_photos(self, obj):
+		from django.contrib.contenttypes.models import ContentType
+		from core.models import Photo, ReCount as _RC
+		ct = ContentType.objects.get_for_model(_RC)
+		req = self.context.get('request')
+		out = []
+		for p in Photo.objects.filter(content_type=ct, object_id=obj.id):
+			try:
+				url = p.file.url if p.file else None
+			except Exception:
+				url = None
+			out.append({'id': p.id, 'desc': p.desc,
+			            'url': req.build_absolute_uri(url) if (req and url) else url})
+		return out
 
 	def get_project(self, obj):
 		p = obj.project
@@ -312,7 +360,8 @@ class ReCountSerializer(serializers.ModelSerializer):
 		fields = [
 			'id', 'project', 'project_id', 'step', 'step_id',
 			'statuses', 'status_ids',
-			'name', 'name_id', 'draft', 'loc', 'type', 'type_id',
+			'name', 'name_id', 'draft', 'loc', 'type', 'type_id', 'photos',
+			'user', 'created_date', 'type_l1', 'type_l2', 'type_l3',
 		]
 
 	def get_loc(self, obj):

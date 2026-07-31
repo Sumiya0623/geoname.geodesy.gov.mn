@@ -29,7 +29,9 @@ class ConstantDropDownSerializer(serializers.ModelSerializer):
 		model = Constant
 		# color — газрын зураг/legend/chip‑үүд төлвийн өнгийг ЭНДЭЭС авна
 		# code  — тогтмолыг НЭРЭЭР нь биш кодоор нь таних (нэр өөрчлөгдөж болно)
-		fields = ['id','name','parent','desc','color','code']
+		# label — тухайн тогтмолын нэмэлт ТУГ (true/false гэх мэт) — код дотор
+		# статик текстээр ялгахын оронд DB‑ээс удирдана
+		fields = ['id','name','parent','desc','color','code','label']
 
 class MailLogSerializer(serializers.ModelSerializer):
 	category = ConstantDropDownSerializer(read_only=True)

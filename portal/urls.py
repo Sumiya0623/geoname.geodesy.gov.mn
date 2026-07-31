@@ -3,7 +3,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path, include
-from apps.geoname.inquire_views import inquire_document
+from apps.geoname.views import inquire_document
 urlpatterns = [
     path('admin/', admin.site.urls),
 	path('core/', include('core.urls')),

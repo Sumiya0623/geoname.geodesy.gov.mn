@@ -426,17 +426,14 @@ class GeoNameInquire(UserMixin):
 	class Meta:
 		verbose_name_plural='GeoNameInquire'
 
-class ReCount(models.Model):
+class ReCount(UserMixin):
 	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='recounts',blank=True, null=True)
 	step=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_STEPS'},verbose_name='Төрөл',related_name='recountsteps',blank=True, null=True)
 	name=models.ForeignKey(GeoName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='recounts',blank=True, null=True)
 	draft=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Төсөл')
-	# Ангилал — GeoName‑гүй (draft) тодруулалтын төрөл. GeoName холбогдсон бол
-	# түүний type давамгайлна (recount_view: COALESCE(g.type_id, r.type_id)).
 	type=models.ForeignKey(Constant,on_delete=models.SET_NULL,limit_choices_to={'key':'GEONAME_TYPES'},verbose_name='Ангилал',related_name='recounttypes',blank=True,null=True)
 	nomeks=models.ManyToManyField(Nomek,related_name='recount100',verbose_name='Нэрлэвэр',blank=True)
 	loc=models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
-	# Төлөв — ОЛОН (M2M): байршил зөрүүтэй + нэр алдаатай зэрэг зэрэг байж болно.
 	statuses=models.ManyToManyField(Constant,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төлөв',related_name='recount_multi_statuses',blank=True)
 
 class ReCountMap(models.Model):
@@ -468,7 +465,6 @@ class GeoNameSource(models.Model):
 	needs_review=models.BooleanField(default=False, verbose_name='Хянах шаардлагатай')
 	class Meta:
 		indexes=[models.Index(fields=['volume','page'])]
-
 	def __str__(self):
 		return f'{self.name} — {self.volume} х.{self.page}'
 
@@ -489,6 +485,9 @@ class PrintMap(UserMixin):
 	сумын газар зүйн нэрийн зураг"). UserMixin-ээс хэн (user), хэдэн онд
 	(created_date) хэвлэсэн нь ирнэ."""
 	units=models.ManyToManyField(AdminUnit, related_name='printmaps', blank=True, verbose_name='Сонгогдсон сумд')
+	# Ажлын зураг (хээрийн тодруулалт) бол ямар төслийнх бэ — нэрийн зурагт null
+	project=models.ForeignKey('Project', on_delete=models.CASCADE, blank=True, null=True,
+		related_name='printmaps', verbose_name='Төсөл')
 	is_border=models.BooleanField(default=False, verbose_name='Хилийн цэс')
 	name_count=models.IntegerField(default=0, verbose_name='Багтсан нэрийн тоо')
 	title=models.CharField(max_length=500, blank=True, null=True, verbose_name='Зургийн нэр (авто)')
@@ -528,6 +527,88 @@ class Passport(models.Model):
 	qrcode=models.ImageField(upload_to=photo_upload_path,blank=True)
 	link=models.URLField(blank=True, null=True,max_length=3000)
 	desc=models.CharField(max_length=5000, blank=True, null=True)
+
+
+class Council(models.Model):
+	"""Газар зүйн нэрийн зөвлөл — үндэсний (нэг) эсвэл салбар (аймаг/сум/дүүрэг
+	бүрд). Зөвлөл өөрөө устдаггүй — status=татан буугдсан + dissolved_doc тавина."""
+	name = models.CharField(max_length=1000, verbose_name='Нэр')
+	kind = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'COUNCIL_KINDS'}, related_name='council_kinds', verbose_name='Төрөл')
+	unit = models.ForeignKey(AdminUnit, on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='councils', verbose_name='Харьяа нэгж')
+	status = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'COUNCIL_STATUS'}, related_name='council_statuses', verbose_name='Төлөв')
+	established_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='established_councils', verbose_name='Байгуулсан баримт')
+	dissolved_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='dissolved_councils', verbose_name='Татан буулгасан баримт')
+	established_date = models.DateField(null=True, blank=True, verbose_name='Байгуулсан огноо')
+	dissolved_date = models.DateField(null=True, blank=True, verbose_name='Татан буугдсан огноо')
+	created_date = models.DateTimeField(auto_now_add=True)
+
+	def __str__(self):
+		return self.name or f'Council#{self.pk}'
+
+
+class CouncilMember(models.Model):
+	"""Зөвлөлийн гишүүний ТОМИЛГОО — temporal, append-only архив. Мөр устгахгүй;
+	чөлөөлөхдөө end_date + release_doc тавина. Өөрчлөлт бүр баримтаар (LegalOrder)
+	баталгаажна (appoint_doc заавал)."""
+	council = models.ForeignKey(Council, on_delete=models.CASCADE, related_name='members', verbose_name='Зөвлөл')
+	full_name = models.CharField(max_length=1000, verbose_name='Овог нэр')
+	register = models.CharField(max_length=20, null=True, blank=True, verbose_name='Регистр')
+	person = models.ForeignKey(RemoteUser, on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='council_memberships', verbose_name='Системийн хэрэглэгч')
+	position = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'MEMBER_TYPES'}, related_name='council_positions', verbose_name='Албан тушаал')
+	org_title = models.CharField(max_length=1000, null=True, blank=True, verbose_name='Төлөөлж буй албан тушаал')
+	start_date = models.DateField(verbose_name='Томилогдсон огноо')
+	end_date = models.DateField(null=True, blank=True, verbose_name='Чөлөөлөгдсөн огноо')
+	appoint_doc = models.ForeignKey('LegalOrder', on_delete=models.PROTECT,
+		related_name='council_appointments', verbose_name='Томилсон баримт')
+	release_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='council_releases', verbose_name='Чөлөөлсөн баримт')
+	created_date = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-start_date', 'id']
+		indexes = [models.Index(fields=['council', 'end_date'])]
+
+	def __str__(self):
+		return f'{self.full_name} | {self.council_id} ({"идэвхтэй" if self.end_date is None else "хуучин"})'
+
+class ProjectMember(UserMixin):
+	"""Төслийн багийн бүрэлдэхүүн — үе шат (step) ба сум (unit) тус бүрээр.
+
+	Регистрээр системийн хэрэглэгчийг олж холбоно (person); олдохгүй бол
+	гараар бөглөсөн мэдээлэл (full_name, position, register, phone) үлдэнэ.
+	"""
+	project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='members', verbose_name='Төсөл')
+	unit = models.ForeignKey(AdminUnit, on_delete=models.CASCADE, null=True, blank=True,
+		related_name='project_members', verbose_name='Сум/Дүүрэг')
+	full_name = models.CharField(max_length=1000, verbose_name='Овог нэр')
+	register = models.CharField(max_length=20, null=True, blank=True, verbose_name='Регистр')
+	phone = models.CharField(max_length=20, null=True, blank=True, verbose_name='Утас')
+	person = models.ForeignKey(RemoteUser, on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='projects', verbose_name='Системийн хэрэглэгч')
+	position = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'PROJECT_MEMBER_TYPES'}, related_name='project_positions', verbose_name='Албан тушаал')
+	org_title = models.CharField(max_length=1000, null=True, blank=True, verbose_name='Төлөөлж буй албан тушаал')
+	# Үе шат — RECOUNT_STEPS (ж: Хээрийн судалгаа). Багийн бүрэлдэхүүн үе шат тус бүрд.
+	step = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
+		limit_choices_to={'key': 'RECOUNT_STEPS'},
+		related_name='project_member_steps', verbose_name='Үе шат')
+	# Томилсон шийдвэр — заавал биш (ажилтныг эхэлж бүртгээд дараа нь холбож болно)
+	doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
+		related_name='project_documents', verbose_name='Томилсон баримт')
+	class Meta:
+		ordering = ['-created_date', 'id']
+		indexes = [models.Index(fields=['project', 'created_date'])]
+
+	def __str__(self):
+		return f'{self.full_name} | {self.project_id} ({"идэвхтэй" if self.created_date is None else "хуучин"})'
+
 
 class MailLog(models.Model):
 	"""Системээс илгээсэн имэйл бүрийн бүртгэл — админ хяналт, мэдэгдлийн цэс."""
@@ -667,55 +748,6 @@ class LayerGroupItem(models.Model):
 	class Meta:
 		unique_together = ('group', 'layer')  # нэг group-д ижил combo давтагдахгүй
 		ordering = ['order', 'id']
-
-class Council(models.Model):
-	"""Газар зүйн нэрийн зөвлөл — үндэсний (нэг) эсвэл салбар (аймаг/сум/дүүрэг
-	бүрд). Зөвлөл өөрөө устдаггүй — status=татан буугдсан + dissolved_doc тавина."""
-	name = models.CharField(max_length=1000, verbose_name='Нэр')
-	kind = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
-		limit_choices_to={'key': 'COUNCIL_KINDS'}, related_name='council_kinds', verbose_name='Төрөл')
-	unit = models.ForeignKey(AdminUnit, on_delete=models.SET_NULL, null=True, blank=True,
-		related_name='councils', verbose_name='Харьяа нэгж')
-	status = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
-		limit_choices_to={'key': 'COUNCIL_STATUS'}, related_name='council_statuses', verbose_name='Төлөв')
-	established_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
-		related_name='established_councils', verbose_name='Байгуулсан баримт')
-	dissolved_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
-		related_name='dissolved_councils', verbose_name='Татан буулгасан баримт')
-	established_date = models.DateField(null=True, blank=True, verbose_name='Байгуулсан огноо')
-	dissolved_date = models.DateField(null=True, blank=True, verbose_name='Татан буугдсан огноо')
-	created_date = models.DateTimeField(auto_now_add=True)
-
-	def __str__(self):
-		return self.name or f'Council#{self.pk}'
-
-
-class CouncilMember(models.Model):
-	"""Зөвлөлийн гишүүний ТОМИЛГОО — temporal, append-only архив. Мөр устгахгүй;
-	чөлөөлөхдөө end_date + release_doc тавина. Өөрчлөлт бүр баримтаар (LegalOrder)
-	баталгаажна (appoint_doc заавал)."""
-	council = models.ForeignKey(Council, on_delete=models.CASCADE, related_name='members', verbose_name='Зөвлөл')
-	full_name = models.CharField(max_length=1000, verbose_name='Овог нэр')
-	register = models.CharField(max_length=20, null=True, blank=True, verbose_name='Регистр')
-	person = models.ForeignKey(RemoteUser, on_delete=models.SET_NULL, null=True, blank=True,
-		related_name='council_memberships', verbose_name='Системийн хэрэглэгч')
-	position = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
-		limit_choices_to={'key': 'MEMBER_TYPES'}, related_name='council_positions', verbose_name='Албан тушаал')
-	org_title = models.CharField(max_length=1000, null=True, blank=True, verbose_name='Төлөөлж буй албан тушаал')
-	start_date = models.DateField(verbose_name='Томилогдсон огноо')
-	end_date = models.DateField(null=True, blank=True, verbose_name='Чөлөөлөгдсөн огноо')
-	appoint_doc = models.ForeignKey('LegalOrder', on_delete=models.PROTECT,
-		related_name='council_appointments', verbose_name='Томилсон баримт')
-	release_doc = models.ForeignKey('LegalOrder', on_delete=models.SET_NULL, null=True, blank=True,
-		related_name='council_releases', verbose_name='Чөлөөлсөн баримт')
-	created_date = models.DateTimeField(auto_now_add=True)
-
-	class Meta:
-		ordering = ['-start_date', 'id']
-		indexes = [models.Index(fields=['council', 'end_date'])]
-
-	def __str__(self):
-		return f'{self.full_name} | {self.council_id} ({"идэвхтэй" if self.end_date is None else "хуучин"})'
 
 
 class BaseMapLayer(models.Model):

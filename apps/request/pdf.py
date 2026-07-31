@@ -371,10 +371,14 @@ def _dots(v):
     return _e(v) if v else "&nbsp;"
 
 
-def _empty_rows(ncols, n=15):
-    """д/д дугаартай хоосон мөрүүд (дотроо гүйцээгээгүй маягтад)."""
+def _empty_rows(ncols, n=15, start=1):
+    """д/д дугаартай хоосон мөрүүд (дотроо гүйцээгээгүй маягтад).
+
+    start — дугаарлалт хаанаас эхлэх (дүүргэсэн мөрийн дараа гүйцээхэд).
+    """
     cells = ''.join('<td>&nbsp;</td>' for _ in range(ncols - 1))
-    return ''.join(f'<tr><td class="c">{i}</td>{cells}</tr>' for i in range(1, n + 1))
+    return ''.join(f'<tr><td class="c">{i}</td>{cells}</tr>'
+                   for i in range(start, start + n))
 
 
 # Гарын үсгийн блокууд
@@ -546,7 +550,16 @@ def build_mayagt_pdf(form_no, rows, aimag='', sum=''):
             '<th>Гарын үсэг</th>'
             '</tr>'
         )
-        body = _empty_rows(5, n=8)
+        # Багийн бүрэлдэхүүн (ProjectMember)‑ээс бөглөнө; дор хаяж 5 мөр байлгана
+        body = ''.join(
+            f'<tr><td class="c">{r["i"]}</td>'
+            f'<td>{_dots(r.get("name"))}</td>'
+            f'<td class="c">{_dots(r.get("register"))}</td>'
+            f'<td class="c">{_dots(r.get("phone"))}</td>'
+            f'<td>&nbsp;</td></tr>'
+            for r in rows)
+        if len(rows) < 5:
+            body += _empty_rows(5, n=5 - len(rows), start=len(rows) + 1)
     else:
         title = ('Улсын Их Хурлаар батлагдсан газар зүйн нэр 1:25000-1:100000-ны '
                  'масштабтай байр зүйн зураг дээр бичигдсэн нэртэй харьцуулсан судалгаа')

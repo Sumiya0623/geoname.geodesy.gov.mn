@@ -602,19 +602,30 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		      #   gp байвал → l1=gp, l2=p,  l3=type
 		      #   p  байвал → l1=p,  l2=type
 		      #   эс бөгөөс → l1=type
+		      .select_related('type', 'type__parent', 'type__parent__parent')
 		      .annotate(
 		          type_l1=Coalesce('name__type__parent__parent__name',
 		                           'name__type__parent__name',
-		                           'name__type__name'),
+		                           'name__type__name',
+		                           # GeoName‑гүй (draft) тодруулалт — өөрийн type
+		                           'type__parent__parent__name',
+		                           'type__parent__name',
+		                           'type__name'),
 		          type_l2=Case(
 		              When(name__type__parent__parent__isnull=False,
 		                   then=F('name__type__parent__name')),
 		              When(name__type__parent__isnull=False,
 		                   then=F('name__type__name')),
+		              When(type__parent__parent__isnull=False,
+		                   then=F('type__parent__name')),
+		              When(type__parent__isnull=False,
+		                   then=F('type__name')),
 		              default=Value(None), output_field=CharField()),
 		          type_l3=Case(
 		              When(name__type__parent__parent__isnull=False,
 		                   then=F('name__type__name')),
+		              When(type__parent__parent__isnull=False,
+		                   then=F('type__name')),
 		              default=Value(None), output_field=CharField()),
 		      ))
 		project_id = self.request.query_params.get('project')
@@ -626,9 +637,13 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(step_id=step_id)
 		# Нэрийн АНГИЛАЛ — сонгосон түвшин + түүний бүх удам
 		type_id = self.request.query_params.get('type')
-		if type_id:
+		if type_id == 'none':
+			# АНГИЛАЛГҮЙ — GeoName‑ийн ч, тодруулалтын ч төрөл тодорхойлоогүй
+			qs = qs.filter(name__type__isnull=True, type__isnull=True)
+		elif type_id:
 			from apps.geoname.apiviews import descendant_type_ids
-			qs = qs.filter(name__type_id__in=descendant_type_ids(type_id))
+			ids = descendant_type_ids(type_id)
+			qs = qs.filter(Q(name__type_id__in=ids) | Q(type_id__in=ids))
 		# ТӨЛӨВ — олон сонголт (таслалаар). Аль нэг нь таарвал орно.
 		# 'none' тэмдэгт → төлөв ОГТ тодорхойлоогүй (хоосон) тооллогууд.
 		st = (self.request.query_params.get('statuses') or '').strip()
@@ -647,6 +662,36 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(loc__isnull=True).filter(
 				Q(name__isnull=True) | Q(name__geoloc__isnull=True))
 		return qs
+
+	@action(detail=False, methods=['get'], url_path='type-summary')
+	def type_summary(self, request):
+		"""Тодруулалтын ҮНДСЭН ангиллын тоо — ЖАГСААЛТТАЙ ЯГ ИЖИЛ шүүлтээр.
+
+		Хүснэгтийн дээд мөрөнд (таб) харуулна: ?project=&step=&statuses=&search=
+		→ {total, results: [{id, name, count}]}. Ангиллын id нь ҮНДСЭН (level‑1)
+		Constant‑ийн id тул таб дарахад ?type=<id>‑ээр шүүнэ.
+		"""
+		qs = self.filter_queryset(self.get_queryset())
+		rows = {}
+		total = 0
+		# Навчнаас язгуур руу — 3 түвшин хүртэл (GEONAME_TYPES)
+		for r in qs.values_list('name__type_id',
+		                        'name__type__parent_id',
+		                        'name__type__parent__parent_id',
+		                        'type_id', 'type__parent_id',
+		                        'type__parent__parent_id'):
+			total += 1
+			# GeoName‑тэй бол түүний төрөл, эс бөгөөс тодруулалтын өөрийн төрөл
+			root = r[2] or r[1] or r[0] or r[5] or r[4] or r[3] or 0
+			rows[root] = rows.get(root, 0) + 1
+		ids = [k for k in rows if k]
+		names = {c.id: c.name for c in Constant.objects.filter(id__in=ids)}
+		results = sorted(
+			({'id': k, 'name': names.get(k, 'Ангилалгүй') if k else 'Ангилалгүй',
+			  'count': v}
+			 for k, v in rows.items()),
+			key=lambda x: -x['count'])
+		return Response({'total': total, 'results': results}, status=200)
 
 	@action(detail=False, methods=['post'], url_path='import-by-units')
 	def import_by_units(self, request, *args, **kwargs):
@@ -689,14 +734,23 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		fresh = [i for i in ids if i not in exists]
 		step_id = request.data.get('step') or None
 		if fresh:
+			user = request.user if request.user.is_authenticated else None
 			ReCount.objects.bulk_create(
-				[ReCount(project=project, name_id=i, step_id=step_id)
+				[ReCount(project=project, name_id=i, step_id=step_id, user=user)
 				 for i in fresh], batch_size=1000)
 		return Response({'added': len(fresh), 'skipped': total - len(fresh),
 		                 'total': total})
 
 	def perform_create(self, serializer):
-		instance = serializer.save()
+		# GeoName‑гүй (draft) тодруулалт ЗААВАЛ ангилалтай байх ёстой —
+		# ангилалгүй нэр бүртгэгдэхээс сэргийлнэ.
+		d = self.request.data
+		if not d.get('name_id') and not d.get('type_id'):
+			from rest_framework.exceptions import ValidationError
+			raise ValidationError({'detail': 'Ангилал (type_id) сонгоно уу'})
+		# Үүсгэсэн хэрэглэгчийг тэмдэглэнэ (жагсаалтын «Үүсгэсэн» багана)
+		user = self.request.user if self.request.user.is_authenticated else None
+		instance = serializer.save(user=user)
 		# Газрын зураг дээр зурсан loc (WKT эсвэл GeoJSON) өгсөн бол түүнийг хадгална
 		# (байршил статус). Эс бөгөөс GeoName‑ийн geoloc‑оос онооно.
 		loc_raw = self.request.data.get('loc')
@@ -721,7 +775,9 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			instance.save(update_fields=['loc'])
 
 	def perform_update(self, serializer):
-		instance = serializer.save()
+		# Сүүлд хөндсөн хэрэглэгчийг ч тэмдэглэнэ («Үүсгэсэн» багана)
+		user = self.request.user if self.request.user.is_authenticated else None
+		instance = serializer.save(**({'user': user} if user else {}))
 		# Байрлал засах — PATCH {loc: GeoJSON/WKT} ирвэл recount.loc‑г шинэчилнэ
 		# (recount_view геометр = COALESCE(loc, name.geoloc) тул цэг хөдөлнө).
 		loc_raw = self.request.data.get('loc')
@@ -756,6 +812,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			if geom.srid and geom.srid != 4326:
 				geom = geom.transform(4326, clone=True)
 			geo_map[g.id] = geom
+		bulk_user = request.user if request.user.is_authenticated else None
 		objs = [
 			ReCount(
 				project_id=project_id or None,
@@ -763,6 +820,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				step_id=it.get('step_id') or None,
 				draft=it.get('draft') or '',
 				loc=geo_map.get(it.get('name_id')),
+				user=bulk_user,
 			)
 			for it in items
 		]
@@ -831,8 +889,69 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		obj.save(update_fields=['loc'])
 		return Response({'detail': 'ok'}, status=200)
 
+	# ---------- Тодруулалтын зураг (Photo — generic FK, ReCount дээр) ----------
+
+	def _photo_ct(self):
+		return ContentType.objects.get_for_model(ReCount)
+
+	@action(detail=True, methods=['post'], url_path='add-photo',
+	        parser_classes=[MultiPartParser, FormParser])
+	def add_photo(self, request, pk=None):
+		"""Тодруулалтад хээрийн зураг нэмэх — multipart 'file' (+ desc: зовхис).
+
+		Зургийг GeoName‑ийнхтэй ижилээр 800×800 тунгалаг padding‑тай PNG болгоно.
+		Draft (GeoName‑гүй) тодруулалтад ч хавсаргаж болно.
+		"""
+		obj = self.get_object()
+		f = request.FILES.get('file')
+		if not f:
+			return Response({'detail': 'Зураг оруулна уу'}, status=400)
+		import io
+		from PIL import Image
+		from django.core.files.base import ContentFile
+		TARGET = 800
+		try:
+			img = Image.open(f).convert('RGBA')
+			img.thumbnail((TARGET, TARGET), Image.LANCZOS)
+			canvas = Image.new('RGBA', (TARGET, TARGET), (0, 0, 0, 0))
+			canvas.paste(img, ((TARGET - img.width) // 2, (TARGET - img.height) // 2))
+			buf = io.BytesIO()
+			canvas.save(buf, format='PNG')
+			base = (f.name.rsplit('.', 1)[0] if f.name else 'photo') or 'photo'
+			png = ContentFile(buf.getvalue(), name=f'{base}.png')
+		except Exception:
+			png = f  # хөрвүүлж чадахгүй бол эх файлаар
+		desc = (request.data.get('desc') or '').strip() or None
+		p = Photo.objects.create(file=png, content_type=self._photo_ct(),
+		                         object_id=obj.id, desc=desc)
+		url = p.file.url if p.file else None
+		return Response({'id': p.id, 'url': request.build_absolute_uri(url) if url else None,
+		                 'desc': p.desc}, status=201)
+
+	@action(detail=True, methods=['post'], url_path='del-photo')
+	def del_photo(self, request, pk=None):
+		"""Тодруулалтын зураг устгах — body {photo_id}."""
+		obj = self.get_object()
+		Photo.objects.filter(id=request.data.get('photo_id'),
+		                     content_type=self._photo_ct(),
+		                     object_id=obj.id).delete()
+		return Response({'detail': 'ok'}, status=200)
+
 	SCALE_25K = 163
 	SCALE_100K = 165
+
+	def _status_form_map(self):
+		"""{RECOUNT_STATUS.id: 'маягтын дугаар'} — Constant.desc‑ээс.
+
+		Төлвийн нэр, тоо цаашид өөрчлөгдөж болзошгүй тул код дотор статик
+		жагсаалт барихгүй: маягтын харьяаллыг Тогтмол дээрээс л удирдана.
+		"""
+		out = {}
+		for c in Constant.objects.filter(key='RECOUNT_STATUS'):
+			d = (c.desc or '').strip()
+			if d.isdigit():
+				out[c.id] = d
+		return out
 
 	@action(detail=False, methods=['get'], url_path='forms')
 	def forms(self, request):
@@ -884,7 +1003,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 
 		def passes(r):
 			if gu is not None:
-				pt = r.loc or (r.name.geoloc if r.name_id else None)
+				pt = pts_by_rid.get(r.id)
 				if pt is None or not gu.intersects(pt):
 					return False
 			if type_ids is not None:
@@ -892,18 +1011,47 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 					return False
 			return True
 
+		# ── Нэрлэвэр (Nomek) — БҮХ цэгийг нэг дор (масштаб тус бүрд 1 query).
+		# Өмнө нь мөр бүрд 2 орон зайн query явж (2N) маягтууд маш удаан
+		# ачаалагддаг байсан.
+		rows_all = list(qs)
+		pts_by_rid = {}
+		for r in rows_all:
+			pt = r.loc or (r.name.geoloc if r.name_id else None)
+			if pt is not None and pt.geom_type != 'Point':
+				pt = pt.centroid
+			pts_by_rid[r.id] = pt
+
+		def _pkey(p):
+			return (round(p.x, 6), round(p.y, 6))
+
+		nomek_cache = {self.SCALE_25K: {}, self.SCALE_100K: {}}
+		uniq_pts = {}
+		for p in pts_by_rid.values():
+			if p is not None:
+				uniq_pts.setdefault(_pkey(p), p)
+		if uniq_pts:
+			from django.contrib.gis.geos import MultiPoint
+			mp = MultiPoint(list(uniq_pts.values()), srid=4326)
+			for sid in (self.SCALE_25K, self.SCALE_100K):
+				cache = nomek_cache[sid]
+				for nk in Nomek.objects.filter(
+						scale_id=sid, geom__intersects=mp).only('nomek', 'geom'):
+					prep = nk.geom.prepared
+					for k, p in uniq_pts.items():
+						if k not in cache and prep.contains(p):
+							cache[k] = nk.nomek
+
 		def nomek_at(pt, scale_id):
-			if not pt:
+			if pt is None:
 				return ''
-			nk = Nomek.objects.filter(scale_id=scale_id, geom__contains=pt).first()
-			return nk.nomek if nk else ''
+			return nomek_cache.get(scale_id, {}).get(_pkey(pt), '')
 
 		def row(r, i):
-			pt = r.loc or (r.name.geoloc if r.name_id else None)
+			pt = pts_by_rid.get(r.id)
 			lat = lon = None
 			if pt is not None:
-				c = pt if pt.geom_type == 'Point' else pt.centroid
-				lon, lat = round(c.x, 6), round(c.y, 6)
+				lon, lat = round(pt.x, 6), round(pt.y, 6)
 			return {
 				'i': i,
 				'id': r.id,
@@ -922,28 +1070,51 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 
 		forms = {'1': [], '2': [], '3': [], '4': [], '5': [], '6': []}
 		counters = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0}
-		# "шинэ" төлөв → Маягт 6 (Шинээр бий болсон газар зүйн объект)
-		bucket = {'ижил': '1', 'шинэ': '6', 'батлагдаагүй': '2', 'алдаатай': '3', 'байршил': '4'}
-		for r in qs:
+		# Төлөв → маягт: Constant(RECOUNT_STATUS).desc дээр МАЯГТЫН ДУГААР
+		# (зөвхөн тоо) бичигдсэн байна. Нэр/текст өөрчлөгдөхөөс хамаарахгүй —
+		# бүх буулгалт DB‑ээс удирдагдана.
+		bucket = self._status_form_map()
+		for r in rows_all:
 			ok = (not has_filter) or passes(r)
 			# ОЛОН төлөв (statuses M2M) — recount нь төлөв бүрд тохирох маягтад
 			# орно (ж: алдаатай+байршил → Маягт 3 БА 4).
-			st_names = [s.name for s in r.statuses.all()]
 			seen = set()
-			for nm in st_names:
-				b = bucket.get((nm or '').strip())
+			for st in r.statuses.all():
+				b = bucket.get(st.id)
 				# Идэвхтэй маягтад шүүлт хэрэгжинэ; бусдад бүтэн орно.
 				if b and b not in seen and not (b == active and not ok):
 					seen.add(b)
 					counters[b] += 1
 					forms[b].append(row(r, counters[b]))
-			# Маягт 5 — хилийн заагт зөрүүтэй нэрлэгдсэн (GeoName.is_border),
-			# статусаас үл хамаарна.
-			if r.name_id and getattr(r.name, 'is_border', False):
-				if not (active == '5' and not ok):
-					counters['5'] += 1
-					forms['5'].append(row(r, counters['5']))
+			# ТЭМДЭГЛЭЛ: Маягт 5‑д ЗӨВХӨН тухайн төлөв (Тогтмол дээр desc='5')
+			# бүхий тодруулалт орно. GeoName.is_border нь зөвхөн нэрийн шинж
+			# чанар (хилийн цэс) тул маягтын харьяаллыг тодорхойлохгүй.
+
+		# Маягт 9 — «газарчнаар ажилласан иргэний нотолгоо». Тодруулалтаас биш,
+		# төслийн БАГИЙН БҮРЭЛДЭХҮҮН (ProjectMember)‑ээс бүрдэнэ.
+		forms['9'] = self._member_rows(project_id, sum_id, aimag_id)
 		return Response(forms, status=200)
+
+	def _member_rows(self, project_id, sum_id=None, aimag_id=None):
+		"""Хавсралт 9‑ийн мөрүүд — төслийн багийн бүрэлдэхүүн (сумаар шүүнэ)."""
+		from core.models import ProjectMember
+		mq = (ProjectMember.objects.filter(project_id=project_id)
+		      .select_related('unit', 'unit__parent', 'position'))
+		if sum_id:
+			mq = mq.filter(unit_id=sum_id)
+		elif aimag_id:
+			mq = mq.filter(Q(unit_id=aimag_id) | Q(unit__parent_id=aimag_id))
+		out = []
+		for i, m in enumerate(mq.order_by('unit__unit', 'id'), start=1):
+			out.append({
+				'i': i, 'id': m.id,
+				'name': m.full_name or '',
+				'register': m.register or '',
+				'phone': m.phone or '',
+				'position': m.position.name if m.position_id else '',
+				'unit': m.unit.unit if m.unit_id else '',
+			})
+		return out
 
 	@action(detail=False, methods=['get'], url_path='form-pdf')
 	def form_pdf(self, request):
@@ -970,18 +1141,45 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				if au.geom is not None:
 					qs = qs.filter(loc__intersects=au.geom)
 
+		# Цэг + нэрлэвэрийг урьдчилж багцаар (масштаб тус бүрд 1 query)
+		rows_all = list(qs)
+		pts_by_rid = {}
+		for r in rows_all:
+			p = r.loc or (r.name.geoloc if r.name_id else None)
+			if p is not None and p.geom_type != 'Point':
+				p = p.centroid
+			pts_by_rid[r.id] = p
+
+		def _pkey(p):
+			return (round(p.x, 6), round(p.y, 6))
+
+		nomek_cache = {self.SCALE_25K: {}, self.SCALE_100K: {}}
+		uniq_pts = {}
+		for p in pts_by_rid.values():
+			if p is not None:
+				uniq_pts.setdefault(_pkey(p), p)
+		if uniq_pts:
+			from django.contrib.gis.geos import MultiPoint
+			mp = MultiPoint(list(uniq_pts.values()), srid=4326)
+			for sid in (self.SCALE_25K, self.SCALE_100K):
+				cache = nomek_cache[sid]
+				for nk in Nomek.objects.filter(
+						scale_id=sid, geom__intersects=mp).only('nomek', 'geom'):
+					prep = nk.geom.prepared
+					for k, pp in uniq_pts.items():
+						if k not in cache and prep.contains(pp):
+							cache[k] = nk.nomek
+
 		def nomek_at(pt, scale_id):
-			if not pt:
+			if pt is None:
 				return ''
-			nk = Nomek.objects.filter(scale_id=scale_id, geom__contains=pt).first()
-			return nk.nomek if nk else ''
+			return nomek_cache.get(scale_id, {}).get(_pkey(pt), '')
 
 		def row(r, i):
-			pt = r.loc or (r.name.geoloc if r.name_id else None)
+			pt = pts_by_rid.get(r.id)
 			lat = lon = None
 			if pt is not None:
-				c = pt if pt.geom_type == 'Point' else pt.centroid
-				lon, lat = round(c.x, 6), round(c.y, 6)
+				lon, lat = round(pt.x, 6), round(pt.y, 6)
 			return {'i': i, 'name': (r.name.name if r.name_id else '') or '',
 					'draft': r.draft or (r.name.name if r.name_id else '') or '', 'lat': lat, 'lon': lon,
 					'gtype': (
@@ -990,13 +1188,22 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 					'nomek_25k': nomek_at(pt, self.SCALE_25K),
 					'nomek_100k': nomek_at(pt, self.SCALE_100K)}
 
-		bucket = {'ижил': '1', 'шинэ': '6', 'батлагдаагүй': '2', 'алдаатай': '3', 'байршил': '4'}
+		# Маягт 9 — багийн бүрэлдэхүүн (тодруулалттай хамааралгүй)
+		if str(form_no) == '9':
+			m_rows = self._member_rows(project_id, sum_id,
+			                           request.query_params.get('aimag_geom'))
+			pdf = build_mayagt_pdf('9', m_rows, aimag_name, sum_name)
+			resp = HttpResponse(pdf, content_type='application/pdf')
+			resp['Content-Disposition'] = 'attachment; filename="mayagt_9.pdf"'
+			return resp
+
+		# Төлөв → маягт (Constant.desc = маягтын дугаар) — DB‑ээс удирдагдана
+		bucket = self._status_form_map()
 		matched = []
-		for r in qs:
+		for r in rows_all:
 			# ОЛОН төлөв (M2M) — аль нэг төлөв нь тухайн маягтад тохирвол орно
-			bs = {bucket.get((s.name or '').strip()) for s in r.statuses.all()}
-			is5 = form_no == '5' and r.name_id and getattr(r.name, 'is_border', False)
-			if form_no in bs or is5:
+			bs = {bucket.get(s.id) for s in r.statuses.all()}
+			if form_no in bs:
 				matched.append(r)
 
 		# Аймаг → сум → нэрээр сортолно (сум/аймгийг цэгийн орон зайгаар олно, кэштэй)
@@ -1008,21 +1215,33 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				return None
 			return p if p.geom_type == 'Point' else p.centroid
 
+		# Сум/дүүргийг мөр бүрд query хийлгүй НЭГ УДАА багцаар тодорхойлно
+		# (өмнө нь мөр тутамд орон зайн query явж PDF удаан үүсдэг байсан).
+		_sort_pts = {}
+		for r in matched:
+			c = _pt(r)
+			if c is not None:
+				_sort_pts.setdefault((round(c.x, 5), round(c.y, 5)), c)
+		if _sort_pts:
+			from django.contrib.gis.geos import MultiPoint
+			mp2 = MultiPoint(list(_sort_pts.values()), srid=4326)
+			for su in (AdminUnit.objects
+					   .filter(level__name='Сум/Дүүрэг', geom__intersects=mp2)
+					   .select_related('parent')):
+				prep = su.geom.prepared
+				a = (su.parent.unit if su.parent_id else '') or '￿'
+				sname = (su.unit or '') or '￿'
+				for k, c in _sort_pts.items():
+					if k not in au_cache and prep.contains(c):
+						au_cache[k] = (a, sname)
+
 		def _sort_key(r):
 			c = _pt(r)
 			if c is None:
 				a = s = '￿'
 			else:
 				k = (round(c.x, 5), round(c.y, 5))
-				if k in au_cache:
-					a, s = au_cache[k]
-				else:
-					su = (AdminUnit.objects
-						  .filter(level__name='Сум/Дүүрэг', geom__contains=c)
-						  .select_related('parent').first())
-					a = (su.parent.unit if su and su.parent_id else '') or '￿'
-					s = (su.unit if su else '') or '￿'
-					au_cache[k] = (a, s)
+				a, s = au_cache.get(k, ('￿', '￿'))
 			nm = (r.name.name if r.name_id else '') or r.draft or ''
 			return (a, s, nm)
 
