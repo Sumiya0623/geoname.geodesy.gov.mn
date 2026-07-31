@@ -7,7 +7,7 @@ import Box from "@mui/material/Box";
 
 import CollapseCard from "src/components/collapse-card";
 
-import { BeltgelListView } from "src/sections/beltgel/view";
+import { LegalListView } from "src/sections/legal/view";
 import RasterListView from "src/sections/raster/view/raster-list-view";
 
 // ----------------------------------------------------------------------
@@ -19,6 +19,7 @@ import RasterListView from "src/sections/raster/view/raster-list-view";
 // ----------------------------------------------------------------------
 
 export default function BeltgelView({ projectId }) {
+  const [legalCount, setLegalCount] = useState(0);
   const [rasterCount, setRasterCount] = useState(0);
 
   if (!projectId) return null;
@@ -28,8 +29,9 @@ export default function BeltgelView({ projectId }) {
       <CollapseCard
         icon="solar:document-text-bold"
         title="Эрх зүйн баримт бичиг"
+        count={legalCount}
       >
-        <BeltgelListView projectId={projectId} />
+        <LegalListView projectId={projectId} embedded onCount={setLegalCount} />
       </CollapseCard>
 
       <CollapseCard

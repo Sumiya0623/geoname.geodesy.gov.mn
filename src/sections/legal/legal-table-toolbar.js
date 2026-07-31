@@ -21,9 +21,6 @@ export default function LegalTableToolbar({
   onCreate,
   typeCode = "0",
   typeName = "",
-  canSync = false,
-  onSync,
-  syncing = false,
 }) {
   // «Салбар зөвлөл» нь аймаг/сум аль ч түвшинд байдаг тул код 2‑той адил
   // аймаг + сум 2уланг нь харуулна.
@@ -32,21 +29,26 @@ export default function LegalTableToolbar({
   const needSum = typeCode === "2" || isBranch;
 
   // Аймаг ба (аймаг сонгосон үед) сум сонголтын жагсаалт
-  const { units: aimagOptions } = useGetLegalUnits("Аймаг/Нийслэл", null, needAimag);
+  const { units: aimagOptions } = useGetLegalUnits(
+    "Аймаг/Нийслэл",
+    null,
+    needAimag,
+  );
   const { units: sumOptions } = useGetLegalUnits(
     "Сум/Дүүрэг",
     filters.aimag?.id,
-    needSum && !!filters.aimag?.id
+    needSum && !!filters.aimag?.id,
   );
 
   const handleSearch = useCallback(
     (event) => onFilters("search", event.target.value),
-    [onFilters]
+    [onFilters],
   );
 
   const handleYear = useCallback(
-    (event) => onFilters("year", event.target.value.replace(/\D/g, "").slice(0, 4)),
-    [onFilters]
+    (event) =>
+      onFilters("year", event.target.value.replace(/\D/g, "").slice(0, 4)),
+    [onFilters],
   );
 
   const handleAimag = useCallback(
@@ -54,12 +56,12 @@ export default function LegalTableToolbar({
       onFilters("aimag", value);
       onFilters("sum", null); // аймаг солихоор сумыг цэвэрлэнэ
     },
-    [onFilters]
+    [onFilters],
   );
 
   const handleSum = useCallback(
     (_e, value) => onFilters("sum", value),
-    [onFilters]
+    [onFilters],
   );
 
   return (
@@ -91,7 +93,10 @@ export default function LegalTableToolbar({
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
-              <Iconify icon="solar:calendar-bold" sx={{ color: "text.disabled" }} />
+              <Iconify
+                icon="solar:calendar-bold"
+                sx={{ color: "text.disabled" }}
+              />
             </InputAdornment>
           ),
         }}
@@ -141,33 +146,6 @@ export default function LegalTableToolbar({
           </IconButton>
         </Tooltip>
 
-        {canSync && (
-          <Tooltip title="Сангаас дуудах — төслийн хамрах засаг захиргаанд (аймаг сонгосон бол доод шатны сум, баг хүртэл) харьяалагдах бүх шийдвэрийг сангаас нэг дор төсөлд холбоно">
-            <span>
-              <IconButton
-                color="primary"
-                onClick={onSync}
-                disabled={syncing}
-              >
-                <Iconify
-                  icon="solar:refresh-circle-bold"
-                  sx={
-                    syncing
-                      ? {
-                          animation: "spin 1s linear infinite",
-                          "@keyframes spin": {
-                            from: { transform: "rotate(0deg)" },
-                            to: { transform: "rotate(360deg)" },
-                          },
-                        }
-                      : undefined
-                  }
-                />
-              </IconButton>
-            </span>
-          </Tooltip>
-        )}
-
         {canCreate && (
           <Tooltip title="Шинэ тогтоол нэмэх">
             <IconButton color="inherit" onClick={onCreate}>
@@ -189,7 +167,4 @@ LegalTableToolbar.propTypes = {
   onCreate: PropTypes.func,
   typeCode: PropTypes.string,
   typeName: PropTypes.string,
-  canSync: PropTypes.bool,
-  onSync: PropTypes.func,
-  syncing: PropTypes.bool,
 };
