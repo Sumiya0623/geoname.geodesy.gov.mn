@@ -158,68 +158,17 @@ class AdminUnit(models.Model):
 
 
 class RemoteUser(AbstractUser):
-	sso_id = models.UUIDField(
-		default=uuid.uuid4,
-		unique=True,
-		editable=False,
-		verbose_name='SSO дугаар',
-		help_text='Төвлөрсөн нэвтрэлтийн SSO дугаар.'
-	)
-	first_name = models.CharField(
-		max_length=100,
-		verbose_name='Нэр',
-		help_text='Хэрэглэгчийн өөрийн нэр.'
-	)
-	last_name = models.CharField(
-		max_length=100,
-		verbose_name='Овог',
-		help_text='Хэрэглэгчийн овог.'
-	)
-	roles=models.ManyToManyField(
-		Constant,
-		related_name='roles',
-		verbose_name='Нэмэлт эрхүүд',
-		help_text='Хэрэглэгчид ногдох нэмэлт эрхүүд.'
-	)
+	sso_id = models.UUIDField(default=uuid.uuid4,unique=True,editable=False,verbose_name='SSO дугаар',help_text='Төвлөрсөн нэвтрэлтийн SSO дугаар.')
+	first_name = models.CharField(max_length=100,verbose_name='Нэр',help_text='Хэрэглэгчийн өөрийн нэр.')
+	last_name = models.CharField(max_length=100,verbose_name='Овог',help_text='Хэрэглэгчийн овог.')
+	roles=models.ManyToManyField(Constant,related_name='roles',verbose_name='Нэмэлт эрхүүд',help_text='Хэрэглэгчид ногдох нэмэлт эрхүүд.')
 	
-	photo=models.ImageField(
-		upload_to=get_profile_photo_upload_path,
-		verbose_name='Лого',
-		blank=True,
-		null=True,
-		help_text='Хэрэглэгчийн зураг эсвэл лого.'
-	)
-	email = models.EmailField(
-		_("email address"),
-		blank=True,
-		help_text='Хэрэглэгчийн имэйл хаяг.'
-	)
-	is_citizen = models.BooleanField(
-		default=False,
-		verbose_name="",
-		help_text='Иргэн эсэхийг илэрхийлнэ. Иргэн бол үнэн (True).'
-	)
-	phone=models.CharField(
-		max_length=50,
-		blank=True,
-		null=True,
-		verbose_name='Утас',
-		help_text='Холбоо барих утасны дугаар.'
-	)
-	register=models.CharField(
-		max_length=30,
-		unique=True,
-		verbose_name='Регистр',
-		error_messages={ "unique": "Регистр бүртгэгдсэн байна" },
-		help_text='Иргэн эсвэл байгууллагын регистрийн дугаар.'
-	)
-	unit=models.ManyToManyField(
-		AdminUnit,
-		verbose_name='Хил',
-		related_name='relatedunits',
-		blank=True,
-		help_text='Харьяалагдах захиргааны нэгжүүд.'
-	)
+	photo=models.ImageField(upload_to=get_profile_photo_upload_path,verbose_name='Лого',blank=True,null=True,help_text='Хэрэглэгчийн зураг эсвэл лого.')
+	email = models.EmailField(_("email address"),blank=True,help_text='Хэрэглэгчийн имэйл хаяг.')
+	is_citizen = models.BooleanField(default=False,verbose_name="",help_text='Иргэн эсэхийг илэрхийлнэ. Иргэн бол үнэн (True).')
+	phone=models.CharField(max_length=50,blank=True,null=True,verbose_name='Утас',help_text='Холбоо барих утасны дугаар.')
+	register=models.CharField(max_length=30,unique=True,verbose_name='Регистр',error_messages={ "unique": "Регистр бүртгэгдсэн байна" },help_text='Иргэн эсвэл байгууллагын регистрийн дугаар.')
+	unit=models.ManyToManyField(AdminUnit,verbose_name='Хил',related_name='relatedunits',blank=True,help_text='Харьяалагдах захиргааны нэгжүүд.')
 	USERNAME_FIELD = 'register'
 	org = models.ForeignKey(
         'self',
@@ -230,8 +179,6 @@ class RemoteUser(AbstractUser):
         null=True,
         limit_choices_to={'is_citizen': False}
     )
-	def get_absolute_url(self):
-		return reverse('profile-detail', args=[str(self.id)])
 	class Meta:
 		ordering = ['first_name']
 		verbose_name_plural = "Хэрэглэгч"
