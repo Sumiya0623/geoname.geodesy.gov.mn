@@ -189,20 +189,26 @@ export default function CouncilListView() {
     try {
       const res = await axiosInstance.get(
         endpoints.council.members(
-          new URLSearchParams({ council: councilId, page_size: 200 }).toString(),
+          new URLSearchParams({
+            council: councilId,
+            page_size: 200,
+          }).toString(),
         ),
       );
       const list = res?.data?.results || [];
       setMrows(
         list.map((m, i) => {
-          const parts = String(m.full_name || "").trim().split(/\s+/);
+          const parts = String(m.full_name || "")
+            .trim()
+            .split(/\s+/);
           return {
             key: `db_${m.id}_${i}`,
             id: m.id, // байгаа гишүүн — дахин үүсгэхгүй
             type_id: m.position?.id || "",
             register: m.register || "",
             last_name: parts.length > 1 ? parts[0] : "",
-            first_name: parts.length > 1 ? parts.slice(1).join(" ") : parts[0] || "",
+            first_name:
+              parts.length > 1 ? parts.slice(1).join(" ") : parts[0] || "",
             email: "",
             phone: "",
             found: m.register ? true : false,
@@ -261,7 +267,9 @@ export default function CouncilListView() {
       const res = await axiosInstance.post(endpoints.request.checkUser, {
         register: reg,
       });
-      const d = res?.data?.results || res?.data || {};
+      // ХУР‑ын хариу: {result: {...}} эсвэл шууд объект, эсвэл {results: …}
+      const raw = res?.data || {};
+      const d = raw.result || raw.results || raw;
       const last = d.last_name || d.lastname || d.surname || "";
       const first = d.first_name || d.firstname || d.name || "";
       if (last || first) {
@@ -270,6 +278,8 @@ export default function CouncilListView() {
           checking: false,
           last_name: last,
           first_name: first,
+          email: d.email || "",
+          phone: d.phone || "",
         });
       } else {
         setMrow(key, { found: false, checking: false });
@@ -864,7 +874,9 @@ export default function CouncilListView() {
                             color: (c.kind?.name || "").includes("Үндэсний")
                               ? "error.main"
                               : "text.primary",
-                            fontWeight: (c.kind?.name || "").includes("Үндэсний")
+                            fontWeight: (c.kind?.name || "").includes(
+                              "Үндэсний",
+                            )
                               ? 700
                               : 500,
                           }}

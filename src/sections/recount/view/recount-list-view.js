@@ -206,7 +206,11 @@ export default function RecountListView({
             ordering: `${rOrder === "desc" ? "-" : ""}${rOrderBy}`,
             ...(rdq ? { search: rdq } : {}),
             ...(stepObj?.id ? { step: stepObj.id } : {}),
-            ...(advType?.id ? { type: advType.id } : {}),
+            ...(advType?.id
+              ? { type: advType.id }
+              : t1?.id
+                ? { type: t1.id }
+                : {}),
             ...(adv.sum?.id || adv.aimag?.id
               ? { unit: adv.sum?.id || adv.aimag?.id }
               : {}),
@@ -228,6 +232,7 @@ export default function RecountListView({
       rStatuses,
       adv,
       advType,
+      t1,
       noGeom,
     ],
   );
