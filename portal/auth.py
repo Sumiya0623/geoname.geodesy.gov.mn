@@ -83,13 +83,25 @@ class JWTAuthFromCookie(JWTAuthentication):
             )
         if incoming["orgName"] and incoming["orgReg"]:
             orgStatus, crted = Constant.objects.get_or_create(name="Хуулийн этгээд",key='ROLES')
-            org,created = User.objects.get_or_create(
-                register= incoming["orgReg"],
-                defaults={
-                    "username":incoming["orgReg"],
-                    "first_name":incoming["orgName"],
-                    "is_citizen":False,
-                    }
+            # Байгууллага — БАЙВАЛ нэр (first_name) ба is_citizen‑ийг шинэчилнэ,
+            # эс бөгөөс шинээр үүсгэнэ (SSO дээр нэр солигдвол энд тусна).
+            org = User.objects.filter(register=incoming["orgReg"]).first()
+            if org:
+                changed = []
+                if org.first_name != incoming["orgName"]:
+                    org.first_name = incoming["orgName"]
+                    changed.append("first_name")
+                if org.is_citizen:
+                    org.is_citizen = False
+                    changed.append("is_citizen")
+                if changed:
+                    org.save(update_fields=changed)
+            else:
+                org = User.objects.create(
+                    register=incoming["orgReg"],
+                    username=incoming["orgReg"],
+                    first_name=incoming["orgName"],
+                    is_citizen=False,
                 )
             user.org =org
             user.save(update_fields=["org"])
