@@ -10,6 +10,7 @@ coverage
 
 # production
 .next
+.next-build
 .swc
 _static
 out

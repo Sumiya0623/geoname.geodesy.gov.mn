@@ -112,6 +112,7 @@ import FeatureTabPanel from "src/components/map/FeatureTabPanel";
 import RecountEditDialog from "src/components/map/RecountEditDialog";
 import FieldCalcDialog from "src/components/map/FieldCalcDialog";
 import RecountLegend from "src/components/map/RecountLegend";
+import TabInfoCard from "src/components/map/TabInfoCard";
 import MapAddName from "src/components/map/MapAddName";
 import { statusColor } from "src/components/map/recountStatus";
 import MapHeader from "src/components/map/MapHeader";
@@ -624,6 +625,40 @@ function Map2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  // Шийдвэрийн модны «жагсаалт» дүрс — ЕРӨНХИЙ зураг дээр доод хүснэгт
+  // нээхгүй, зөвхөн баруун дээд булангийн мэдээллийн картыг тухайн ЗЗ нэгжийн
+  // задаргаагаар шинэчилнэ (legal_unit_view‑ээс WFS‑ээр). Төслийн зураг дээр
+  // хуучнаараа доод хүснэгт (таб) нээгдэнэ.
+  const openLegalInfo = useCallback(async (f) => {
+    if (!f?.unitId) {
+      setTabInfo({
+        tab: "legal",
+        props: { unit_name: f?.name, total: f?.count },
+      });
+      return;
+    }
+    const gs = process.env.NEXT_PUBLIC_GEOSERVER_URL;
+    const url =
+      `${gs}/geoname/ows?service=WFS&version=1.0.0&request=GetFeature` +
+      `&typeName=geoname:legal_unit_view&outputFormat=application/json` +
+      `&propertyName=unit_name,level_name,parent_unit,total,types,type_counts` +
+      `&CQL_FILTER=${encodeURIComponent(`unit_id=${f.unitId}`)}`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      const p = data?.features?.[0]?.properties;
+      setTabInfo({
+        tab: "legal",
+        props: p || { unit_name: f.name, total: f.count },
+      });
+    } catch (e) {
+      setTabInfo({
+        tab: "legal",
+        props: { unit_name: f.name, total: f.count },
+      });
+    }
+  }, []);
+
   // Газрын зургийн badge‑аас дуудахад ашиглана (init effect нь нэг л удаа ажилладаг)
   const openLegalTabRef = useRef(null);
   openLegalTabRef.current = openLegalTab;
@@ -2588,6 +2623,76 @@ function Map2() {
 
   // === Backend‑ээс ирсэн БҮХ overlay‑ууд (LEGAL‑ээс бусад) — config‑оор нь
   // generic рендерлэнэ (buildOlBaseLayer). Hardcoded давхарга байхгүй. ===
+  // ── Панелийн идэвхтэй таб (Нэрийн сан / Тодруулалт / Шийдвэр / Хүсэлт) ──
+  // «Шийдвэр» ба «Хүсэлт» табууд нь GeoServer дээрх PostGIS view‑үүдийг WMS‑ээр
+  // дуудна (төрөл/төлвөөр нь SLD style‑тай). Таб хаагдахад давхарга нь арилна.
+  const [panelTab, setPanelTab] = useState(null);
+  // Дарсан ЗЗ нэгж / хүсэлтийн мэдээлэл (GetFeatureInfo‑гоор)
+  const [tabInfo, setTabInfo] = useState(null);
+  const TAB_WMS = useMemo(
+    () => ({
+      // Шийдвэрийн сан: ЗЗ нэгжийн хил + нийт тоо, дээр нь төрлөөр өнгөт цэг
+      legal: ["geoname:legal_unit_view", "geoname:legal_view"],
+      // Нэр өөрчлөх/нэмэх хүсэлт — төлөвөөр өнгөт цэг
+      request: ["geoname:request_view"],
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    const map = mapObjRef.current;
+    if (!map || !mapReady) return undefined;
+    const names = TAB_WMS[panelTab];
+    if (!names) return undefined;
+    const built = names.map(
+      (name, i) =>
+        new TileLayer({
+          zIndex: 700 + i, // нэрийн давхаргуудын дээр, зурах/хэмжихийн доор
+          source: new TileWMS({
+            url: `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms`,
+            params: {
+              LAYERS: name,
+              FORMAT: "image/png",
+              TRANSPARENT: "true",
+              TILED: "true",
+              VERSION: "1.1.1",
+            },
+            serverType: "geoserver",
+            crossOrigin: "anonymous",
+          }),
+        }),
+    );
+    built.forEach((l) => map.addLayer(l));
+
+    // Дарахад — эхний давхаргаас (нэгжийн задаргаа / хүсэлт) GetFeatureInfo
+    const onInfoClick = async (evt) => {
+      if (drawInteractionRef.current) return; // зурж байхад хөндөхгүй
+      const src = built[0].getSource();
+      const url = src.getFeatureInfoUrl(
+        evt.coordinate,
+        map.getView().getResolution(),
+        map.getView().getProjection(),
+        { INFO_FORMAT: "application/json", FEATURE_COUNT: 10 },
+      );
+      if (!url) return;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const f = (data?.features || [])[0]?.properties;
+        setTabInfo(f ? { tab: panelTab, props: f } : null);
+      } catch (e) {
+        setTabInfo(null);
+      }
+    };
+    map.on("singleclick", onInfoClick);
+
+    return () => {
+      map.un("singleclick", onInfoClick);
+      built.forEach((l) => map.removeLayer(l));
+      setTabInfo(null);
+    };
+  }, [panelTab, mapReady, TAB_WMS]);
+
   // Эрэмбэ (sort_order) → zIndex. Эрэмбэ 1 нь ХАМГИЙН ДЭЭР (жагсаалттай ижил),
   // тоо өсөх тусам доошилно: zIndex = OVERLAY_Z_TOP − эрэмбэ. Бүх overlay
   // 10–99 мужид — суурь зургийн дээр, нэрийн давхаргуудын (100+) доор.
@@ -4529,11 +4634,17 @@ function Map2() {
           scaleDenom={scaleDenom}
           onRecountCql={setRecountCql}
           onProjectAreas={setProjectAreas}
-          // «Шийдвэрийн сан» таб нээхэд ЗЗ нэгжийн хил + тооны overlay асна
-          onTabChange={(t) => setOverlayLegal(t === "legal")}
+          // Идэвхтэй таб — Шийдвэр/Хүсэлт табд харгалзах WMS давхарга асна
+          onTabChange={setPanelTab}
           // Модны хүснэгтийн дүрс → доод хүснэгтэд ТАБ болгож нээнэ
-          onLegalOpenList={openLegalTab}
+          onLegalOpenList={recountProjectId ? openLegalTab : openLegalInfo}
         />
+
+        {/* Шийдвэр/Хүсэлт табын WMS дээр дарахад — ЗЗ нэгжийн актын төрлийн
+            тоо (эсвэл хүсэлтийн товч мэдээлэл) */}
+        {tabInfo && (
+          <TabInfoCard info={tabInfo} onClose={() => setTabInfo(null)} />
+        )}
         <Box
           sx={{
             position: "absolute",

@@ -1,4 +1,6 @@
 import PropTypes from "prop-types";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import MenuItem from "@mui/material/MenuItem";
 import TableRow from "@mui/material/TableRow";
@@ -33,6 +35,7 @@ export default function BaseMapTableRow({
   roles,
   available,
   layers,
+  sortable = false,
 }) {
   const {
     key,
@@ -51,12 +54,46 @@ export default function BaseMapTableRow({
   const confirm = useBoolean();
   const popover = usePopover();
 
+  // Чирж эрэмбэлэх (зөвхөн эрэмбээр эрэмбэлсэн жагсаалт дээр)
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.id, disabled: !sortable });
+  const dragSx = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    ...(isDragging ? { opacity: 0.6, bgcolor: "action.hover" } : {}),
+  };
+
   return (
     <>
-      <TableRow sx={{ "& > *": { borderBottom: "unset" } }} hover>
-        {/* Нэр (дор нь түлхүүр) — нэг баганад */}
+      <TableRow
+        ref={setNodeRef}
+        sx={{ "& > *": { borderBottom: "unset" }, ...dragSx }}
+        hover
+      >
+        {/* Нэр (дор нь түлхүүр) — нэг баганад, урд нь чирэх бариул */}
         <TableCell>
           <Stack direction="row" alignItems="center" spacing={1}>
+            {sortable ? (
+              <Box
+                {...attributes}
+                {...listeners}
+                sx={{
+                  display: "flex",
+                  color: "text.disabled",
+                  cursor: "grab",
+                  "&:active": { cursor: "grabbing" },
+                  "&:hover": { color: "text.primary" },
+                }}
+              >
+                <Iconify icon="ic:round-drag-indicator" width={18} />
+              </Box>
+            ) : null}
             {color ? (
               <Box
                 component="span"
@@ -214,4 +251,5 @@ BaseMapTableRow.propTypes = {
   roles: PropTypes.array,
   available: PropTypes.array,
   layers: PropTypes.array,
+  sortable: PropTypes.bool,
 };

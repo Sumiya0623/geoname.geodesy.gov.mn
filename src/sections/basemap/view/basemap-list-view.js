@@ -1,7 +1,19 @@
 "use client";
 
 import { isEqual } from "lodash";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 
 import Card from "@mui/material/Card";
 import Table from "@mui/material/Table";
@@ -79,6 +91,42 @@ export default function BaseMapLayerListView() {
   const { layers, layersCount, layersEmpty, layersLoading, layersMutation } =
     useGetBaseMapLayers(requestBody);
 
+  // ── Чирж эрэмбэлэх ──────────────────────────────────────────────────
+  // Жагсаалтыг локал хуулбар дээр шууд шилжүүлж (optimistic) харуулаад,
+  // шинэ дарааллыг reorder‑оор нэг дор хадгална (эрэмбэ 1, 2, 3 …).
+  const [rows, setRows] = useState([]);
+  useEffect(() => setRows(layers || []), [layers]);
+
+  // Зөвхөн эрэмбээр (өсөхөөр) эрэмбэлсэн үед чирэх нь утга учиртай
+  const canDrag = table.orderBy === "sort_order" && table.order === "asc";
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const handleDragEnd = useCallback(
+    async (event) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const from = rows.findIndex((r) => r.id === active.id);
+      const to = rows.findIndex((r) => r.id === over.id);
+      if (from < 0 || to < 0) return;
+      const next = arrayMove(rows, from, to);
+      setRows(next);
+      try {
+        await axiosInstance.post(endpoints.basemap.reorder, {
+          ids: next.map((r) => r.id),
+        });
+        layersMutation();
+      } catch (error) {
+        setRows(layers || []); // амжилтгүй бол буцаана
+        enqueueSnackbar("Эрэмбэ хадгалахад алдаа гарлаа", {
+          variant: "warning",
+        });
+      }
+    },
+    [rows, layers, layersMutation, enqueueSnackbar],
+  );
+
   const handleFilters = useCallback(
     (name, value) => {
       table.onResetPage();
@@ -148,43 +196,56 @@ export default function BaseMapLayerListView() {
           action={createAction}
         />
 
-        <TableContainer sx={{ position: "relative", overflow: "unset" }}>
-          <Scrollbar>
-            <Table
-              size={table.dense ? "small" : "medium"}
-              sx={{ minWidth: 960 }}
-            >
-              <TableHeadCustom
-                headLabel={TABLE_HEAD}
-                order={table.order}
-                orderBy={table.orderBy}
-                onSort={table.onSort}
-              />
-              <TableBody>
-                {layersLoading &&
-                  Array.from({ length: table.rowsPerPage }).map((_, i) => (
-                    <TableSkeleton key={i} headLength={TABLE_HEAD.length} />
-                  ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <TableContainer sx={{ position: "relative", overflow: "unset" }}>
+            <Scrollbar>
+              <Table
+                size={table.dense ? "small" : "medium"}
+                sx={{ minWidth: 960 }}
+              >
+                <TableHeadCustom
+                  headLabel={TABLE_HEAD}
+                  order={table.order}
+                  orderBy={table.orderBy}
+                  onSort={table.onSort}
+                />
+                <TableBody>
+                  {layersLoading &&
+                    Array.from({ length: table.rowsPerPage }).map((_, i) => (
+                      <TableSkeleton key={i} headLength={TABLE_HEAD.length} />
+                    ))}
 
-                {!layersLoading &&
-                  layers.map((row) => (
-                    <BaseMapTableRow
-                      key={row.id}
-                      row={row}
-                      refetch={layersMutation}
-                      onDeleteRow={() => handleDeleteRow(row.id)}
-                      onToggleEnabled={handleToggleEnabled}
-                      roles={roles}
-                      available={available}
-                      layers={layers}
-                    />
-                  ))}
+                  {!layersLoading && (
+                    <SortableContext
+                      items={rows.map((r) => r.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {rows.map((row) => (
+                        <BaseMapTableRow
+                          key={row.id}
+                          row={row}
+                          refetch={layersMutation}
+                          onDeleteRow={() => handleDeleteRow(row.id)}
+                          onToggleEnabled={handleToggleEnabled}
+                          roles={roles}
+                          available={available}
+                          layers={rows}
+                          sortable={canDrag}
+                        />
+                      ))}
+                    </SortableContext>
+                  )}
 
-                <TableNoData notFound={layersEmpty && !layersLoading} />
-              </TableBody>
-            </Table>
-          </Scrollbar>
-        </TableContainer>
+                  <TableNoData notFound={layersEmpty && !layersLoading} />
+                </TableBody>
+              </Table>
+            </Scrollbar>
+          </TableContainer>
+        </DndContext>
 
         <TablePaginationCustom
           count={layersCount}

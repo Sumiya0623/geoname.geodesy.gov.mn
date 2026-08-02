@@ -5,6 +5,12 @@ const withBundleAnalyzer = require("@next/bundle-analyzer")({
 // const JavaScriptObfuscator = require('webpack-obfuscator');
 
 module.exports = withBundleAnalyzer({
+  // Build хийхэд dev серверийн .next кэш эвдрэхээс сэргийлнэ. `npm run dev` ба
+  // `next build` хоёулаа НЭГ .next хавтас руу бичдэг тул зэрэг ажиллуулахад dev
+  // сервер MODULE_NOT_FOUND (webpack-runtime.js алга) өгдөг. Шалгах build‑ыг
+  //   NEXT_DIST_DIR=.next-build npx next build
+  // гэж тусад нь гаргана (npm run build:check).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   productionBrowserSourceMaps: false,
   trailingSlash: true,
   allowedDevOrigins: [

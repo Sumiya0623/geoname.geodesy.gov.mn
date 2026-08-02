@@ -299,6 +299,8 @@ export const endpoints = {
     available: (request_body) =>
       `/api/g/basemap/available/?${request_body || ""}`,
     forMap: `/api/g/basemap/for-map/`,
+    // Жагсаалт дээр чирж эрэмбэлэх — {ids: [...]} дарааллаар 1,2,3… болгоно
+    reorder: `/api/g/basemap/reorder/`,
     // Давхаргын хил (Zoom to Layer) — ?layer=<ws:name>
     layerExtent: (layer) =>
       `/api/g/basemap/layer-extent/?layer=${encodeURIComponent(layer)}`,

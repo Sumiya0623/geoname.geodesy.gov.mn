@@ -45,6 +45,7 @@ import {
   Pentagon as PolySelIcon,
   AccountTree as UnitTreeIcon,
   GavelRounded as LegalIcon,
+  ForumRounded as RequestIcon,
 } from "@mui/icons-material";
 
 import MapAddName from "./MapAddName";
@@ -54,6 +55,7 @@ import NameCategoryTree from "./NameCategoryTree";
 import RecountPanel from "./RecountPanel";
 import RecountUnitTree from "./RecountUnitTree";
 import LegalUnitTree from "./LegalUnitTree";
+import RequestPanel from "./RequestPanel";
 import AdvancedSearch from "./AdvancedSearch";
 
 // geoname:geoname_view (бүх геонэр) WMS суурь URL — Нэрийн ангилал филтерт
@@ -97,6 +99,15 @@ const PANEL_TABS = [
     Icon: LegalIcon,
     color: "#b45309",
     id: "geoserver-legal",
+  },
+  // Иргэдийн нэр өөрчлөх/нэмэх санал — ЗӨВХӨН ерөнхий газрын зураг дээр
+  {
+    value: "request",
+    label: "Хүсэлт",
+    Icon: RequestIcon,
+    color: "#0891b2",
+    id: "geoserver-request",
+    mainOnly: true,
   },
 ];
 
@@ -210,10 +221,17 @@ function GeoserverDialog({
   const visibleTabs = useMemo(
     () =>
       addProjectId
-        ? PANEL_TABS.filter((t) => t.value !== "layers")
+        ? PANEL_TABS.filter((t) => t.value !== "layers" && !t.mainOnly)
         : PANEL_TABS,
     [addProjectId],
   );
+  // Табын МӨРҮҮД: [Нэрийн сан] / [Тодруулалт, Шийдвэр, Хүсэлт]
+  const tabRows = useMemo(() => {
+    const wide = visibleTabs.filter((t) => t.value === "layers");
+    const rest = visibleTabs.filter((t) => t.value !== "layers");
+    return [wide, rest].filter((r) => r.length);
+  }, [visibleTabs]);
+
   // Төслийн горимд анхдагч таб = Тодруулалт
   useEffect(() => {
     if (addProjectId && tab === "layers") setTab("recount");
@@ -464,17 +482,15 @@ function GeoserverDialog({
               <CloseIcon fontSize="small" />
             </IconButton>
           </Box>
-          {/* Табууд — толгойн доор хэвтээ toggle товчлууруудаар */}
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={tab}
-            onChange={(e, v) => v && handleTabChange(e, v)}
+          {/* Табууд — «Нэрийн сан» дээд мөрөнд БҮТЭН ӨРГӨН, доор нь
+              Тодруулалт | Шийдвэр | Хүсэлт гурав тэнцүү хуваагдана */}
+          <Box
             sx={{
               px: 1,
               py: 0.75,
+              display: "flex",
+              flexDirection: "column",
               gap: 0.75,
-              flexWrap: "wrap",
               bgcolor: "#fff",
               borderBottom: "1px solid #f0f0f0",
               flexShrink: 0,
@@ -492,25 +508,37 @@ function GeoserverDialog({
               },
             }}
           >
-            {visibleTabs.map(({ value, label, Icon, color, id }) => (
-              <ToggleButton
-                key={value}
-                value={value}
-                id={id}
-                sx={{
-                  "&.Mui-selected": {
-                    color,
-                    bgcolor: `${color}14`,
-                    borderColor: `${color}66 !important`,
-                    "&:hover": { bgcolor: `${color}1f` },
-                  },
-                }}
+            {tabRows.map((row, ri) => (
+              <ToggleButtonGroup
+                // eslint-disable-next-line react/no-array-index-key
+                key={ri}
+                exclusive
+                size="small"
+                value={tab}
+                onChange={(e, v) => v && handleTabChange(e, v)}
+                sx={{ gap: 0.75, "& .MuiToggleButton-root": { flex: 1 } }}
               >
-                <Icon sx={{ fontSize: 18, color }} />
-                {!isSmall && label}
-              </ToggleButton>
+                {row.map(({ value, label, Icon, color, id }) => (
+                  <ToggleButton
+                    key={value}
+                    value={value}
+                    id={id}
+                    sx={{
+                      "&.Mui-selected": {
+                        color,
+                        bgcolor: `${color}14`,
+                        borderColor: `${color}66 !important`,
+                        "&:hover": { bgcolor: `${color}1f` },
+                      },
+                    }}
+                  >
+                    <Icon sx={{ fontSize: 18, color }} />
+                    {!isSmall && label}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
             ))}
-          </ToggleButtonGroup>
+          </Box>
 
           <Box
             sx={{
@@ -924,6 +952,43 @@ function GeoserverDialog({
                       onFlyTo={onFlyTo}
                       onOpenList={onLegalOpenList}
                     />
+                  </Box>
+                </Box>
+              )}
+
+              {/* Хүсэлт — газрын зурагт geoname:request_view WMS‑ээр харагдана */}
+              {tab === "request" && (
+                <Box
+                  sx={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      px: 1.5,
+                      py: 1,
+                      borderBottom: "1px solid #f0f0f0",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Typography
+                      variant="subtitle2"
+                      sx={{
+                        color: "#0891b2",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                      }}
+                    >
+                      <RequestIcon sx={{ fontSize: 18 }} />
+                      Нэрийн хүсэлт
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, minHeight: 0 }}>
+                    <RequestPanel onFlyTo={onFlyTo} />
                   </Box>
                 </Box>
               )}
