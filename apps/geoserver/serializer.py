@@ -34,17 +34,17 @@ class BaseMapLayerSerializer(serializers.ModelSerializer):
 		]
 
 	def validate(self, attrs):
-		"""Эрэмбэ — 1‑ээс эхэлнэ, төрөл (base/overlay) дотроо ДАВХАРДАХГҮЙ.
+		"""Эрэмбэ — 1‑ээс эхэлнэ, БҮХ давхаргын дунд ДАВХАРДАХГҮЙ.
 
 		Эрэмбэ нь газрын зурагт давхаргын байрлалыг (zIndex) шууд тодорхойлдог
-		тул 0 буюу давхардсан утга зөвшөөрөгдөхгүй."""
+		(1 = хамгийн дээр) тул 0 буюу давхардсан утга зөвшөөрөгдөхгүй.
+		Жагсаалт дээр чирж эрэмбэлэхэд reorder action‑аар нэг дор шинэчилнэ."""
 		inst = self.instance
 		order = attrs.get('sort_order', getattr(inst, 'sort_order', 0))
-		ltype = attrs.get('layer_type', getattr(inst, 'layer_type', 'base'))
 		if not order:
 			raise serializers.ValidationError(
 				{'sort_order': 'Эрэмбэ 1‑ээс эхэлнэ (0 байж болохгүй)'})
-		qs = BaseMapLayer.objects.filter(layer_type=ltype, sort_order=order)
+		qs = BaseMapLayer.objects.filter(sort_order=order)
 		if inst is not None:
 			qs = qs.exclude(pk=inst.pk)
 		dup = qs.first()

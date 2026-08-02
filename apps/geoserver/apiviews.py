@@ -390,6 +390,283 @@ def ensure_geoname_search_view():
         logging.getLogger(__name__).warning("ensure_geoname_search_view failed", exc_info=True)
 
 
+# ----------------------------------------------------------------------
+# ШИЙДВЭРИЙН САН + ХҮСЭЛТ — газрын зурагт зориулсан PostGIS view‑үүд.
+# /dashboard/map/ хуудас эдгээрийг ЗӨВХӨН WMS‑ээр (GeoServer) харуулна:
+#   legal_view       — ЗЗ нэгж × ТӨРӨЛ (нэгтгэсэн): нэгж бүрийн төрөл тус бүр НЭГ
+#                      цэг, cnt = тоо. Цэгүүд нь нэгжийн голоос тойрог хэлбэрээр
+#                      тарж байрлана — тиймээс төрөл бүр өөр өнгөөр ЗЭРЭГ харагдана
+#                      (нэг цэг дээр давхарлахгүй)
+#   legal_unit_view  — ЗЗ нэгж бүрийн ХИЛ + нийт тоо + төрлийн задаргаа (type_counts)
+#   request_view     — нэр өөрчлөх/нэмэх ХҮСЭЛТ (lat/lon цэг), төлөв/төрөл баганатай
+# ----------------------------------------------------------------------
+
+LEGAL_VIEW = 'legal_view'
+LEGAL_UNIT_VIEW = 'legal_unit_view'
+REQUEST_VIEW = 'request_view'
+
+_LEGAL_VIEW_SQL = """WITH agg AS (
+    SELECT lo.unit_id, lo.type_id, count(*) AS cnt
+    FROM core_legalorder lo
+    WHERE lo.unit_id IS NOT NULL
+    GROUP BY lo.unit_id, lo.type_id
+), num AS (
+    SELECT a.*,
+           row_number() OVER (PARTITION BY a.unit_id ORDER BY a.type_id) AS i,
+           count(*)     OVER (PARTITION BY a.unit_id) AS n,
+           sum(a.cnt)   OVER (PARTITION BY a.unit_id) AS unit_total
+    FROM agg a
+)
+SELECT row_number() OVER (ORDER BY nu.unit_id, nu.type_id)::int AS id,
+       nu.unit_id,
+       u.unit    AS unit_name,
+       lv.name   AS level_name,
+       pu.unit   AS parent_unit,
+       nu.type_id,
+       coalesce(t.name, 'Тодорхойгүй') AS type_name,
+       nu.cnt,
+       nu.unit_total,
+       CASE WHEN nu.n = 1 THEN ST_PointOnSurface(u.geom)
+            ELSE ST_Translate(
+                   ST_PointOnSurface(u.geom),
+                   0.16 * (ST_XMax(u.geom) - ST_XMin(u.geom))
+                        * cos(2 * pi() * (nu.i - 1) / nu.n),
+                   0.16 * (ST_YMax(u.geom) - ST_YMin(u.geom))
+                        * sin(2 * pi() * (nu.i - 1) / nu.n))
+       END::geometry(Point,4326) AS geom
+FROM num nu
+JOIN core_adminunit u  ON u.id = nu.unit_id AND u.geom IS NOT NULL
+LEFT JOIN core_constant t  ON t.id  = nu.type_id
+LEFT JOIN core_constant lv ON lv.id = u.level_id
+LEFT JOIN core_adminunit pu ON pu.id = u.parent_id"""
+
+_LEGAL_UNIT_VIEW_SQL = """SELECT u.id AS unit_id,
+       u.unit AS unit_name,
+       lv.name AS level_name,
+       pu.unit AS parent_unit,
+       a.total,
+       a.types,
+       a.type_counts,
+       u.geom::geometry(MultiPolygon,4326) AS geom
+FROM core_adminunit u
+JOIN core_constant lv ON lv.id = u.level_id
+LEFT JOIN core_adminunit pu ON pu.id = u.parent_id
+JOIN (SELECT lo.unit_id,
+             count(*) AS total,
+             string_agg(DISTINCT coalesce(t.name,'Тодорхойгүй'), ', ') AS types,
+             jsonb_object_agg(coalesce(t.name,'Тодорхойгүй'), c.n) AS type_counts
+      FROM core_legalorder lo
+      LEFT JOIN core_constant t ON t.id = lo.type_id
+      JOIN (SELECT unit_id, type_id, count(*) AS n FROM core_legalorder
+            GROUP BY unit_id, type_id) c
+        ON c.unit_id = lo.unit_id AND c.type_id IS NOT DISTINCT FROM lo.type_id
+      WHERE lo.unit_id IS NOT NULL
+      GROUP BY lo.unit_id) a ON a.unit_id = u.id
+WHERE u.geom IS NOT NULL"""
+
+_REQUEST_VIEW_SQL = """SELECT r.id,
+       r.created_date,
+       r.description,
+       CASE WHEN r.name_id IS NULL THEN 'Шинээр нэмэх' ELSE 'Нэр өөрчлөх' END AS kind,
+       g.name  AS current_name,
+       opt.names AS option_names,
+       r.status_id,
+       s.name  AS status_name,
+       s.color AS status_color,
+       r.type_id,
+       tp.name AS type_name,
+       ag.name AS age_name,
+       ST_SetSRID(ST_MakePoint(r.lon, r.lat), 4326)::geometry(Point,4326) AS geom
+FROM core_requestname r
+LEFT JOIN core_geoname g  ON g.id  = r.name_id
+LEFT JOIN core_constant s ON s.id  = r.status_id
+LEFT JOIN core_constant tp ON tp.id = r.type_id
+LEFT JOIN core_constant ag ON ag.id = r.age_id
+LEFT JOIN (SELECT ro.requestname_id, string_agg(no.name, ', ') AS names
+           FROM core_requestname_option ro
+           JOIN core_nameoption no ON no.id = ro.nameoption_id
+           GROUP BY ro.requestname_id) opt ON opt.requestname_id = r.id
+WHERE r.lat IS NOT NULL AND r.lon IS NOT NULL"""
+
+_MAP_VIEWS = (
+    (LEGAL_VIEW, _LEGAL_VIEW_SQL, 'Шийдвэрийн сан'),
+    (LEGAL_UNIT_VIEW, _LEGAL_UNIT_VIEW_SQL, 'Шийдвэрийн сан (ЗЗ нэгж)'),
+    (REQUEST_VIEW, _REQUEST_VIEW_SQL, 'Нэрийн хүсэлт'),
+)
+
+
+# Төрөл/төлөв бүрд өнгө — Constant.color хоосон бол дараах палитраас (тогтвортой)
+_MAP_PALETTE = ['#1d4ed8', '#dc2626', '#059669', '#d97706', '#7c3aed',
+                '#0891b2', '#db2777', '#65a30d', '#475569', '#b45309']
+
+
+def _sld_header(layer, style_name):
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<StyledLayerDescriptor version="1.0.0" '
+        'xmlns="http://www.opengis.net/sld" xmlns:ogc="http://www.opengis.net/ogc" '
+        'xmlns:xlink="http://www.w3.org/1999/xlink" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        f'<NamedLayer><Name>{layer}</Name><UserStyle><Name>{style_name}</Name>'
+        '<FeatureTypeStyle>')
+
+
+_SLD_FOOTER = '</FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>'
+
+
+def _sld_point_rule(field, value, color, size=12, label_field=None):
+    """Нэг утгад (ж: type_name='Акт') тохирох дугуй тэмдэг."""
+    return (
+        f'<Rule><Name>{_x(value)}</Name><Title>{_x(value)}</Title>'
+        f'<ogc:Filter><ogc:PropertyIsEqualTo>'
+        f'<ogc:PropertyName>{field}</ogc:PropertyName>'
+        f'<ogc:Literal>{_x(value)}</ogc:Literal>'
+        f'</ogc:PropertyIsEqualTo></ogc:Filter>'
+        f'<PointSymbolizer><Graphic><Mark><WellKnownName>circle</WellKnownName>'
+        f'<Fill><CssParameter name="fill">{color}</CssParameter></Fill>'
+        f'<Stroke><CssParameter name="stroke">#ffffff</CssParameter>'
+        f'<CssParameter name="stroke-width">1.5</CssParameter></Stroke></Mark>'
+        f'<Size>{size}</Size></Graphic></PointSymbolizer>' +
+        (_sld_count_label(label_field) if label_field else '') + '</Rule>')
+
+
+def _sld_count_label(field):
+    """Цэгийн дотор тоог (ж: cnt) цагаанаар бичнэ."""
+    return (
+        '<TextSymbolizer>'
+        f'<Label><ogc:PropertyName>{field}</ogc:PropertyName></Label>'
+        '<Font><CssParameter name="font-family">Arial</CssParameter>'
+        '<CssParameter name="font-size">10</CssParameter>'
+        '<CssParameter name="font-weight">bold</CssParameter></Font>'
+        '<LabelPlacement><PointPlacement><AnchorPoint>'
+        '<AnchorPointX>0.5</AnchorPointX><AnchorPointY>0.5</AnchorPointY>'
+        '</AnchorPoint></PointPlacement></LabelPlacement>'
+        '<Fill><CssParameter name="fill">#ffffff</CssParameter></Fill>'
+        '<VendorOption name="conflictResolution">false</VendorOption>'
+        '</TextSymbolizer>')
+
+
+def _x(v):
+    """XML тусгай тэмдэгтүүдийг escape хийнэ."""
+    return (str(v or '').replace('&', '&amp;').replace('<', '&lt;')
+            .replace('>', '&gt;').replace('"', '&quot;'))
+
+
+def _constant_colors(key):
+    """Тухайн төрлийн (Constant.key) нэр→өнгө. color хоосон бол палитраас онооно."""
+    out = {}
+    for i, c in enumerate(Constant.objects.filter(key=key).order_by('id')):
+        out[c.name] = (c.color or '').strip() or _MAP_PALETTE[i % len(_MAP_PALETTE)]
+    return out
+
+
+def ensure_map_styles():
+    """legal/request view‑үүдийн NAMED style‑уудыг үүсгэж default болгоно.
+
+      legal_types    — legal_view: шийдвэрийн ТӨРӨЛ (ORDER_TYPES) бүрд өөр өнгө
+      legal_units    — legal_unit_view: ЗЗ нэгжийн хил + нийт тооны шошго
+      request_status — request_view: хүсэлтийн ТӨЛӨВ (REQUEST_STATUS) бүрд өнгө
+    """
+    base, auth = _gs_rest_auth()
+
+    def _write(style_name, layer, sld):
+        chk = requests.get(f"{base}/workspaces/{GEONAME_WS}/styles/{style_name}.json",
+                           auth=auth, timeout=10)
+        if chk.status_code != 200:
+            requests.post(f"{base}/workspaces/{GEONAME_WS}/styles",
+                          json={"style": {"name": style_name,
+                                          "filename": f"{style_name}.sld"}},
+                          auth=auth, timeout=10)
+        _gs_style_write_sld(GEONAME_WS, style_name, sld)
+        requests.put(
+            f"{base}/layers/{GEONAME_WS}:{layer}",
+            data=f'<layer><defaultStyle><name>{style_name}</name>'
+                 f'<workspace>{GEONAME_WS}</workspace></defaultStyle></layer>',
+            auth=auth, headers={"Content-Type": "text/xml"}, timeout=10)
+
+    try:
+        # 1) Шийдвэр — төрлөөр өнгөт цэг
+        rules = ''.join(
+            _sld_point_rule('type_name', nm, col, size=16, label_field='cnt')
+            for nm, col in _constant_colors('ORDER_TYPES').items())
+        rules += ('<Rule><Name>Бусад</Name><ElseFilter/>'
+                  '<PointSymbolizer><Graphic><Mark>'
+                  '<WellKnownName>circle</WellKnownName>'
+                  '<Fill><CssParameter name="fill">#94a3b8</CssParameter></Fill>'
+                  '</Mark><Size>10</Size></Graphic></PointSymbolizer></Rule>')
+        _write('legal_types', LEGAL_VIEW,
+               _sld_header(LEGAL_VIEW, 'legal_types') + rules + _SLD_FOOTER)
+
+        # 2) ЗЗ нэгж — хил + нийт тоо (шошго)
+        unit_sld = (
+            _sld_header(LEGAL_UNIT_VIEW, 'legal_units') +
+            '<Rule><PolygonSymbolizer>'
+            '<Fill><CssParameter name="fill">#1d4ed8</CssParameter>'
+            '<CssParameter name="fill-opacity">0.10</CssParameter></Fill>'
+            '<Stroke><CssParameter name="stroke">#1d4ed8</CssParameter>'
+            '<CssParameter name="stroke-width">1.5</CssParameter></Stroke>'
+            '</PolygonSymbolizer>'
+            '<TextSymbolizer><Label><ogc:PropertyName>total</ogc:PropertyName></Label>'
+            '<Font><CssParameter name="font-family">Arial</CssParameter>'
+            '<CssParameter name="font-size">13</CssParameter>'
+            '<CssParameter name="font-weight">bold</CssParameter></Font>'
+            '<LabelPlacement><PointPlacement><AnchorPoint>'
+            '<AnchorPointX>0.5</AnchorPointX><AnchorPointY>0.5</AnchorPointY>'
+            '</AnchorPoint></PointPlacement></LabelPlacement>'
+            '<Halo><Radius>2</Radius><Fill>'
+            '<CssParameter name="fill">#ffffff</CssParameter></Fill></Halo>'
+            '<Fill><CssParameter name="fill">#1d4ed8</CssParameter></Fill>'
+            '<VendorOption name="autoWrap">60</VendorOption>'
+            '</TextSymbolizer></Rule>' + _SLD_FOOTER)
+        _write('legal_units', LEGAL_UNIT_VIEW, unit_sld)
+
+        # 3) Хүсэлт — төлөвөөр өнгөт цэг
+        rq = ''.join(
+            _sld_point_rule('status_name', nm, col, size=13)
+            for nm, col in _constant_colors('REQUEST_STATUS').items())
+        rq += ('<Rule><Name>Бусад</Name><ElseFilter/>'
+               '<PointSymbolizer><Graphic><Mark>'
+               '<WellKnownName>triangle</WellKnownName>'
+               '<Fill><CssParameter name="fill">#f59e0b</CssParameter></Fill>'
+               '</Mark><Size>12</Size></Graphic></PointSymbolizer></Rule>')
+        _write('request_status', REQUEST_VIEW,
+               _sld_header(REQUEST_VIEW, 'request_status') + rq + _SLD_FOOTER)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("ensure_map_styles failed", exc_info=True)
+
+
+_map_views_done = False
+
+
+def ensure_map_views(recreate=False):
+    """legal/request view‑үүдийг үүсгэж GeoServer‑т нийтэлнэ.
+
+    recreate=True бол хуучин view‑г устгаад дахин үүсгэнэ (багана нэмэгдсэн үед).
+    Шийдвэр/хүсэлт нэмэгдэхэд view өөрөө шинэчлэгддэг тул процессын амьдралд
+    НЭГ л удаа гүйцэтгэнэ (GeoServer руу дэмий REST дуудлага хийхгүй).
+    """
+    global _map_views_done
+    if _map_views_done and not recreate:
+        return
+    try:
+        with connection.cursor() as c:
+            for name, vsql, _title in _MAP_VIEWS:
+                if recreate:
+                    c.execute(f'DROP VIEW IF EXISTS public."{name}" CASCADE')
+                c.execute("SELECT to_regclass(%s)", [f'public.{name}'])
+                if not c.fetchone()[0]:
+                    c.execute(f'CREATE VIEW public."{name}" AS {vsql}')
+        _ensure_geoname_store()
+        for name, _vsql, title in _MAP_VIEWS:
+            _publish_or_recalc(name, title)
+        ensure_map_styles()
+        _map_views_done = True
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("ensure_map_views failed", exc_info=True)
+
+
 RECOUNT_VIEW = 'recount_view'
 # Дахин тооллого (ReCount.loc) — геонэрийн type‑той join хийсэн view. geoname_view‑тэй
 # ижил баганатай (type, type_l1/l2) тул ижил style (type symbol)‑оор зурагдана.
@@ -3402,6 +3679,28 @@ class BaseMapLayerViewSet(viewsets.ModelViewSet):
 	search_fields = ['key', 'label', 'gs_layer', 'workspace']
 	ordering_fields = ['layer_type', 'sort_order', 'label', 'id']
 	ordering = ['layer_type', 'sort_order', 'id']
+
+	@action(detail=False, methods=['post'], url_path='reorder')
+	def reorder(self, request):
+		"""Давхаргын эрэмбийг НЭГ дор шинэчилнэ (жагсаалт дээр чирж эрэмбэлэхэд).
+
+		  POST {ids: [id, id, …]}  → жагсаалтын дараалал = эрэмбэ 1, 2, 3 …
+		Эрэмбэ 1 нь газрын зурагт ХАМГИЙН ДЭЭР харагдана. Давхардлаас сэргийлж
+		эхлээд түр ӨНДӨР дугаар (100000+) онооод дараа нь эцсийн дугаарыг
+		тавина (sort_order эерэг тоо тул сөрөг утга ашиглаж болохгүй)."""
+		ids = request.data.get('ids') or []
+		if not isinstance(ids, list) or not ids:
+			return Response({'detail': 'ids жагсаалт шаардлагатай'}, status=400)
+		rows = {l.id: l for l in BaseMapLayer.objects.filter(id__in=ids)}
+		missing = [i for i in ids if i not in rows]
+		if missing:
+			return Response({'detail': f'Давхарга олдсонгүй: {missing}'}, status=400)
+		with transaction.atomic():
+			for i, lid in enumerate(ids, start=1):
+				BaseMapLayer.objects.filter(id=lid).update(sort_order=100000 + i)
+			for i, lid in enumerate(ids, start=1):
+				BaseMapLayer.objects.filter(id=lid).update(sort_order=i)
+		return Response({'detail': 'Эрэмбэ шинэчлэгдлээ', 'count': len(ids)}, status=200)
 
 	@action(detail=False, methods=['get'], url_path='available')
 	def available(self, request):

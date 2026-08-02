@@ -71,6 +71,13 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 	serializer_class = LegalOrderSerializer
 	queryset = LegalOrder.objects.all()
 	permission_classes = function_permission('legal')
+
+	def list(self, request, *args, **kwargs):
+		# Газрын зургийн legal/request view‑үүд бэлэн эсэхийг баталгаажуулна
+		# (процессын амьдралд нэг л удаа гүйцэтгэнэ)
+		from apps.geoserver.apiviews import ensure_map_views
+		ensure_map_views()
+		return super().list(request, *args, **kwargs)
 	filterset_class = GlobalFilter
 	filter_backends = [DjangoFilterBackend, MappedOrderingFilter, filters.SearchFilter]
 	# Нэр, дугаар, ТӨРӨЛ, ОГНОО‑гоор хайна (сүүлийн 2 нь annotate‑лагдсан)
@@ -480,6 +487,12 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 	serializer_class = RequestNameSerializer
 	queryset = RequestName.objects.all()
 	permission_classes = function_permission('request')
+
+	def list(self, request, *args, **kwargs):
+		# Газрын зургийн legal/request view‑үүд бэлэн эсэхийг баталгаажуулна
+		from apps.geoserver.apiviews import ensure_map_views
+		ensure_map_views()
+		return super().list(request, *args, **kwargs)
 	filterset_class = GlobalFilter
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
 	search_fields = ['description', 'name__name', 'option__name']
