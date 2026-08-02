@@ -79,7 +79,7 @@ export default function BaseMapTableRow({
             </Box>
           </Stack>
         </TableCell>
-        {/* Эрэмбэ — газрын зурагт давхарлах дараалал (бага нь доор) */}
+        {/* Эрэмбэ — газрын зурагт давхарлах дараалал (1 нь хамгийн дээр) */}
         <TableCell>
           <Chip
             size="small"

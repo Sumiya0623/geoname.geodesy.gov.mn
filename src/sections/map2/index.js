@@ -2588,9 +2588,12 @@ function Map2() {
 
   // === Backend‑ээс ирсэн БҮХ overlay‑ууд (LEGAL‑ээс бусад) — config‑оор нь
   // generic рендерлэнэ (buildOlBaseLayer). Hardcoded давхарга байхгүй. ===
-  // Эрэмбийн (sort_order) муж: 10 + эрэмбэ. Бусад давхаргын мужтай (100+)
-  // давхцахгүй тул overlay‑ууд ЗӨВХӨН өөр хоорондоо эрэмбээрээ давхарлана.
-  const OVERLAY_Z_BASE = 10;
+  // Эрэмбэ (sort_order) → zIndex. Эрэмбэ 1 нь ХАМГИЙН ДЭЭР (жагсаалттай ижил),
+  // тоо өсөх тусам доошилно: zIndex = OVERLAY_Z_TOP − эрэмбэ. Бүх overlay
+  // 10–99 мужид — суурь зургийн дээр, нэрийн давхаргуудын (100+) доор.
+  const OVERLAY_Z_TOP = 99;
+  const overlayZ = (order) =>
+    Math.max(10, OVERLAY_Z_TOP - (Number(order) || 0));
   const extraOverlayConfigs = useMemo(
     () => (overlayConfigs || []).filter((c) => c?.params?.special !== "legal"),
     [overlayConfigs],
@@ -2604,11 +2607,8 @@ function Map2() {
       try {
         const lyr = buildOlBaseLayer(cfg);
         lyr.setVisible(!!extraOverlayOn[cfg.key]);
-        // Давхаргын байрлал = /settings/gis дээрх «Эрэмбэ» (sort_order).
-        // Эрэмбэ бага нь ДООД талд, их нь дээр (1 → 2‑ын доор). Бүх overlay
-        // OVERLAY_Z_BASE мужид байрлана — суурь зургийн дээр, газар зүйн
-        // нэрийн давхаргуудын (zIndex ≥ 100) доор.
-        setLayerZIndex(lyr, OVERLAY_Z_BASE + (cfg.sort_order || 0));
+        // Байрлал = /settings/gis дээрх «Эрэмбэ»: 1 нь дээр, 2 нь түүний доор
+        setLayerZIndex(lyr, overlayZ(cfg.sort_order));
         const op = overlayOpacity[cfg.key] ?? cfg?.params?.opacity;
         if (op != null) lyr.setOpacity(op);
         map.addLayer(lyr);

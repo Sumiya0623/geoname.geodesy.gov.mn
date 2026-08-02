@@ -33,7 +33,7 @@ import BaseMapTableToolbar from "../basemap-table-toolbar";
 
 const TABLE_HEAD = [
   // Нэр + түлхүүр НЭГ баганад; түлхүүрийн байранд эрэмбэ (газрын зурагт
-  // давхарлах дараалал — бага нь доор)
+  // давхарлах дараалал — 1 нь хамгийн дээр)
   { id: "label", label: "Нэр" },
   { id: "sort_order", label: "Эрэмбэ", width: 90 },
   { id: "layer_type", label: "Төрөл", width: 110 },

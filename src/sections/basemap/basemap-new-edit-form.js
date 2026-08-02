@@ -70,7 +70,7 @@ export default function BaseMapNewEditForm({
       enqueueSnackbar("Түлхүүр ба нэрийг бөглөнө", { variant: "warning" });
       return;
     }
-    // Эрэмбэ = газрын зурагт давхарлах дараалал (бага нь доор). 1‑ээс эхэлнэ,
+    // Эрэмбэ = газрын зурагт давхарлах дараалал (1 нь хамгийн ДЭЭР). 1‑ээс эхэлнэ,
     // төрөл дотроо давхардахгүй — backend ч мөн шалгана.
     const order = Number(form.sort_order);
     if (!order || order < 1) {
@@ -235,7 +235,7 @@ export default function BaseMapNewEditForm({
             label="Эрэмбэ"
             type="number"
             required
-            helperText="Бага нь доор"
+            helperText="1 нь хамгийн дээр"
             value={form.sort_order}
             onChange={(e) => setF("sort_order", e.target.value)}
           />
