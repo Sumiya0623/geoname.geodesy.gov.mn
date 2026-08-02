@@ -33,6 +33,26 @@ class BaseMapLayerSerializer(serializers.ModelSerializer):
 			'roles', 'role_ids', 'created_date', 'modified_date',
 		]
 
+	def validate(self, attrs):
+		"""Эрэмбэ — 1‑ээс эхэлнэ, төрөл (base/overlay) дотроо ДАВХАРДАХГҮЙ.
+
+		Эрэмбэ нь газрын зурагт давхаргын байрлалыг (zIndex) шууд тодорхойлдог
+		тул 0 буюу давхардсан утга зөвшөөрөгдөхгүй."""
+		inst = self.instance
+		order = attrs.get('sort_order', getattr(inst, 'sort_order', 0))
+		ltype = attrs.get('layer_type', getattr(inst, 'layer_type', 'base'))
+		if not order:
+			raise serializers.ValidationError(
+				{'sort_order': 'Эрэмбэ 1‑ээс эхэлнэ (0 байж болохгүй)'})
+		qs = BaseMapLayer.objects.filter(layer_type=ltype, sort_order=order)
+		if inst is not None:
+			qs = qs.exclude(pk=inst.pk)
+		dup = qs.first()
+		if dup:
+			raise serializers.ValidationError({'sort_order':
+				f'«{dup.label}» давхарга энэ эрэмбийг ({order}) эзэлсэн байна'})
+		return attrs
+
 class WorkspaceSerializer(serializers.ModelSerializer):
 	class Meta:
 		model = Constant

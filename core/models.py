@@ -311,6 +311,20 @@ class GeoName(UserMixin):
 	def __str__(self):
 		return f'{self.name}'
 
+class LegalOrder(UserMixin):
+	names=models.ManyToManyField(GeoName,related_name='legalorders',verbose_name='Нэрлэвэр',blank=True)
+	projects=models.ManyToManyField(Project,related_name='projectorders',verbose_name='Төслүүд',blank=True)
+	name=models.CharField(max_length=2000, verbose_name='Нэр',default="un", blank=True, null=True)
+	unit=models.ForeignKey(AdminUnit, on_delete=models.CASCADE, verbose_name='ЗЗНэгж', related_name='legalorders',blank=True, null=True)
+	org=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'LEGAL_TYPES'}, blank=True, null=True, related_name='legalorgs', verbose_name='Төрөл')
+	type=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'ORDER_TYPES'}, blank=True, null=True, related_name='legalorders', verbose_name='Төрөл')
+	description=models.TextField(verbose_name='Тайлбар', blank=True, null=True)
+	order_date=models.DateField(verbose_name='Гарсан огноо', blank=True, null=True)
+	order_number=models.CharField(max_length=255, verbose_name='Дугаар', blank=True, null=True)
+	document=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Баримт бичиг')
+	signer=models.CharField(max_length=255, verbose_name='Гарын үсэг', blank=True, null=True)
+
+
 class NameOption(models.Model):
 	name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
 	name2=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр 2')
@@ -329,6 +343,21 @@ class RequestName(UserMixin):
 	
 	def __str__(self):
 		return f'{self.name}'
+
+class RequestNameContact(models.Model):
+	"""Хүсэлтийн «холбоо барих хүн». Хүний мэдээлэл (овог, нэр, регистр, утас,
+	имэйл) ЭНД ДАВХАРДУУЛЖ хадгалагдахгүй — RemoteUser (person) дээр л байна."""
+	request=models.ForeignKey(RequestName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='namecontacts',blank=True, null=True)
+	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='namecontacts',blank=True, null=True)
+	role=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_ROLES'},verbose_name='Төрөл',related_name='namecontacts',blank=True, null=True)
+	document=models.ForeignKey(LegalOrder,on_delete=models.CASCADE,limit_choices_to={'key':'DOCUMENT_TYPES'},verbose_name='Төрөл',related_name='namecontacts',blank=True, null=True)
+	# Хүн — системийн хэрэглэгч (регистрээр олох/үүсгэх: core.person)
+	person=models.ForeignKey(RemoteUser,on_delete=models.SET_NULL,verbose_name='Хүн', related_name='namecontacts',blank=True, null=True)
+	# Зөвхөн энэ бүртгэлд хамаарах нэмэлт (RemoteUser дээр байхгүй)
+	address=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Хаяг')
+
+	def __str__(self):
+		return f'{self.person or "—"}'
 
 class Photo(models.Model):
 	file = models.ImageField(upload_to=photo_upload_path,blank=True, null=True,verbose_name='Зураг')
@@ -388,19 +417,6 @@ class ReCountMap(models.Model):
 	file=models.FileField(upload_to=file_upload_path,blank=True, null=True,verbose_name='Зураг')
 	sources=models.ManyToManyField(Constant,related_name='recountmapssources',limit_choices_to={'key':'SOURCES'},verbose_name='Төрөл',blank=True)
 
-class LegalOrder(UserMixin):
-	names=models.ManyToManyField(GeoName,related_name='legalorders',verbose_name='Нэрлэвэр',blank=True)
-	projects=models.ManyToManyField(Project,related_name='projectorders',verbose_name='Төслүүд',blank=True)
-	name=models.CharField(max_length=2000, verbose_name='Нэр',default="un", blank=True, null=True)
-	unit=models.ForeignKey(AdminUnit, on_delete=models.CASCADE, verbose_name='ЗЗНэгж', related_name='legalorders',blank=True, null=True)
-	org=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'LEGAL_TYPES'}, blank=True, null=True, related_name='legalorgs', verbose_name='Төрөл')
-	type=models.ForeignKey(Constant, on_delete=models.CASCADE,limit_choices_to={'key':'ORDER_TYPES'}, blank=True, null=True, related_name='legalorders', verbose_name='Төрөл')
-	description=models.TextField(verbose_name='Тайлбар', blank=True, null=True)
-	order_date=models.DateField(verbose_name='Гарсан огноо', blank=True, null=True)
-	order_number=models.CharField(max_length=255, verbose_name='Дугаар', blank=True, null=True)
-	document=models.FileField(upload_to=file_upload_path, blank=True, null=True, verbose_name='Баримт бичиг')
-	signer=models.CharField(max_length=255, verbose_name='Гарын үсэг', blank=True, null=True)
-
 class GeoNameSource(models.Model):
 	name=models.ForeignKey(GeoName, on_delete=models.CASCADE, related_name='sources', verbose_name='Нэр')
 	order=models.ForeignKey(LegalOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='name_sources', verbose_name='Тогтоол')
@@ -447,21 +463,6 @@ class PrintMap(UserMixin):
 	def __str__(self):
 		return f'{self.title or "Хэвлэлийн эх"} — {self.name_count} нэр'
 
-class NameContact(models.Model):
-	request=models.ForeignKey(RequestName,on_delete=models.CASCADE,verbose_name='Нэр', related_name='namecontacts',blank=True, null=True)
-	project=models.ForeignKey(Project,on_delete=models.CASCADE,verbose_name='Төсөл', related_name='namecontacts',blank=True, null=True)
-	role=models.ForeignKey(Constant,on_delete=models.CASCADE,limit_choices_to={'key':'RECOUNT_ROLES'},verbose_name='Төрөл',related_name='namecontacts',blank=True, null=True)
-	document=models.ForeignKey(LegalOrder,on_delete=models.CASCADE,limit_choices_to={'key':'DOCUMENT_TYPES'},verbose_name='Төрөл',related_name='namecontacts',blank=True, null=True)
-	first_name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
-	last_name=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Овог')
-	person=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Нэр')
-	register=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Регистр')
-	address=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Хаяг')
-	phone=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Утас')
-	email=models.EmailField(max_length=1000,blank=True,null=True,verbose_name='Имэйл')
-	photo=models.ImageField(upload_to=photo_upload_path, blank=True, null=True,verbose_name='Зураг')
-	requested_by=models.ForeignKey(RemoteUser,on_delete=models.CASCADE,verbose_name='Нэр', related_name='requestedcontacts',blank=True, null=True)
-
 class Passport(models.Model):
 	name=models.ForeignKey(GeoName,related_name='acts', on_delete=models.CASCADE, blank=True, null=True)
 	act=models.FileField(upload_to=file_upload_path,blank=True, null=True)
@@ -474,7 +475,6 @@ class Passport(models.Model):
 	qrcode=models.ImageField(upload_to=photo_upload_path,blank=True)
 	link=models.URLField(blank=True, null=True,max_length=3000)
 	desc=models.CharField(max_length=5000, blank=True, null=True)
-
 
 class Council(models.Model):
 	"""Газар зүйн нэрийн зөвлөл — үндэсний (нэг) эсвэл салбар (аймаг/сум/дүүрэг
@@ -503,10 +503,9 @@ class CouncilMember(models.Model):
 	чөлөөлөхдөө end_date + release_doc тавина. Өөрчлөлт бүр баримтаар (LegalOrder)
 	баталгаажна (appoint_doc заавал)."""
 	council = models.ForeignKey(Council, on_delete=models.CASCADE, related_name='members', verbose_name='Зөвлөл')
-	full_name = models.CharField(max_length=1000, verbose_name='Овог нэр')
-	register = models.CharField(max_length=20, null=True, blank=True, verbose_name='Регистр')
+	# Хүн — овог, нэр, регистр, утас нь ЗӨВХӨН RemoteUser дээр (давхардуулахгүй)
 	person = models.ForeignKey(RemoteUser, on_delete=models.SET_NULL, null=True, blank=True,
-		related_name='council_memberships', verbose_name='Системийн хэрэглэгч')
+		related_name='council_memberships', verbose_name='Хүн')
 	position = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
 		limit_choices_to={'key': 'MEMBER_TYPES'}, related_name='council_positions', verbose_name='Албан тушаал')
 	org_title = models.CharField(max_length=1000, null=True, blank=True, verbose_name='Төлөөлж буй албан тушаал')
@@ -523,22 +522,20 @@ class CouncilMember(models.Model):
 		indexes = [models.Index(fields=['council', 'end_date'])]
 
 	def __str__(self):
-		return f'{self.full_name} | {self.council_id} ({"идэвхтэй" if self.end_date is None else "хуучин"})'
+		return f'{self.person or "—"} | {self.council_id} ({"идэвхтэй" if self.end_date is None else "хуучин"})'
 
 class ProjectMember(UserMixin):
 	"""Төслийн багийн бүрэлдэхүүн — үе шат (step) ба сум (unit) тус бүрээр.
 
-	Регистрээр системийн хэрэглэгчийг олж холбоно (person); олдохгүй бол
-	гараар бөглөсөн мэдээлэл (full_name, position, register, phone) үлдэнэ.
+	Хүнийг регистрээр нь олж/бүртгэж (core.person) RemoteUser‑т холбоно —
+	овог, нэр, регистр, утсыг энд давхардуулж хадгалахгүй.
 	"""
 	project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='members', verbose_name='Төсөл')
 	unit = models.ForeignKey(AdminUnit, on_delete=models.CASCADE, null=True, blank=True,
 		related_name='project_members', verbose_name='Сум/Дүүрэг')
-	full_name = models.CharField(max_length=1000, verbose_name='Овог нэр')
-	register = models.CharField(max_length=20, null=True, blank=True, verbose_name='Регистр')
-	phone = models.CharField(max_length=20, null=True, blank=True, verbose_name='Утас')
+	# Хүн — овог, нэр, регистр, утас нь ЗӨВХӨН RemoteUser дээр (давхардуулахгүй)
 	person = models.ForeignKey(RemoteUser, on_delete=models.SET_NULL, null=True, blank=True,
-		related_name='projects', verbose_name='Системийн хэрэглэгч')
+		related_name='projects', verbose_name='Хүн')
 	position = models.ForeignKey(Constant, on_delete=models.SET_NULL, null=True, blank=True,
 		limit_choices_to={'key': 'PROJECT_MEMBER_TYPES'}, related_name='project_positions', verbose_name='Албан тушаал')
 	org_title = models.CharField(max_length=1000, null=True, blank=True, verbose_name='Төлөөлж буй албан тушаал')
@@ -554,7 +551,7 @@ class ProjectMember(UserMixin):
 		indexes = [models.Index(fields=['project', 'created_date'])]
 
 	def __str__(self):
-		return f'{self.full_name} | {self.project_id} ({"идэвхтэй" if self.created_date is None else "хуучин"})'
+		return f'{self.person or "—"} | {self.project_id} ({"идэвхтэй" if self.created_date is None else "хуучин"})'
 
 
 class MailLog(models.Model):

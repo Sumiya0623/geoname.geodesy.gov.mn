@@ -173,7 +173,7 @@ def function_permission(resource_key):
                 action_name = 'attach_project'
             if action_name in ['sync','partial_update','add_action','remove_action','menus']:
                 action_name='update'
-            if action_name in ['menus','related','system_registered','network_registered','submenu_actions','nameclass','types','locate','dropdown','unit_tree','type_summary','find_person']:
+            if action_name in ['menus','related','system_registered','network_registered','submenu_actions','nameclass','types','locate','dropdown','unit_tree','type_summary']:
                 action_name='list'
             if action_name == 'destroy':
                 action_name='delete'

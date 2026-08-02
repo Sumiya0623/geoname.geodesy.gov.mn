@@ -50,6 +50,50 @@ class ProfileDropDownSerializer(serializers.ModelSerializer):
 		model = RemoteUser
 		fields = ['id','full_name','photo','roles','phone','email']
 
+
+class PersonSerializerMixin(serializers.Serializer):
+	"""Хүний мэдээллийг RemoteUser‑ээс УНШИХ, регистрээр нь БИЧИХ нэгдсэн mixin.
+
+	Зөвлөлийн гишүүн, төслийн багийн бүрэлдэхүүн, хүсэлтийн холбоо барих хүн —
+	бүгд person (FK RemoteUser) талбартай бөгөөд овог, нэр, регистр, утас, имэйлээ
+	энэ mixin‑ээр л уншина (баазад давхардуулж хадгалахгүй).
+
+	Бичихдээ: person (id) шууд өгч болно; эсвэл register (+ овог, нэр) өгвөл
+	core.person.ensure_person‑оор хэрэглэгчийг олж/үүсгээд person‑д онооно.
+	"""
+	person_profile = ProfileDropDownSerializer(source='person', read_only=True)
+	full_name = serializers.CharField(source='person.full_name', read_only=True, default=None)
+	last_name = serializers.CharField(source='person.last_name', read_only=True, default=None)
+	first_name = serializers.CharField(source='person.first_name', read_only=True, default=None)
+	register = serializers.CharField(source='person.register', read_only=True, default=None)
+	phone = serializers.CharField(source='person.phone', read_only=True, default=None)
+	email = serializers.CharField(source='person.email', read_only=True, default=None)
+
+	def to_internal_value(self, data):
+		ret = super().to_internal_value(data)
+		if ret.get('person'):
+			return ret
+		register = str((data.get('register') if hasattr(data, 'get') else '') or '').strip()
+		if not register:
+			return ret
+		last = str(data.get('last_name') or '').strip()
+		first = str(data.get('first_name') or '').strip()
+		if not (last or first):
+			# Зөвхөн full_name ирвэл эхний үгийг овог, үлдсэнийг нэр гэж үзнэ
+			parts = str(data.get('full_name') or '').split()
+			last, first = (parts[0] if len(parts) > 1 else ''), ' '.join(parts[1:] or parts)
+		from core.person import ensure_person
+		res, err = ensure_person({
+			'register': register, 'last_name': last, 'first_name': first,
+			'email': data.get('email'), 'phone': data.get('phone'),
+			'role': data.get('role'), 'unit': data.get('person_unit'),
+		})
+		if err:
+			raise serializers.ValidationError(err)
+		ret['person'] = RemoteUser.objects.get(id=res['id'])
+		return ret
+
+
 class ConstantSerializer(serializers.ModelSerializer):
 	count1=serializers.IntegerField(read_only=True)
 	count2=serializers.IntegerField(read_only=True)

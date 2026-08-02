@@ -11,6 +11,7 @@ handler403 = 'core.views.view_403'
 handler404 = 'core.views.view_404'
 handler500 = 'core.views.view_500'
 
+from .person import PersonView
 from .userapiview import (
     UserViewSet,
     ConstantViewSet,
@@ -30,5 +31,7 @@ router.register(r'user', UserViewSet,basename='user')
 
 urlpatterns =[
     path('status/', StatusView.as_view(), name='core-status'),
+    # Регистрээр хүн хайх/бүртгэх — БҮХ модулийн НЭГ цэг
+    path('person/', PersonView.as_view(), name='core-person'),
     ]
 urlpatterns += router.urls

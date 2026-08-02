@@ -1471,7 +1471,7 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
 	                            'doc', 'person'))
 	permission_classes = function_permission('project-member')
 	filter_backends = [filters.OrderingFilter]
-	ordering_fields = ['id', 'full_name', 'created_date']
+	ordering_fields = ['id', 'person__last_name', 'created_date']
 	ordering = ['unit__unit', 'id']
 
 	def get_queryset(self):
@@ -1488,25 +1488,6 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
 		user = self.request.user if self.request.user.is_authenticated else None
 		serializer.save(user=user)
 
-	@action(detail=False, methods=['get'], url_path='find-person',
-	        permission_classes=function_permission('project-member'))
-	def find_person(self, request):
-		"""Регистрээр системийн хэрэглэгчийг ХАЙХ (үүсгэхгүй).
-
-		→ {found: bool, id, full_name, phone, email, register}
-		"""
-		register = (request.query_params.get('register') or '').strip()
-		if not register:
-			return Response({'detail': 'Регистр шаардлагатай'}, status=400)
-		u = RemoteUser.objects.filter(register=register).first()
-		if not u:
-			return Response({'found': False}, status=200)
-		full = (getattr(u, 'full_name', None)
-		        or f'{u.last_name or ""} {u.first_name or ""}'.strip()
-		        or u.username)
-		return Response({'found': True, 'id': u.id, 'full_name': full,
-		                 'phone': getattr(u, 'phone', None) or '',
-		                 'email': u.email or '', 'register': register}, status=200)
 
 
 # ======================================================================

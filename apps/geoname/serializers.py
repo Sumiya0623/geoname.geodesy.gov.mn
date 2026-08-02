@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from django.db.models import Count, Q
 
-from core.serializers import ProfileDropDownSerializer
+from core.serializers import ProfileDropDownSerializer, PersonSerializerMixin
 from core.models import (Constant, GeoName, LegalOrder, Photo, Attach, PrintMap,
                          Nomek, AdminUnit, Project, ProjectArea, ProjectMember)
 
@@ -330,30 +330,22 @@ class ProjectAreaSerializer(serializers.ModelSerializer):
         return super().update(instance, self._apply_area(validated_data))
 
 
-class ProjectMemberSerializer(serializers.ModelSerializer):
-    """Төслийн багийн бүрэлдэхүүн — унших талд нэр/албан тушаал/шийдвэр дэлгэрнэ."""
+class ProjectMemberSerializer(PersonSerializerMixin, serializers.ModelSerializer):
+    """Төслийн багийн бүрэлдэхүүн — хүний мэдээлэл RemoteUser(person)‑ээс ирнэ."""
     unit_name = serializers.CharField(source='unit.unit', read_only=True, default=None)
     parent_unit = serializers.CharField(source='unit.parent.unit', read_only=True, default=None)
     position_name = serializers.CharField(source='position.name', read_only=True, default=None)
     step_name = serializers.CharField(source='step.name', read_only=True, default=None)
     doc_name = serializers.CharField(source='doc.name', read_only=True, default=None)
     doc_number = serializers.CharField(source='doc.order_number', read_only=True, default=None)
-    person_name = serializers.SerializerMethodField()
-    # Системийн хэрэглэгчийн профайл — ProfileAvatar‑д зориулав
-    person_profile = ProfileDropDownSerializer(source='person', read_only=True)
-
     class Meta:
         model = ProjectMember
         fields = ['id', 'project', 'unit', 'unit_name', 'parent_unit',
-                  'full_name', 'register', 'phone', 'org_title',
+                  'person', 'person_profile', 'full_name', 'first_name',
+                  'last_name', 'register', 'phone', 'email', 'org_title',
                   'position', 'position_name', 'step', 'step_name',
-                  'doc', 'doc_name', 'doc_number',
-                  'person', 'person_name', 'person_profile', 'created_date']
+                  'doc', 'doc_name', 'doc_number', 'created_date']
         read_only_fields = ['created_date']
-
-    def get_person_name(self, obj):
-        u = obj.person
-        return (getattr(u, 'full_name', None) or getattr(u, 'username', None)) if u else None
 
 
 class ProjectSerializer(serializers.ModelSerializer):

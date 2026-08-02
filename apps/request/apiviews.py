@@ -13,7 +13,7 @@ from django.db.models.functions import Cast, NullIf
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.gis.geos import Point
 
-from core.models import Constant, LegalOrder, AdminUnit, GeoName, RequestName, Photo, Attach, ReCount, ReCountMap, Council, CouncilMember, Nomek
+from core.models import RemoteUser, Constant, LegalOrder, AdminUnit, GeoName, RequestName, Photo, Attach, ReCount, ReCountMap, Council, CouncilMember, Nomek
 from core.mixin import PublicListMixin
 from core.filters import GlobalFilter
 from portal.auth import function_permission
@@ -491,7 +491,7 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		return (
 			RequestName.objects
 			.select_related('name', 'age', 'type', 'status', 'user')
-			.prefetch_related('purpose', 'option', 'namecontacts')
+			.prefetch_related('purpose', 'option', 'namecontacts__person')
 			.distinct()
 		)
 
@@ -514,35 +514,6 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 			Attach.objects.create(attach=f, content_type=ct, object_id=obj.id)
 			created['attachs'] += 1
 		return Response({'success': True, 'created': created}, status=201)
-
-	@action(detail=False, methods=['post'], url_path='check-user', permission_classes=[IsAuthenticated])
-	def check_user(self, request, *args, **kwargs):
-		"""Регистрийн дугаараар (10 тэмдэгт) ХУР системээс иргэний мэдээлэл татна.
-		Хэрэглэгчийн token‑оор баталгаажуулж geodesy.gov.mn check-user руу дамжуулна."""
-		register = str(request.data.get('register', '') or '').strip()
-		if len(register) != 10:
-			return Response({'detail': 'Регистрийн дугаар 10 тэмдэгт байх ёстой'}, status=400)
-		# Хэрэглэгчийн access token (header → cookie)
-		token = None
-		auth = request.headers.get('Authorization', '')
-		if auth.lower().startswith('bearer '):
-			token = auth.split(' ', 1)[1]
-		if not token:
-			token = request.COOKIES.get(
-				settings.SIMPLE_JWT.get('COOKIE_ACCESS', 'access_token'))
-		headers = {'Authorization': f'Bearer {token}'} if token else {}
-		try:
-			r = requests.post(
-				'https://geodesy.gov.mn/api/account/check-user/',
-				json={'register': register}, headers=headers, timeout=15)
-		except requests.RequestException:
-			return Response({'detail': 'ХУР системтэй холбогдож чадсангүй'}, status=502)
-		if r.status_code == 200:
-			try:
-				return Response(r.json(), status=200)
-			except ValueError:
-				return Response({'detail': 'Хариу буруу форматтай'}, status=502)
-		return Response({'detail': 'Иргэний мэдээлэл олдсонгүй'}, status=r.status_code)
 
 	@action(detail=False, methods=['get'], url_path='locate', permission_classes=[IsAuthenticated])
 	def locate(self, request, *args, **kwargs):
@@ -1147,7 +1118,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		"""Хавсралт 9‑ийн мөрүүд — төслийн багийн бүрэлдэхүүн (сумаар шүүнэ)."""
 		from core.models import ProjectMember
 		mq = (ProjectMember.objects.filter(project_id=project_id)
-		      .select_related('unit', 'unit__parent', 'position'))
+		      .select_related('unit', 'unit__parent', 'position', 'person'))
 		if sum_id:
 			mq = mq.filter(unit_id=sum_id)
 		elif aimag_id:
@@ -1156,9 +1127,10 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		for i, m in enumerate(mq.order_by('unit__unit', 'id'), start=1):
 			out.append({
 				'i': i, 'id': m.id,
-				'name': m.full_name or '',
-				'register': m.register or '',
-				'phone': m.phone or '',
+				# Хүний мэдээлэл — зөвхөн RemoteUser (person) дээрээс
+				'name': (m.person.full_name if m.person_id else ''),
+				'register': (m.person.register if m.person_id else ''),
+				'phone': (m.person.phone if m.person_id else '') or '',
 				'position': m.position.name if m.position_id else '',
 				'unit': m.unit.unit if m.unit_id else '',
 			})
@@ -1548,86 +1520,10 @@ class CouncilViewSet(PublicListMixin, viewsets.ModelViewSet):
 
 class CouncilMemberViewSet(PublicListMixin, viewsets.ModelViewSet):
 	serializer_class = CouncilMemberSerializer
-	queryset = CouncilMember.objects.all()
+	queryset = CouncilMember.objects.select_related('person', 'position', 'appoint_doc', 'release_doc')
 	permission_classes = [IsAuthenticated]
 	filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-	search_fields = ['full_name', 'register', 'org_title']
-
-	@action(detail=False, methods=['post'], url_path='ensure-person')
-	def ensure_person(self, request, *args, **kwargs):
-		"""Регистрээр системийн хэрэглэгчийг ОЛОХ, олдохгүй бол ҮҮСГЭНЭ.
-
-		  POST {register, last_name, first_name, email, phone,
-		        role: 'Үндэсний зөвлөл'|'Салбар зөвлөл', unit: <AdminUnit id>}
-		Роль: «Иргэн» + зөвлөлийн роль. Салбар зөвлөл бол сонгосон нэгжийг
-		хэрэглэгчийн unit M2M‑д нэмнэ (хэрэглэгчийн эрхтэй ижил зарчим).
-		→ {id, register, full_name, created}
-		"""
-		from django.contrib.auth import get_user_model
-		User = get_user_model()
-		d = request.data
-		register = str(d.get('register') or '').strip()
-		if not register:
-			return Response({'detail': 'Регистр шаардлагатай'}, status=400)
-		last = str(d.get('last_name') or '').strip()
-		first = str(d.get('first_name') or '').strip()
-		user = User.objects.filter(register=register).first()
-		created = False
-		if not user:
-			if not (last or first):
-				return Response(
-					{'detail': 'Шинэ хэрэглэгчид овог, нэр шаардлагатай'},
-					status=400)
-			user = User.objects.create(
-				register=register, username=register,
-				last_name=last, first_name=first,
-				email=str(d.get('email') or '').strip(),
-				phone=str(d.get('phone') or '').strip() or None,
-				is_citizen=True)
-			user.set_unusable_password()
-			user.save()
-			created = True
-		else:
-			# Байгаа хэрэглэгчийн ДУТУУ талбарыг л нөхнө (дарж бичихгүй)
-			changed = []
-			for f, v in (('last_name', last), ('first_name', first),
-			             ('email', str(d.get('email') or '').strip()),
-			             ('phone', str(d.get('phone') or '').strip())):
-				if v and not getattr(user, f, None):
-					setattr(user, f, v)
-					changed.append(f)
-			if changed:
-				user.save(update_fields=changed)
-		# Роль — «Иргэн» + зөвлөлийн роль
-		role_names = ['Иргэн']
-		rn = str(d.get('role') or '').strip()
-		if rn:
-			role_names.append(rn)
-		roles = list(Constant.objects.filter(key='ROLES', name__in=role_names))
-		if roles:
-			user.roles.add(*roles)
-		# Салбар зөвлөл — сонгосон ЗЗ нэгжийг хэрэглэгчид ононо
-		unit_id = d.get('unit')
-		if unit_id:
-			au = AdminUnit.objects.filter(id=unit_id).first()
-			if au:
-				user.unit.add(au)
-		return Response({
-			'id': user.id, 'register': user.register,
-			'full_name': f'{user.last_name} {user.first_name}'.strip(),
-			'created': created,
-		})
-
-	def get_queryset(self):
-		qs = CouncilMember.objects.select_related(
-			'position', 'appoint_doc', 'release_doc', 'person')
-		p = self.request.query_params
-		if p.get('council'):
-			qs = qs.filter(council_id=p.get('council'))
-		# active=true → зөвхөн одоо хүчинтэй (end_date IS NULL); эс бол түүх бүхэлд
-		if p.get('active') in ('true', 'True', '1'):
-			qs = qs.filter(end_date__isnull=True)
-		return qs
+	search_fields = ['person__last_name', 'person__first_name', 'person__register', 'org_title']
 
 	def destroy(self, request, *args, **kwargs):
 		"""Гишүүнийг устгана — АЛДААТАЙ бүртгэлийг арилгах зориулалттай.

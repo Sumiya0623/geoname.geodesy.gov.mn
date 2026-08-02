@@ -79,7 +79,7 @@ def _collect(req):
     photos = Photo.objects.filter(content_type=ct, object_id=req.id)
 
     # Холбоо барих (хүсэлтийн эхний namecontact)
-    contact = req.namecontacts.all().first()
+    contact = req.namecontacts.select_related('person').first()
 
     return {
         "name": name,
@@ -233,8 +233,11 @@ def _row_contact(d):
     c = d["contact"]
     u = d["user"]
     if c:
+        # Холбоо барих хүний мэдээлэл — RemoteUser (person) дээрээс
+        cp = c.person
         person, reg, address, phone, email = (
-            c.person, c.register, c.address, c.phone, c.email,
+            (cp.full_name if cp else ''), (cp.register if cp else ''),
+            c.address, (cp.phone if cp else ''), (cp.email if cp else ''),
         )
     elif u:
         person, reg, address, phone, email = (

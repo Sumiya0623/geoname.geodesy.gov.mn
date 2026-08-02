@@ -1,10 +1,10 @@
 from rest_framework import serializers
 from django.contrib.contenttypes.models import ContentType
 
-from core.serializers import ProfileDropDownSerializer
+from core.serializers import ProfileDropDownSerializer, PersonSerializerMixin
 from core.models import (
 	Constant, AdminUnit, LegalOrder,
-	GeoName, RequestName, NameOption, NameContact, Photo, Attach,
+	GeoName, RequestName, NameOption, RequestNameContact, Photo, Attach,
 	Project, ReCount, ReCountMap, Council, CouncilMember,
 )
 
@@ -121,7 +121,7 @@ class LegalOrderSerializer(serializers.ModelSerializer):
 
 
 # ----------------------------------------------------------------------
-# Иргэний нэрийн хүсэлт (RequestName + NameOption + NameContact)
+# Иргэний нэрийн хүсэлт (RequestName + NameOption + RequestNameContact)
 # ----------------------------------------------------------------------
 
 class GeoNameDropSerializer(serializers.ModelSerializer):
@@ -139,14 +139,16 @@ class RequestStatusSerializer(serializers.ModelSerializer):
 		fields = ['id', 'name', 'key', 'code', 'label', 'color', 'desc', 'request_count']
 
 
-class NameContactSerializer(serializers.ModelSerializer):
-	"""Хүсэлтэд хамаарах холбоо барих хүн (RequestName.namecontacts)."""
+class RequestNameContactSerializer(PersonSerializerMixin, serializers.ModelSerializer):
+	"""Хүсэлтийн холбоо барих хүн. Овог, нэр, регистр, утас, имэйл нь RemoteUser
+	(person) дээр — энд зөвхөн хаяг (address) хадгалагдана."""
 	id = serializers.IntegerField(required=False)
 
 	class Meta:
-		model = NameContact
-		fields = ['id', 'person', 'first_name', 'last_name', 'register',
-				  'address', 'phone', 'email']
+		model = RequestNameContact
+		fields = ['id', 'person', 'person_profile', 'full_name',
+				  'first_name', 'last_name', 'register', 'phone', 'email',
+				  'address']
 
 
 class NameOptionSerializer(serializers.ModelSerializer):
@@ -166,7 +168,7 @@ class RequestNameSerializer(serializers.ModelSerializer):
 	status = ConstantDropSerializer(read_only=True)
 	purpose = ConstantDropSerializer(many=True, read_only=True)
 	options = NameOptionSerializer(source='option', many=True, required=False)
-	contacts = NameContactSerializer(source='namecontacts', many=True, required=False)
+	contacts = RequestNameContactSerializer(source='namecontacts', many=True, required=False)
 	# Хэрэглэгчийн мэдээлэл (засахгүй)
 	user_name = serializers.CharField(source='user.full_name', read_only=True)
 	user_register = serializers.CharField(source='user.register', read_only=True, default=None)
@@ -230,14 +232,9 @@ class RequestNameSerializer(serializers.ModelSerializer):
 	# -- холбоо барих хүмүүс (RequestName.namecontacts) --
 	def _save_contacts(self, request_obj, contacts_data):
 		request_obj.namecontacts.all().delete()
-		user = getattr(self.context.get('request'), 'user', None)
 		for c in contacts_data:
 			c.pop('id', None)
-			NameContact.objects.create(
-				request=request_obj,
-				requested_by=user if (user and user.is_authenticated) else None,
-				**c,
-			)
+			RequestNameContact.objects.create(request=request_obj, **c)
 
 	def create(self, validated_data):
 		options_data = validated_data.pop('option', None)
@@ -389,7 +386,7 @@ class LegalOrderMiniSerializer(serializers.ModelSerializer):
 		fields = ['id', 'name', 'order_number', 'order_date']
 
 
-class CouncilMemberSerializer(serializers.ModelSerializer):
+class CouncilMemberSerializer(PersonSerializerMixin, serializers.ModelSerializer):
 	position = ConstantDropSerializer(read_only=True)
 	# «Оролцоо» нь MEMBER_TYPES‑ээс сонгогддог; хуучин бүртгэлүүд
 	# COUNCIL_POSITIONS‑ыг ашигласан тул хоёуланг нь зөвшөөрнө.
@@ -409,7 +406,8 @@ class CouncilMemberSerializer(serializers.ModelSerializer):
 	class Meta:
 		model = CouncilMember
 		fields = [
-			'id', 'council', 'full_name', 'register', 'person',
+			'id', 'council', 'person', 'person_profile', 'full_name',
+			'first_name', 'last_name', 'register', 'phone', 'email',
 			'position', 'position_id', 'org_title', 'start_date', 'end_date',
 			'appoint_doc', 'appoint_doc_id', 'release_doc', 'release_doc_id',
 			'is_active', 'created_date',
