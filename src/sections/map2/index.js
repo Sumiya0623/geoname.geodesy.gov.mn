@@ -90,6 +90,7 @@ import {
   buildLayersByName,
   makeViewWmtsLayer,
   buildOlBaseLayer,
+  setLayerZIndex,
 } from "./layers-wmts";
 import { createLegalOverlay } from "./legal-overlay";
 import { useGetGeoserver, useGetBaseLayers } from "src/api/map";
@@ -2587,6 +2588,9 @@ function Map2() {
 
   // === Backend‑ээс ирсэн БҮХ overlay‑ууд (LEGAL‑ээс бусад) — config‑оор нь
   // generic рендерлэнэ (buildOlBaseLayer). Hardcoded давхарга байхгүй. ===
+  // Эрэмбийн (sort_order) муж: 10 + эрэмбэ. Бусад давхаргын мужтай (100+)
+  // давхцахгүй тул overlay‑ууд ЗӨВХӨН өөр хоорондоо эрэмбээрээ давхарлана.
+  const OVERLAY_Z_BASE = 10;
   const extraOverlayConfigs = useMemo(
     () => (overlayConfigs || []).filter((c) => c?.params?.special !== "legal"),
     [overlayConfigs],
@@ -2600,7 +2604,11 @@ function Map2() {
       try {
         const lyr = buildOlBaseLayer(cfg);
         lyr.setVisible(!!extraOverlayOn[cfg.key]);
-        lyr.setZIndex(300 + (cfg.sort_order || 0));
+        // Давхаргын байрлал = /settings/gis дээрх «Эрэмбэ» (sort_order).
+        // Эрэмбэ бага нь ДООД талд, их нь дээр (1 → 2‑ын доор). Бүх overlay
+        // OVERLAY_Z_BASE мужид байрлана — суурь зургийн дээр, газар зүйн
+        // нэрийн давхаргуудын (zIndex ≥ 100) доор.
+        setLayerZIndex(lyr, OVERLAY_Z_BASE + (cfg.sort_order || 0));
         const op = overlayOpacity[cfg.key] ?? cfg?.params?.opacity;
         if (op != null) lyr.setOpacity(op);
         map.addLayer(lyr);

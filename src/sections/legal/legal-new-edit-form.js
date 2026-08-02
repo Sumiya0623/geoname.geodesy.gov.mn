@@ -217,7 +217,9 @@ export default function LegalNewEditForm({
           );
           reset();
           onClose();
-          refetch && refetch();
+          // Үүссэн/засагдсан бичлэгийг эцэгт дамжуулна (ж: сонгогч дээр
+          // шинээр бүртгээд ШУУД сонгоход хэрэглэнэ)
+          refetch && refetch(response.data);
         }
       } catch (error) {
         const d = error?.response?.data;

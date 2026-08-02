@@ -39,7 +39,7 @@ function buildDefaultValues(currentItem) {
     },
     contact: {
       register: c?.register || "",
-      person: c?.person || "",
+      full_name: c?.full_name || "",
       first_name: c?.first_name || "",
       last_name: c?.last_name || "",
       address: c?.address || "",
@@ -118,11 +118,12 @@ export function useRequestForm({
           : [];
       // Холбоо барих — 1 (хүсэлтийн түвшинд)
       const c = data.contact || {};
-      const hasContact = c.person || c.register || c.phone;
+      const hasContact = c.full_name || c.register || c.phone;
+      // Хүний мэдээлэл RemoteUser дээр хадгалагдана — регистрээр нь холбоно
       const contacts = hasContact
         ? [
             {
-              person: c.person || "",
+              full_name: c.full_name || "",
               first_name: c.first_name || "",
               last_name: c.last_name || "",
               register: c.register || "",

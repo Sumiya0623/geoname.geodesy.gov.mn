@@ -27,14 +27,13 @@ import BaseMapNewEditForm from "./basemap-new-edit-form";
 
 export default function BaseMapTableRow({
   row,
-  rowQueue,
   refetch,
   onDeleteRow,
   onToggleEnabled,
   roles,
   available,
+  layers,
 }) {
-  const { page, rowsPerPage, index } = rowQueue;
   const {
     key,
     label,
@@ -55,24 +54,40 @@ export default function BaseMapTableRow({
   return (
     <>
       <TableRow sx={{ "& > *": { borderBottom: "unset" } }} hover>
-        <TableCell>{sortOrder ?? page * rowsPerPage + index + 1}</TableCell>
-        <TableCell sx={{ fontWeight: 600 }}>
-          {color ? (
-            <Box
-              component="span"
-              sx={{
-                display: "inline-block",
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                bgcolor: color,
-                mr: 1,
-              }}
-            />
-          ) : null}
-          {label}
+        {/* Нэр (дор нь түлхүүр) — нэг баганад */}
+        <TableCell>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            {color ? (
+              <Box
+                component="span"
+                sx={{
+                  width: 10,
+                  height: 10,
+                  flexShrink: 0,
+                  borderRadius: "50%",
+                  bgcolor: color,
+                }}
+              />
+            ) : null}
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {label}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {key}
+              </Typography>
+            </Box>
+          </Stack>
         </TableCell>
-        <TableCell>{key}</TableCell>
+        {/* Эрэмбэ — газрын зурагт давхарлах дараалал (бага нь доор) */}
+        <TableCell>
+          <Chip
+            size="small"
+            variant="soft"
+            color={sortOrder ? "default" : "error"}
+            label={sortOrder || "—"}
+          />
+        </TableCell>
         <TableCell>
           <Chip
             size="small"
@@ -96,7 +111,12 @@ export default function BaseMapTableRow({
           {rowRoles?.length ? (
             <Stack direction="row" spacing={0.5} flexWrap="wrap">
               {rowRoles.map((r) => (
-                <Chip key={r.id} size="small" variant="outlined" label={r.name} />
+                <Chip
+                  key={r.id}
+                  size="small"
+                  variant="outlined"
+                  label={r.name}
+                />
               ))}
             </Stack>
           ) : (
@@ -123,7 +143,7 @@ export default function BaseMapTableRow({
       </TableRow>
 
       <TableRow>
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
           <Collapse in={form.value} timeout="auto" unmountOnExit>
             <Box sx={{ py: 2 }}>
               <BaseMapNewEditForm
@@ -132,6 +152,7 @@ export default function BaseMapTableRow({
                 refetch={refetch}
                 roles={roles}
                 available={available}
+                layers={layers}
               />
             </Box>
           </Collapse>
@@ -187,10 +208,10 @@ export default function BaseMapTableRow({
 
 BaseMapTableRow.propTypes = {
   row: PropTypes.object,
-  rowQueue: PropTypes.object,
   refetch: PropTypes.func,
   onDeleteRow: PropTypes.func,
   onToggleEnabled: PropTypes.func,
   roles: PropTypes.array,
   available: PropTypes.array,
+  layers: PropTypes.array,
 };

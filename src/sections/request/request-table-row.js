@@ -182,7 +182,7 @@ export default function RequestTableRow({
                       variant="caption"
                       color="text.secondary"
                     >
-                      • {c.person || "-"} {c.phone ? `(${c.phone})` : ""}{" "}
+                      • {c.full_name || "-"} {c.phone ? `(${c.phone})` : ""}{" "}
                       {c.register ? `· ${c.register}` : ""}
                     </Typography>
                   ))}

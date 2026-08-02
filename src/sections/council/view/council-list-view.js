@@ -42,6 +42,7 @@ import { useGetConstantsFordropdown } from "src/api/constant";
 import { useGetCouncils, useGetCouncilMembers } from "src/api/council";
 
 import Iconify from "src/components/iconify";
+import LegalNewEditForm from "src/sections/legal/legal-new-edit-form";
 import {
   useTable,
   TableNoData,
@@ -105,6 +106,7 @@ function LegalDocPicker({
   label = "Баримт (тогтоол/захирамж)",
 }) {
   const [q, setQ] = useState("");
+  const [creating, setCreating] = useState(false); // шинээр бүртгэх форм
   const dq = useDebounce(q, 350);
   const { data } = useSWR(
     dq && dq.trim().length >= 2
@@ -121,7 +123,8 @@ function LegalDocPicker({
   );
   const options = data?.results || [];
   const loading = !!(dq && dq.trim().length >= 2 && !data);
-  return (
+
+  const picker = (
     <Autocomplete
       fullWidth
       value={value}
@@ -148,6 +151,49 @@ function LegalDocPicker({
       }
       renderInput={(params) => <TextField {...params} label={label} />}
     />
+  );
+
+  return (
+    <Box>
+      {picker}
+
+      {/* Сангаас олдохгүй бол — ЭНД ШУУД шинээр бүртгэнэ */}
+      <Stack direction="row" alignItems="center" sx={{ mt: 0.5 }}>
+        <Button
+          size="small"
+          color="primary"
+          startIcon={
+            <Iconify
+              icon={creating ? "eva:close-fill" : "mingcute:add-line"}
+              width={16}
+            />
+          }
+          onClick={() => setCreating((v) => !v)}
+        >
+          {creating ? "Болих" : "Сонголтод байхгүй — шинээр бүртгэх"}
+        </Button>
+      </Stack>
+
+      <Collapse in={creating} timeout="auto" unmountOnExit>
+        <Box
+          sx={{
+            mt: 1,
+            borderLeft: "4px solid",
+            borderColor: "primary.main",
+            borderRadius: 1,
+          }}
+        >
+          <LegalNewEditForm
+            onClose={() => setCreating(false)}
+            refetch={(created) => {
+              // Шинээр үүссэн баримтыг ШУУД сонгоно
+              if (created?.id) onChange(created);
+              setCreating(false);
+            }}
+          />
+        </Box>
+      </Collapse>
+    </Box>
   );
 }
 LegalDocPicker.propTypes = {
@@ -264,20 +310,17 @@ export default function CouncilListView() {
     }
     setMrow(key, { checking: true });
     try {
-      const res = await axiosInstance.post(endpoints.request.checkUser, {
+      const res = await axiosInstance.post(endpoints.person, {
         register: reg,
       });
-      // ХУР‑ын хариу: {result: {...}} эсвэл шууд объект, эсвэл {results: …}
-      const raw = res?.data || {};
-      const d = raw.result || raw.results || raw;
-      const last = d.last_name || d.lastname || d.surname || "";
-      const first = d.first_name || d.firstname || d.name || "";
-      if (last || first) {
+      // Нэгдсэн хариу: {found, source, last_name, first_name, email, phone}
+      const d = res?.data || {};
+      if (d.found) {
         setMrow(key, {
           found: true,
           checking: false,
-          last_name: last,
-          first_name: first,
+          last_name: d.last_name || "",
+          first_name: d.first_name || "",
           email: d.email || "",
           phone: d.phone || "",
         });
@@ -400,42 +443,25 @@ export default function CouncilListView() {
           const unitId = (sum || aimag)?.id || null;
           try {
             await Promise.all(
-              rows.map(async (r) => {
-                // Регистрээр системийн хэрэглэгчийг олох/үүсгэх —
-                // «Иргэн» + зөвлөлийн роль, салбар зөвлөлд нэгжийг нь онооно
-                let personId = null;
-                if (r.register) {
-                  try {
-                    const pr = await axiosInstance.post(
-                      endpoints.council.ensurePerson,
-                      {
-                        register: r.register,
-                        last_name: r.last_name || "",
-                        first_name: r.first_name || "",
-                        email: r.email || "",
-                        phone: r.phone || "",
-                        role: kindName,
-                        ...(unitId ? { unit: unitId } : {}),
-                      },
-                    );
-                    personId = pr?.data?.id || null;
-                  } catch (e) {
-                    /* хэрэглэгч үүсээгүй ч гишүүнийг бүртгэнэ */
-                  }
-                }
-                return axiosInstance.post(endpoints.council.memberCreate, {
+              rows.map(async (r) =>
+                // Хүний мэдээлэл RemoteUser дээр — регистр илгээхэд backend
+                // (core.person) өөрөө олж/бүртгээд гишүүнд холбоно
+                axiosInstance.post(endpoints.council.memberCreate, {
                   council: cid,
-                  full_name:
-                    `${r.last_name || ""} ${r.first_name || ""}`.trim(),
                   register: r.register || null,
-                  ...(personId ? { person: personId } : {}),
+                  last_name: r.last_name || "",
+                  first_name: r.first_name || "",
+                  email: r.email || "",
+                  phone: r.phone || "",
+                  role: kindName, // нэмэлт роль — Үндэсний/Салбар зөвлөл
+                  ...(unitId ? { person_unit: unitId } : {}),
                   ...(r.type_id ? { position_id: r.type_id } : {}),
                   start_date:
                     cf.established_date ||
                     new Date().toISOString().slice(0, 10),
                   appoint_doc_id: cf.established_doc.id,
-                });
-              }),
+                }),
+              ),
             );
             membersMutation && membersMutation();
           } catch (err) {

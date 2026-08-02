@@ -1,7 +1,12 @@
 import { useRef, useState, useEffect } from "react";
 import { useFormContext } from "react-hook-form";
 
-import { Box, Typography, InputAdornment, CircularProgress } from "@mui/material";
+import {
+  Box,
+  Typography,
+  InputAdornment,
+  CircularProgress,
+} from "@mui/material";
 
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useSnackbar } from "src/components/snackbar";
@@ -28,32 +33,43 @@ export default function RequestNameOption() {
     let active = true;
     setLoading(true);
     axiosInstance
-      .post(endpoints.request.checkUser, { register: r })
+      .post(endpoints.person, { register: r })
       .then((res) => {
         if (!active) return;
-        const u = res?.data?.result || res?.data || {};
+        // Нэгдсэн хариу: {found, source, last_name, first_name, phone, email}
+        const u = res?.data || {};
+        if (!u.found) {
+          enqueueSnackbar("Олдсонгүй — мэдээллийг гараар бөглөнө үү", {
+            variant: "info",
+          });
+          return;
+        }
         setValue("contact.first_name", u.first_name || "");
         setValue("contact.last_name", u.last_name || "");
         setValue(
-          "contact.person",
-          `${u.last_name || ""} ${u.first_name || ""}`.trim() ||
-            u.username ||
-            "",
+          "contact.full_name",
+          `${u.last_name || ""} ${u.first_name || ""}`.trim(),
         );
         if (u.phone) setValue("contact.phone", u.phone);
         if (u.email) setValue("contact.email", u.email);
-        if (u.address && u.address !== "-")
-          setValue("contact.address", u.address);
-        enqueueSnackbar("Иргэний мэдээлэл татагдлаа", { variant: "success" });
+        enqueueSnackbar(
+          u.source === "local"
+            ? "Системд бүртгэлтэй хэрэглэгч"
+            : "ХУР‑аас мэдээлэл татагдлаа",
+          { variant: "success" },
+        );
       })
       .catch(() => {
         if (!active) return;
         // Амжилтгүй → регистрийг дахин оруулах төлөвт оруулна
         lastReg.current = "";
         setValue("contact.register", "");
-        enqueueSnackbar("Мэдээлэл татаж чадсангүй. Регистрээ дахин оруулна уу", {
-          variant: "error",
-        });
+        enqueueSnackbar(
+          "Мэдээлэл татаж чадсангүй. Регистрээ дахин оруулна уу",
+          {
+            variant: "error",
+          },
+        );
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -123,7 +139,7 @@ export default function RequestNameOption() {
             ) : null,
           }}
         />
-        <RHFTextField name="contact.person" label="Нэр" size="small" />
+        <RHFTextField name="contact.full_name" label="Овог нэр" size="small" />
         <RHFTextField name="contact.address" label="Хаяг" size="small" />
         <RHFTextField name="contact.phone" label="Утас" size="small" />
         <RHFTextField name="contact.email" label="Имэйл" size="small" />

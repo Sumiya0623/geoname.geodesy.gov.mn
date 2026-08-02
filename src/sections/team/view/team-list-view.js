@@ -135,55 +135,40 @@ export default function TeamListView({ projectId, stepName, onCount }) {
     });
 
   // Регистрээр системийн хэрэглэгч хайх — олдвол мэдээллийг бөглөнө
-  const handleFind = async () => {
-    const reg = (form.register || "").trim();
-    if (!reg) return;
+  const handleFind = async (registerArg) => {
+    const reg = String(registerArg ?? form.register ?? "").trim();
+    if (reg.length !== 10) {
+      setLookup(null);
+      return;
+    }
     try {
-      // 1) Системд бүртгэлтэй эсэх
-      const res = await axiosInstance.get(endpoints.champaign.findPerson(reg));
+      // Нэгдсэн хайлт: өөрийн бааз → ХУР (зөвлөлтэй ИЖИЛ core.person функц)
+      const res = await axiosInstance.post(endpoints.person, {
+        register: reg,
+      });
       const d = res?.data || {};
       if (d.found) {
         setLookup(d);
         setForm((p) => ({
           ...p,
-          full_name: d.full_name || p.full_name,
+          full_name: d.full_name || `${d.last_name} ${d.first_name}`.trim(),
+          last_name: d.last_name || "",
+          first_name: d.first_name || "",
+          email: d.email || "",
           phone: d.phone || p.phone,
-          person: d.id,
+          // Системд бүртгэлтэй бол шууд холбоно
+          person: d.source === "local" ? d.id : null,
         }));
-        enqueueSnackbar("Системд бүртгэлтэй — мэдээлэл бөглөгдлөө");
-        return;
+        enqueueSnackbar(
+          d.source === "local"
+            ? "Системд бүртгэлтэй — мэдээлэл бөглөгдлөө"
+            : "ХУР‑аас иргэний мэдээлэл татагдлаа",
+        );
+      } else {
+        setLookup({ found: false });
+        setForm((p) => ({ ...p, person: null }));
+        enqueueSnackbar("Олдсонгүй — гараар бөглөнө үү", { variant: "info" });
       }
-      // 2) Олдохгүй бол ХУР системээс иргэний мэдээлэл (зөвлөлтэй ижил)
-      if (reg.length === 10) {
-        try {
-          const hur = await axiosInstance.post(endpoints.request.checkUser, {
-            register: reg,
-          });
-          const raw = hur?.data || {};
-          const c = raw.result || raw.results || raw;
-          const last = c.last_name || c.lastname || c.surname || "";
-          const first = c.first_name || c.firstname || c.name || "";
-          if (last || first) {
-            setLookup({ found: true, hur: true });
-            setForm((p) => ({
-              ...p,
-              full_name: `${last} ${first}`.trim(),
-              phone: c.phone || p.phone,
-              email: c.email || "",
-              last_name: last,
-              first_name: first,
-              person: null,
-            }));
-            enqueueSnackbar("ХУР‑аас иргэний мэдээлэл татагдлаа");
-            return;
-          }
-        } catch (e) {
-          /* ХУР‑аас олдсонгүй — гараар бөглөнө */
-        }
-      }
-      setLookup({ found: false });
-      setForm((p) => ({ ...p, person: null }));
-      enqueueSnackbar("Олдсонгүй — гараар бөглөнө үү", { variant: "info" });
     } catch (e) {
       setLookup(null);
     }
@@ -209,40 +194,33 @@ export default function TeamListView({ projectId, stepName, onCount }) {
   };
 
   const handleSave = async () => {
+    if (!form.register.trim() && !form.person) {
+      enqueueSnackbar("Регистрийн дугаар бичнэ үү", { variant: "warning" });
+      return;
+    }
     if (!form.full_name.trim()) {
       enqueueSnackbar("Овог нэр бичнэ үү", { variant: "warning" });
       return;
     }
     setSaving(true);
     try {
-      // Регистр байвал системийн хэрэглэгчийг олох/үүсгэнэ (зөвлөлтэй ижил)
-      let personId = form.person || null;
-      if (!personId && form.register.trim()) {
-        try {
-          const [ln, ...rest] = form.full_name.trim().split(/\s+/);
-          const pr = await axiosInstance.post(endpoints.council.ensurePerson, {
-            register: form.register.trim(),
-            last_name: form.last_name || (rest.length ? ln : ""),
-            first_name: form.first_name || (rest.length ? rest.join(" ") : ln),
-            email: form.email || "",
-            phone: form.phone || "",
-            ...(formUnit ? { unit: formUnit } : {}),
-          });
-          personId = pr?.data?.id || null;
-        } catch (e) {
-          /* хэрэглэгч үүсээгүй ч гишүүнийг бүртгэнэ */
-        }
-      }
+      // Хүний мэдээлэл RemoteUser дээр хадгалагдана — регистр илгээхэд
+      // backend (core.person) өөрөө олж/бүртгээд холбоно
+      const [ln, ...rest] = form.full_name.trim().split(/\s+/);
       const body = {
         project: projectId,
         unit: formUnit || null,
         step: stepId || null,
-        full_name: form.full_name.trim(),
         register: form.register.trim() || null,
+        last_name: form.last_name || (rest.length ? ln : ""),
+        first_name: form.first_name || (rest.length ? rest.join(" ") : ln),
         phone: form.phone.trim() || null,
+        email: form.email || "",
         org_title: form.org_title.trim() || null,
         position: form.position || null,
-        person: personId,
+        ...(form.person ? { person: form.person } : {}),
+        // Хэрэглэгчид харьяа сумыг нь онооно
+        ...(formUnit ? { person_unit: formUnit } : {}),
       };
       if (form.id) {
         await axiosInstance.patch(
@@ -447,13 +425,15 @@ export default function TeamListView({ projectId, stepName, onCount }) {
                         <TextField
                           label="Регистр"
                           value={form.register}
-                          onChange={(e) =>
-                            setForm((p) => ({
-                              ...p,
-                              register: e.target.value,
-                            }))
-                          }
-                          onBlur={handleFind}
+                          onChange={(e) => {
+                            const v = e.target.value.trim();
+                            setForm((p) => ({ ...p, register: v }));
+                            // Зөвлөлийн гишүүн нэмэхтэй ИЖИЛ — 10 тэмдэгт
+                            // бичиж дуусмагц хайлт өөрөө эхэлнэ
+                            if (v.length === 10) handleFind(v);
+                            else setLookup(null);
+                          }}
+                          onBlur={() => handleFind()}
                           InputProps={{
                             endAdornment: (
                               <IconButton size="small" onClick={handleFind}>
@@ -464,8 +444,10 @@ export default function TeamListView({ projectId, stepName, onCount }) {
                           helperText={
                             lookup
                               ? lookup.found
-                                ? "Системд бүртгэлтэй"
-                                : "Системд олдсонгүй — гараар бөглөнө"
+                                ? lookup.source !== "local"
+                                  ? "ХУР‑аас татагдсан"
+                                  : "Системд бүртгэлтэй"
+                                : "Олдсонгүй — гараар бөглөнө"
                               : " "
                           }
                         />

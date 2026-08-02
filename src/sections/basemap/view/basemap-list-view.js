@@ -12,10 +12,7 @@ import { Box, Collapse, Tooltip, IconButton } from "@mui/material";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { useBoolean } from "src/hooks/use-boolean";
 import { useGetConstantsFordropdown } from "src/api/constant";
-import {
-  useGetBaseMapLayers,
-  useGetAvailableGsLayers,
-} from "src/api/basemap";
+import { useGetBaseMapLayers, useGetAvailableGsLayers } from "src/api/basemap";
 
 import Iconify from "src/components/iconify";
 import Scrollbar from "src/components/scrollbar";
@@ -35,9 +32,10 @@ import BaseMapTableToolbar from "../basemap-table-toolbar";
 // ----------------------------------------------------------------------
 
 const TABLE_HEAD = [
-  { id: "sort_order", label: "Эрэмбэ", width: 80 },
+  // Нэр + түлхүүр НЭГ баганад; түлхүүрийн байранд эрэмбэ (газрын зурагт
+  // давхарлах дараалал — бага нь доор)
   { id: "label", label: "Нэр" },
-  { id: "key", label: "Түлхүүр" },
+  { id: "sort_order", label: "Эрэмбэ", width: 90 },
   { id: "layer_type", label: "Төрөл", width: 110 },
   { id: "source_type", label: "Эх сурвалж", width: 110 },
   { id: "", label: "GeoServer / URL" },
@@ -75,22 +73,11 @@ export default function BaseMapLayerListView() {
       ...(filters.search ? { search: filters.search } : {}),
       ...(filters.layer_type ? { layer_type: filters.layer_type } : {}),
     }),
-    [
-      filters,
-      table.order,
-      table.orderBy,
-      table.page,
-      table.rowsPerPage,
-    ],
+    [filters, table.order, table.orderBy, table.page, table.rowsPerPage],
   );
 
-  const {
-    layers,
-    layersCount,
-    layersEmpty,
-    layersLoading,
-    layersMutation,
-  } = useGetBaseMapLayers(requestBody);
+  const { layers, layersCount, layersEmpty, layersLoading, layersMutation } =
+    useGetBaseMapLayers(requestBody);
 
   const handleFilters = useCallback(
     (name, value) => {
@@ -147,6 +134,7 @@ export default function BaseMapLayerListView() {
             refetch={layersMutation}
             roles={roles}
             available={available}
+            layers={layers}
           />
         </Box>
       </Collapse>
@@ -162,7 +150,10 @@ export default function BaseMapLayerListView() {
 
         <TableContainer sx={{ position: "relative", overflow: "unset" }}>
           <Scrollbar>
-            <Table size={table.dense ? "small" : "medium"} sx={{ minWidth: 960 }}>
+            <Table
+              size={table.dense ? "small" : "medium"}
+              sx={{ minWidth: 960 }}
+            >
               <TableHeadCustom
                 headLabel={TABLE_HEAD}
                 order={table.order}
@@ -176,20 +167,16 @@ export default function BaseMapLayerListView() {
                   ))}
 
                 {!layersLoading &&
-                  layers.map((row, index) => (
+                  layers.map((row) => (
                     <BaseMapTableRow
                       key={row.id}
                       row={row}
-                      rowQueue={{
-                        rowsPerPage: table.rowsPerPage,
-                        page: table.page,
-                        index,
-                      }}
                       refetch={layersMutation}
                       onDeleteRow={() => handleDeleteRow(row.id)}
                       onToggleEnabled={handleToggleEnabled}
                       roles={roles}
                       available={available}
+                      layers={layers}
                     />
                   ))}
 

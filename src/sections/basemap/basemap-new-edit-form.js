@@ -43,7 +43,7 @@ const toForm = (row) => ({
   params: row?.params ? JSON.stringify(row.params) : "",
   color: row?.color || "",
   is_enabled: row?.is_enabled ?? true,
-  sort_order: row?.sort_order ?? 0,
+  sort_order: row?.sort_order ?? "",
   role_ids: (row?.roles || []).map((x) => x.id),
 });
 
@@ -55,6 +55,7 @@ export default function BaseMapNewEditForm({
   refetch,
   roles = [],
   available = [],
+  layers = [],
 }) {
   const { enqueueSnackbar } = useSnackbar();
   const [form, setForm] = useState(() => toForm(currentItem));
@@ -67,6 +68,27 @@ export default function BaseMapNewEditForm({
   const handleSubmit = async () => {
     if (!form.key.trim() || !form.label.trim()) {
       enqueueSnackbar("Түлхүүр ба нэрийг бөглөнө", { variant: "warning" });
+      return;
+    }
+    // Эрэмбэ = газрын зурагт давхарлах дараалал (бага нь доор). 1‑ээс эхэлнэ,
+    // төрөл дотроо давхардахгүй — backend ч мөн шалгана.
+    const order = Number(form.sort_order);
+    if (!order || order < 1) {
+      enqueueSnackbar("Эрэмбэ 1‑ээс эхэлнэ (0 байж болохгүй)", {
+        variant: "warning",
+      });
+      return;
+    }
+    const taken = (layers || []).find(
+      (l) =>
+        l.id !== currentItem?.id &&
+        l.layer_type === form.layer_type &&
+        Number(l.sort_order) === order,
+    );
+    if (taken) {
+      enqueueSnackbar(`«${taken.label}» энэ эрэмбийг эзэлсэн байна`, {
+        variant: "warning",
+      });
       return;
     }
     let paramsObj = {};
@@ -91,7 +113,7 @@ export default function BaseMapNewEditForm({
       params: paramsObj,
       color: form.color || "",
       is_enabled: form.is_enabled,
-      sort_order: Number(form.sort_order) || 0,
+      sort_order: order,
       role_ids: form.role_ids,
     };
     setSaving(true);
@@ -109,9 +131,11 @@ export default function BaseMapNewEditForm({
       refetch?.();
       onCloseForm?.();
     } catch (error) {
+      const d = error?.response?.data;
       const detail =
-        error?.response?.data?.key?.[0] ||
-        error?.response?.data?.detail ||
+        d?.sort_order?.[0] ||
+        d?.key?.[0] ||
+        d?.detail ||
         "Хадгалахад алдаа гарлаа";
       enqueueSnackbar(detail, { variant: "error" });
     } finally {
@@ -210,6 +234,8 @@ export default function BaseMapNewEditForm({
             sx={{ width: { xs: "100%", md: 120 } }}
             label="Эрэмбэ"
             type="number"
+            required
+            helperText="Бага нь доор"
             value={form.sort_order}
             onChange={(e) => setF("sort_order", e.target.value)}
           />
@@ -295,4 +321,5 @@ BaseMapNewEditForm.propTypes = {
   refetch: PropTypes.func,
   roles: PropTypes.array,
   available: PropTypes.array,
+  layers: PropTypes.array,
 };

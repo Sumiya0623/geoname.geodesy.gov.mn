@@ -21,7 +21,7 @@ export default function RequestTableToolbar({
 }) {
   const handleSearch = useCallback(
     (event) => onFilters("search", event.target.value),
-    [onFilters]
+    [onFilters],
   );
 
   return (

@@ -184,6 +184,18 @@ export function getWmtsDebugConfig() {
   };
 }
 
+// ----------------------------------------------------------------------
+// Давхаргын zIndex тавина. LayerGroup (WMTS кэш + амьд WMS хосолсон) дээр
+// OpenLayers нь бүлгийн zIndex‑ийг доторх давхаргууд руу ӨВЛҮҮЛДЭГГҮЙ тул
+// бүлэг байвал доторх давхарга бүр дээр нь тавина — эс тэгвэл эрэмбэ ажиллахгүй.
+// ----------------------------------------------------------------------
+export function setLayerZIndex(layer, z) {
+  if (!layer) return;
+  layer.setZIndex(z);
+  if (typeof layer.getLayers === "function") {
+    layer.getLayers().forEach((l) => setLayerZIndex(l, z));
+  }
+}
 
 // ----------------------------------------------------------------------
 // BaseMapLayer (backend) тохиргооноос OpenLayers давхарга бүтээнэ.
@@ -259,9 +271,10 @@ export function buildOlBaseLayer(cfg) {
       layer: layerName,
       visible: true,
     });
-    // params.wmts_max өгвөл: z≤wmts_max GWC кэш, z>wmts_max АМЬД WMS (чанар
-    // унахгүй — WMS эх өгөгдлөөс бүрэн нягтралаар рендерлэнэ). Group‑оор нэгтгэнэ.
-    const wmtsMax = Number(p.wmts_max ?? p.wmtsMax);
+    // params.maxZoom (эсвэл wmts_max) өгвөл: z≤maxZoom GWC кэш, түүнээс ЦААШ
+    // АМЬД WMS (кэш дуусахад чанар унахгүй — WMS эх өгөгдлөөс бүрэн нягтралаар
+    // рендерлэнэ). Хоёуланг нь Group‑оор нэгтгэнэ.
+    const wmtsMax = Number(p.maxZoom ?? p.max_zoom ?? p.wmts_max ?? p.wmtsMax);
     if (wmtsMax) {
       wmts.setMaxZoom(wmtsMax); // z ≤ wmtsMax
       return new LayerGroup({ layers: [wmts, liveWms(wmtsMax)] }); // wms: z > wmtsMax

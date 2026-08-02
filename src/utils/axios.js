@@ -115,6 +115,11 @@ export const endpoints = {
     dropdown: `/api/core/role/?pagination=false`,
   },
 
+  // Регистрээр хүн хайх / бүртгэх — БҮХ модулийн НЭГ цэг.
+  //   POST {register}                → хайх (өөрийн бааз → ХУР)
+  //   POST {register, create: true}  → олдоогүй бол шинээр бүртгэнэ
+  person: `/api/core/person/`,
+
   constant: {
     list: (request_body) => `/api/core/constant/?${request_body}`,
     edit: (id) => `/api/core/constant/${id}/`,
@@ -156,7 +161,6 @@ export const endpoints = {
     upload: (id) => `/api/r/request/${id}/upload/`,
     locate: (request_body) => `/api/r/request/locate/?${request_body}`,
     form: (id) => `/api/r/request/${id}/form/`,
-    checkUser: `/api/r/request/check-user/`,
   },
 
   geoname: {
@@ -223,7 +227,6 @@ export const endpoints = {
     members: (request_body) => `/api/r/council-member/?${request_body}`,
     memberCreate: `/api/r/council-member/`,
     // Регистрээр системийн хэрэглэгчийг олох/үүсгэх (роль + нэгж онооно)
-    ensurePerson: `/api/r/council-member/ensure-person/`,
     memberRelease: (id) => `/api/r/council-member/${id}/release/`,
     memberDelete: (id) => `/api/r/council-member/${id}/`,
   },
@@ -401,8 +404,6 @@ export const endpoints = {
     members: (request_body) => `/api/n/project-member/?${request_body}`,
     memberCreate: () => `/api/n/project-member/`,
     memberDetail: (id) => `/api/n/project-member/${id}/`,
-    findPerson: (register) =>
-      `/api/n/project-member/find-person/?register=${encodeURIComponent(register)}`,
   },
 
   public: {
