@@ -682,7 +682,8 @@ _RECOUNT_VIEW_SQL = """SELECT r.id, r.project_id, r.draft,
     CASE WHEN g.id IS NOT NULL THEN 'name' ELSE 'geom' END AS unit_src,
     COALESCE(g.name, r.draft) AS name,
     g.number AS number,
-    COALESCE(g.is_border, false) AS is_border,
+    COALESCE(g.is_border, r.is_border, false) AS is_border,
+    'border_v2' AS border_src,
     COALESCE(
         CASE WHEN g.id IS NOT NULL THEN
             ' '||(SELECT string_agg(gu.adminunit_id::text,' ')
@@ -1100,7 +1101,7 @@ def ensure_recount_view():
                 cols = {r[0] for r in c.fetchall()}
                 # type_src — draft‑ийн ангиллыг тооцдог болсон хувилбарын тэмдэг
                 if ('geom_type' not in cols or 'type_src' not in cols
-                        or 'unit_src' not in cols):
+                        or 'unit_src' not in cols or 'border_src' not in cols):
                     c.execute('DROP VIEW public."%s" CASCADE' % RECOUNT_VIEW)
                     exists = False
             if not exists:

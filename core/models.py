@@ -411,6 +411,9 @@ class ReCount(UserMixin):
 	nomeks=models.ManyToManyField(Nomek,related_name='recount100',verbose_name='Нэрлэвэр',blank=True)
 	loc=models.GeometryField(blank = True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
 	statuses=models.ManyToManyField(Constant,limit_choices_to={'key':'RECOUNT_STATUS'},verbose_name='Төлөв',related_name='recount_multi_statuses',blank=True)
+	# Хилийн цэс — батлагдсан нэргүй (draft) тодруулалтад ЭНД, батлагдсан нэртэйд
+	# GeoName.is_border дээр хадгалагдана (recount_view нь хоёуланг COALESCE‑дэнэ)
+	is_border=models.BooleanField(default=False,verbose_name='Хилийн цэс')
 
 class ReCountMap(models.Model):
 	names=models.ManyToManyField(ReCount,verbose_name='Нэрс', related_name='recountmaps')

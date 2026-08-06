@@ -359,6 +359,8 @@ class ReCountSerializer(serializers.ModelSerializer):
 			'statuses', 'status_ids',
 			'name', 'name_id', 'draft', 'loc', 'type', 'type_id', 'photos',
 			'user', 'created_date', 'type_l1', 'type_l2', 'type_l3',
+			# Хилийн цэс — батлагдсан нэргүй (draft) тодруулалтын өөрийн шинж
+			'is_border',
 		]
 
 	def get_loc(self, obj):
