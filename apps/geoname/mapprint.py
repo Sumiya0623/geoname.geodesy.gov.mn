@@ -487,6 +487,46 @@ def sld_scale_symbols(sld_xml, factor):
     return out
 
 
+_TYPE_ID_RE = re.compile(
+    r'<(?:\w+:)?PropertyName>\s*type_id\s*</(?:\w+:)?PropertyName>\s*'
+    r'<(?:\w+:)?Literal>\s*(\d+)\s*</(?:\w+:)?Literal>')
+_TEXT_SYM_RE = re.compile(
+    r'<(\w+:)?TextSymbolizer\b.*?</\1?TextSymbolizer>', re.S)
+_SCALE_DEN_RE = re.compile(
+    r'\s*<(\w+:)?(?:Min|Max)ScaleDenominator>[^<]*</\1?(?:Min|Max)'
+    r'ScaleDenominator>', re.S)
+
+
+def sld_labels_always(sld_xml):
+    """Шошгын дүрмүүдийг МАСШТАБААС ҮЛ ХАМААРАН асаана.
+
+    geoname_types style дээр шошгын дүрмүүд ихэвчлэн MaxScaleDenominator
+    150000 гэсэн хязгаартай — ажлын зураг 1:160000 орчимд гардаг тул ихэнх
+    нэр огт бичигдэхгүй байв. Хэвлэлийн үүсмэл style дээр:
+      • TextSymbolizer агуулсан дүрмээс Min/MaxScaleDenominator‑ыг хасна;
+      • нэг type_id‑д хэд хэдэн шошгын дүрэм (масштабын мужаар салгасан)
+        байвал ЭХНИЙХИЙГ нь үлдээж, дараачийнхаас нь TextSymbolizer‑ыг
+        хасна — эс бөгөөс нэг нэр 2‑3 давхар бичигдэнэ.
+    Дүрсийн (geometry) symbolizer‑ууд хэвээр үлдэнэ.
+    """
+    if not sld_xml:
+        return sld_xml
+    seen = set()
+
+    def _rule(m):
+        rule = m.group(0)
+        if 'TextSymbolizer' not in rule:
+            return rule
+        tids = frozenset(_TYPE_ID_RE.findall(rule))
+        if tids and tids in seen:
+            return _TEXT_SYM_RE.sub('', rule)      # давхар шошгыг хасна
+        if tids:
+            seen.add(tids)
+        return _SCALE_DEN_RE.sub('', rule)         # масштабын хязгаарыг хасна
+
+    return re.sub(r'<(?:\w+:)?Rule>.*?</(?:\w+:)?Rule>', _rule, sld_xml, flags=re.S)
+
+
 def sld_label_type_ids(sld_xml):
     """SLD дотор TextSymbolizer (шошго) бүхий дүрмүүдийн type_id‑уудыг цуглуулна.
 
@@ -532,6 +572,7 @@ def ensure_print_style(workspace, base_style, dpi, all_labels=True,
             return ''
         if all_labels:
             sld = sld_show_all_labels(sld)
+            sld = sld_labels_always(sld)
         if symbol_scale and symbol_scale != 1:
             sld = sld_scale_symbols(sld, symbol_scale)
         if dpi and dpi > _OGC_DPI:
@@ -2619,6 +2660,11 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
     if not feats or not bbox:
         return
     fs = float(layout.get('labelFontSize') or 11)
+    # featureBars=False — нэрийн доорх төлвийн өнгөт зураасыг огт зурахгүй
+    # (таних тэмдгийг зөвхөн хүрээн доторх легендээр харуулна)
+    if not layout.get('featureBars', True):
+        for _f in feats:
+            _f['_colors'] = []
     # featureMarks=False бол дүрсийг ӨӨРИЙГ нь зурахгүй — зөвхөн нэр/төлвийн
     # зураас (дүрсийг GeoServer‑ийн WMS давхарга таних тэмдгээрээ зурна)
     marks = layout.get('featureMarks', True)

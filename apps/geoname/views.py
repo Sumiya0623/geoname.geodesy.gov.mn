@@ -516,8 +516,10 @@ def build_params(unit_ids, project_id, dpi=200, corner_left=None,
         # (SLD_BODY дээр conflictResolution=false). PDF нь зөвхөн төлвийн
         # өнгөт зураасыг нэмнэ (featureMarks=False, featureLabels=False).
         'layers': [
+            # Арын сканердсан зураг — 0.75 тунгалаг (тодруулалт тод харагдана)
             {'type': 'wms', 'layerFullName': BASE_LAYER,
-             'name': 'Нэрийн зураг (М1:100000)', 'opacity': 1.0, 'visible': True},
+             'name': 'Нэрийн зураг (М1:100000)', 'opacity': 0.75,
+             'visible': True},
             {'type': 'wms', 'layerFullName': f'{GEONAME_WS}:{RECOUNT_VIEW}',
              'name': 'Тодруулалт', 'opacity': 1.0, 'visible': True,
              'cql': cql,
@@ -537,9 +539,10 @@ def build_params(unit_ids, project_id, dpi=200, corner_left=None,
             'gridMinutes': grid_minutes,
             'cornerLeft': [ln for ln in (corner_left or []) if ln] or None,
             'headerRight': HEADER_RIGHT,
-            'features': features,            # ЗӨВХӨН төлвийн өнгөт зураас
+            'features': features,            # style шошголдоггүй нэрсийг бичнэ
             'featureMarks': False,           # дүрсийг WMS давхарга зурна
             'featureLabels': False,          # нэрийг ч WMS давхарга бичнэ
+            'featureBars': False,            # нэрийн доор төлвийн зураас ТАВИХГҮЙ
             'statusLegend': status_legend,   # төлөв бүрийн өнгө + тоо
             'labelFontSize': LABEL_FONT_SIZE,
             'minLabelFontSize': 4.5,   # давхцвал ийш нь хүртэл жижгэрнэ
