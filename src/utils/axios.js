@@ -364,6 +364,9 @@ export const endpoints = {
     details: (id) => `/api/core/unit/${id}/`,
     dropdown: (request_body) =>
       `/api/core/unit/dropdown/?pagination=false&${request_body}`,
+    // Цэгийн ойролцоох нэгжүүд (хилийн цэсийн харьяалал сонгоход)
+    //   ?lon=&lat=&level=&parent=id,id&km=
+    near: (request_body) => `/api/core/unit/near/?${request_body}`,
   },
   nameCategory: {
     list: (request_body) => `/api/n/namecategory/?${request_body}`,

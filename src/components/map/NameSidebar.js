@@ -1,11 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import {
-  Box,
-  Button,
-  Popover,
-  Typography,
-  IconButton,
-} from "@mui/material";
+import { Box, Button, Popover, Typography, IconButton } from "@mui/material";
 import {
   Close as CloseIcon,
   ArrowBackRounded as ArrowBackIcon,
@@ -105,11 +99,15 @@ const NameSidebar = ({
             // Өндрийг ДЭЛГЭЦЭЭР хязгаарлана → MUI харагдах хүрээнд байрлуулж,
             // доод хэсэг (Бүртгэх) таслагдахгүй. Scroll зөвхөн дэлгэцээс өндөр
             // (маш урт форм) үед л гарна — үргэлж биш.
-            width: "fit-content",
+            // Тогтмол анхдагч өргөн — агуулгын урт (төслийн нэр) тэлэхгүй.
+            // Хэрэглэгч булангаас чирж өөрчилнө (resize).
+            width: { xs: "94vw", sm: 680 },
             minWidth: { xs: 320, sm: 360 },
             maxWidth: "calc(100vw - 24px)",
             maxHeight: "calc(100vh - 16px)",
-            overflowY: "auto",
+            // Хэрэглэгч баруун доод булангаас чирж ЦОНХНЫ хэмжээг өөрчилнө
+            resize: "both",
+            overflow: "auto",
             backgroundColor: "#f8f9fa",
             boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
             borderRadius: 2,

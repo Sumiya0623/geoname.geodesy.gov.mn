@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import { toLonLat } from "ol/proj";
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 
@@ -36,7 +37,9 @@ import axiosInstance, { endpoints } from "src/utils/axios";
 import { useGetRequestStatuses } from "src/api/request";
 import { useGetConstantsFordropdown } from "src/api/constant";
 import { angleToDirection } from "src/utils/geoDirection";
+import Iconify from "src/components/iconify";
 import PhotoSlider from "src/components/photo-slider";
+import BorderUnitPicker from "./BorderUnitPicker";
 import PhotoDirectionPicker from "src/components/photo-direction-picker";
 
 import {
@@ -122,6 +125,8 @@ export default function NameDetailCard({
 
   // Тодруулалт (recount) дээр дарсан бол — төсөл/төлвийн дэлгэрэнгүйг татна
   const [rcDetail, setRcDetail] = useState(null);
+  // Батлагдсан нэрийн дэлгэрэнгүй — хилийн цэсийн харьяа нэгжүүдийг авахад
+  const [gnDetail, setGnDetail] = useState(null);
   useEffect(() => {
     if (!name?._isRecount || !name?.id) {
       setRcDetail(null);
@@ -146,6 +151,33 @@ export default function NameDetailCard({
       active = false;
     };
   }, [name?._isRecount, name?.id]);
+
+  // Батлагдсан нэр (geoname) — хилийн цэсийн харьяа нэгжүүдийг авахад.
+  // ЗӨВХӨН төлөв засах горим нээгдэхэд татна (жирийн харахад шаардлагагүй).
+  useEffect(() => {
+    const gid = name?._isRecount ? name?.name_id : name?.id;
+    if (!rcEdit || !gid) return undefined;
+    let active = true;
+    axiosInstance
+      .get(endpoints.geoname.details(gid))
+      .then((res) => active && setGnDetail(res?.data || null))
+      .catch(() => active && setGnDetail(null));
+    return () => {
+      active = false;
+    };
+  }, [rcEdit, name?._isRecount, name?.name_id, name?.id]);
+
+  // Засах горим нээгдэх / дэлгэрэнгүй ирэх бүрд ХАДГАЛСАН харьяа нэгжүүдийг
+  // сэргээнэ. openRcEdit дуудагдах агшинд gnDetail хараахан ачаалагдаагүй
+  // байдаг тул зөвхөн тэнд сет хийвэл хоосон үлддэг.
+  useEffect(() => {
+    if (!rcEdit) return;
+    setBorderOff(false);
+    setRcBorderUnits(
+      (name?.name_id ? gnDetail?.borderunits : rcDetail?.borderunits) || [],
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rcEdit, gnDetail?.id, rcDetail?.id]);
 
   // Нэрийн зургуудыг татна (recount + жирийн geoname хоёуланд)
   useEffect(() => {
@@ -283,6 +315,32 @@ export default function NameDetailCard({
   // Батлагдсан нэртэйд GeoName.is_border, батлагдсан нэргүй (draft)
   // тодруулалтад ReCount.is_border дээр хадгалагдана (view нь COALESCE‑дэнэ).
   const [rcBorder, setRcBorder] = useState(false);
+  // Хилийн цэс АЛЬ нэгжүүдийн зааг дээр байгаа нь (олон түвшин × олон нэгж)
+  const [rcBorderUnits, setRcBorderUnits] = useState([]);
+  // Хилийн цэсийг УНТРААХ баталгаажуулалт (холбогдсон нэгжүүд хасагдана)
+  const [borderOff, setBorderOff] = useState(false);
+  // Ойролцоох нэгжийг татах БАЙРЛАЛ. coord нь зөвхөн батлагдсан ЦЭГ нэрэнд
+  // бөглөгддөг тул тодруулалт/шугам/талбайд геометрээс эхний цэгийг олно.
+  const borderCoord = useMemo(() => {
+    const firstXY = (g) => {
+      const cc = g?.coordinates;
+      if (!Array.isArray(cc)) return null;
+      let cur = cc;
+      while (Array.isArray(cur[0])) cur = cur[0];
+      if (typeof cur[0] !== "number" || typeof cur[1] !== "number") return null;
+      // WMS GetFeatureInfo‑гоос ирсэн геометр 3857 байж болно → 4326 болгоно
+      return Math.abs(cur[0]) > 180 || Math.abs(cur[1]) > 90
+        ? toLonLat([cur[0], cur[1]])
+        : [cur[0], cur[1]];
+    };
+    // Эхлээд БАТАЛГААТАЙ 4326 эх сурвалжууд (geoname lat/lon, recount.loc)
+    return (
+      coord ||
+      firstXY(rcDetail?.loc) ||
+      firstXY(name?._geom) ||
+      firstXY(name?.geometry)
+    );
+  }, [coord, name?._geom, name?.geometry, rcDetail?.loc]);
   const isBorder = rcEdit
     ? rcBorder
     : name?.is_border === true || name?.is_border === "true";
@@ -345,6 +403,10 @@ export default function NameDetailCard({
     setRcStatusIds(new Set(parseStatusIds(name.status_ids)));
     // Хилийн цэс — одоогийн утгаас (draft бол ReCount, эс бөгөөс GeoName)
     setRcBorder(name.is_border === true || name.is_border === "true");
+    // Харьяа нэгжүүд — батлагдсан нэртэйд GeoName‑ийнх, draft‑д тодруулалтынх
+    setRcBorderUnits(
+      (name.name_id ? gnDetail?.borderunits : rcDetail?.borderunits) || [],
+    );
     // Засварласан нэр = ЗӨВХӨН draft (засвар). Батлагдсан нэр биш. Байхгүй бол хоосон.
     setRcDraft(name.draft || "");
     // Одоогийн ангиллын ЗАМЫГ (l1 → l2 → l3) сэргээж сет хийнэ
@@ -381,13 +443,19 @@ export default function NameDetailCard({
         // Ангилал — зөвхөн draft тодруулалтад (батлагдсан нэрийнх нь өөрийн type)
         ...(showTypeField && rcTypeId ? { type_id: rcTypeId } : {}),
         // Хилийн цэс — батлагдсан нэргүй (draft) тодруулалтын ӨӨРИЙН шинж
-        ...(name.name_id ? {} : { is_border: rcBorder }),
+        ...(name.name_id
+          ? {}
+          : {
+              is_border: rcBorder,
+              borderunit_ids: rcBorder ? rcBorderUnits.map((u) => u.id) : [],
+            }),
       });
       // Батлагдсан нэртэй бол хилийн цэс нь ГАЗАР ЗҮЙН НЭРийн шинж тул
       // geoname‑ийг тусад нь шинэчилнэ.
       if (name.name_id) {
         await axiosInstance.patch(endpoints.geoname.edit(name.name_id), {
           is_border: rcBorder,
+          borderunit_ids: rcBorder ? rcBorderUnits.map((u) => u.id) : [],
         });
       }
       enqueueSnackbar("Төлөв хадгалагдлаа");
@@ -581,9 +649,10 @@ export default function NameDetailCard({
         <Box
           sx={{
             p: 2,
-            // Агуулгын урт (ж: төслийн нэр) өргөнийг ТЭЛЭХГҮЙ — тогтмол
-            width: { xs: "86vw", sm: 520 },
-            maxWidth: "calc(100vw - 32px)",
+            // Өргөнийг ЭЦЭГ цонх (NameSidebar Paper) тодорхойлно — тэндээс
+            // чирж хэмжээг өөрчилнө; энэ хэсэг түүнийг дагана.
+            width: "100%",
+            boxSizing: "border-box",
           }}
         >
           {typePath.length > 0 && (
@@ -762,47 +831,381 @@ export default function NameDetailCard({
                         {/* Хээрийн шат — зургууд; эхний шат — төлвүүд;
                             сүүлийн шат — хүлээгдэж буй тэмдэглэгээ */}
                         {isFieldStep(st) ? (
-                          <PhotoSlider
-                            photos={rcPhotos}
-                            height={190}
-                            onAdd={() => setPhotoDlg(true)}
-                            onDelete={handleDelPhoto}
-                          />
+                          <Stack spacing={1}>
+                            <PhotoSlider
+                              photos={rcPhotos}
+                              height={190}
+                              onAdd={() => setPhotoDlg(true)}
+                              onDelete={handleDelPhoto}
+                            />
+                            {/* Байрлал засах — хээрийн тодруулалтын үед хийгддэг
+                                тул энэ үе шатны дотор */}
+                            {(geonameId || name?._isRecount) &&
+                              !editingGeom && (
+                                <Box>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={handleEditGeom}
+                                    startIcon={
+                                      <Iconify
+                                        icon="solar:map-point-bold"
+                                        width={16}
+                                      />
+                                    }
+                                    sx={{ textTransform: "none" }}
+                                  >
+                                    Байрлал засах
+                                  </Button>
+                                </Box>
+                              )}
+                          </Stack>
                         ) : i === 0 ? (
-                          <Stack
-                            direction="row"
-                            spacing={0.5}
-                            flexWrap="wrap"
-                            useFlexGap
-                          >
-                            {parseStatusIds(name.status_ids).length === 0 && (
-                              <Typography
-                                variant="caption"
-                                color="text.disabled"
-                              >
-                                Төлөв тэмдэглээгүй.
-                              </Typography>
-                            )}
-                            {parseStatusIds(name.status_ids).map((id) => {
-                              const sc = rStatuses.find(
-                                (x) => String(x.id) === String(id),
-                              );
-                              if (!sc) return null;
-                              const c = statusColor(sc);
-                              return (
-                                <Chip
-                                  key={id}
-                                  size="small"
-                                  variant="filled"
-                                  label={sc.name}
+                          <Stack spacing={1}>
+                            <Stack
+                              direction="row"
+                              spacing={0.5}
+                              flexWrap="wrap"
+                              useFlexGap
+                            >
+                              {parseStatusIds(name.status_ids).length === 0 && (
+                                <Typography
+                                  variant="caption"
+                                  color="text.disabled"
+                                >
+                                  Төлөв тэмдэглээгүй.
+                                </Typography>
+                              )}
+                              {parseStatusIds(name.status_ids).map((id) => {
+                                const sc = rStatuses.find(
+                                  (x) => String(x.id) === String(id),
+                                );
+                                if (!sc) return null;
+                                const c = statusColor(sc);
+                                return (
+                                  <Chip
+                                    key={id}
+                                    size="small"
+                                    variant="filled"
+                                    label={sc.name}
+                                    sx={{
+                                      bgcolor: c,
+                                      color: "#fff",
+                                      fontWeight: 600,
+                                    }}
+                                  />
+                                );
+                              })}
+                            </Stack>
+                            {/* Төлөв засах / Устгах — суурин судалгааны үе шатанд */}
+                            {recountProjectId &&
+                              (rcConfirm ? (
+                                <Stack
+                                  direction="row"
+                                  spacing={0.5}
+                                  alignItems="center"
+                                >
+                                  <Typography variant="body2" color="error">
+                                    Устгах уу?
+                                  </Typography>
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    color="error"
+                                    disabled={saving}
+                                    onClick={deleteRecount}
+                                  >
+                                    Тийм
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    onClick={() => setRcConfirm(false)}
+                                  >
+                                    Үгүй
+                                  </Button>
+                                </Stack>
+                              ) : (
+                                <Stack direction="row" spacing={0.5}>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    disabled={saving}
+                                    onClick={() =>
+                                      rcEdit ? setRcEdit(false) : openRcEdit()
+                                    }
+                                    startIcon={
+                                      <Iconify
+                                        icon="solar:pen-bold"
+                                        width={16}
+                                      />
+                                    }
+                                    sx={{ textTransform: "none" }}
+                                  >
+                                    Төлөв засах
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="error"
+                                    disabled={saving}
+                                    onClick={() => setRcConfirm(true)}
+                                    startIcon={
+                                      <Iconify
+                                        icon="solar:trash-bin-trash-bold"
+                                        width={16}
+                                      />
+                                    }
+                                    sx={{ textTransform: "none" }}
+                                  >
+                                    Устгах
+                                  </Button>
+                                </Stack>
+                              ))}
+                            {rcEdit && !rcConfirm && (
+                              <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+                                {/* Төлвүүд — 3 баганаар (мөр бүрд 3 сонголт), нягт зайтай */}
+                                <Box
                                   sx={{
-                                    bgcolor: c,
-                                    color: "#fff",
-                                    fontWeight: 600,
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(3, auto)",
+                                    justifyContent: "start",
+                                    columnGap: 1,
+                                    rowGap: 0.25,
                                   }}
+                                >
+                                  {rStatuses.map((s) => {
+                                    const c = statusColor(s);
+                                    return (
+                                      <FormControlLabel
+                                        key={s.id}
+                                        sx={{
+                                          mr: 0,
+                                          ml: 0,
+                                          minWidth: 0,
+                                          alignItems: "center",
+                                        }}
+                                        control={
+                                          <Checkbox
+                                            size="small"
+                                            checked={rcStatusIds.has(s.id)}
+                                            onChange={(e) =>
+                                              toggleRcStatus(
+                                                s.id,
+                                                e.target.checked,
+                                              )
+                                            }
+                                            sx={{
+                                              p: 0.5,
+                                              color: c,
+                                              "&.Mui-checked": { color: c },
+                                            }}
+                                          />
+                                        }
+                                        label={
+                                          <Typography
+                                            variant="caption"
+                                            sx={{
+                                              color: c,
+                                              fontWeight: 600,
+                                              lineHeight: 1.2,
+                                              // Урт төлвийн нэр таслагдахгүй — мөр авна
+                                              whiteSpace: "normal",
+                                              wordBreak: "break-word",
+                                            }}
+                                          >
+                                            {s.name}
+                                          </Typography>
+                                        }
+                                      />
+                                    );
+                                  })}
+                                </Box>
+
+                                {/* Хилийн цэс — ТУСДАА мөрөнд, switch‑ээр. Батлагдсан нэрийнх
+                      GeoName дээр, тодруулалтынх ReCount дээр хадгалагдана. */}
+                                <FormControlLabel
+                                  sx={{ ml: 0, mr: 0 }}
+                                  control={
+                                    <Switch
+                                      size="small"
+                                      checked={rcBorder}
+                                      onChange={(e) => {
+                                        // Унтраахад холбогдсон нэгжүүд хасагдах тул баталгаажуулна
+                                        if (
+                                          !e.target.checked &&
+                                          rcBorderUnits.length
+                                        ) {
+                                          setBorderOff(true);
+                                          return;
+                                        }
+                                        setRcBorder(e.target.checked);
+                                      }}
+                                    />
+                                  }
+                                  label={
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 600 }}
+                                    >
+                                      Хилийн цэс
+                                    </Typography>
+                                  }
                                 />
-                              );
-                            })}
+
+                                {/* Хилийн цэсийг унтраах — АНХААРУУЛГА */}
+                                {borderOff && (
+                                  <Box
+                                    sx={{
+                                      p: 1,
+                                      borderRadius: 1,
+                                      border: "1px solid",
+                                      borderColor: "error.light",
+                                      bgcolor: "error.lighter",
+                                    }}
+                                  >
+                                    <Typography
+                                      variant="body2"
+                                      color="error.dark"
+                                      sx={{ fontWeight: 600 }}
+                                    >
+                                      Хилийн цэсийг унтраах уу?
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      color="error.dark"
+                                      sx={{ display: "block", mt: 0.25 }}
+                                    >
+                                      Холбогдсон {rcBorderUnits.length} нэгж (
+                                      {rcBorderUnits
+                                        .map((u) => u.unit)
+                                        .join(", ")}
+                                      ) БҮГД хасагдана. Хадгалсны дараа буцаах
+                                      боломжгүй.
+                                    </Typography>
+                                    <Stack
+                                      direction="row"
+                                      spacing={0.5}
+                                      sx={{ mt: 1 }}
+                                    >
+                                      <Button
+                                        size="small"
+                                        variant="contained"
+                                        color="error"
+                                        onClick={() => {
+                                          setRcBorder(false);
+                                          setRcBorderUnits([]);
+                                          setBorderOff(false);
+                                        }}
+                                      >
+                                        Тийм, хасая
+                                      </Button>
+                                      <Button
+                                        size="small"
+                                        onClick={() => setBorderOff(false)}
+                                      >
+                                        Болих
+                                      </Button>
+                                    </Stack>
+                                  </Box>
+                                )}
+
+                                {/* Аль нэгжүүдийн зааг дээр байгаа нь — түвшин тус бүрд олон
+                      сонголттой, зурагт ойролцоо нэгжүүдээс */}
+                                {rcBorder && (
+                                  <BorderUnitPicker
+                                    lon={borderCoord?.[0]}
+                                    lat={borderCoord?.[1]}
+                                    value={rcBorderUnits}
+                                    onChange={setRcBorderUnits}
+                                  />
+                                )}
+
+                                {showDraftField && (
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    label={draftLabel}
+                                    value={rcDraft}
+                                    onChange={(e) => setRcDraft(e.target.value)}
+                                  />
+                                )}
+                                {/* Ангилал — батлагдсан нэргүй (Уламжлалт / Шинээр үүссэн
+                      гэх мэт) тодруулалт ЗААВАЛ ангилалтай байна */}
+                                {showTypeField && (
+                                  <Stack direction="row" spacing={1}>
+                                    <Autocomplete
+                                      size="small"
+                                      sx={{ flex: 1, minWidth: 0 }}
+                                      value={rcT1}
+                                      onChange={(_e, v) => setRcTypeLevel(1, v)}
+                                      options={rcTy1}
+                                      getOptionLabel={(o) => o?.name || ""}
+                                      isOptionEqualToValue={(o, v) =>
+                                        o?.id === v?.id
+                                      }
+                                      renderInput={(params) => (
+                                        <TextField {...params} label="Үндсэн" />
+                                      )}
+                                    />
+                                    <Autocomplete
+                                      size="small"
+                                      sx={{ flex: 1, minWidth: 0 }}
+                                      value={rcT2}
+                                      disabled={!rcT1?.id || !rcTy2.length}
+                                      onChange={(_e, v) => setRcTypeLevel(2, v)}
+                                      options={rcTy2}
+                                      getOptionLabel={(o) => o?.name || ""}
+                                      isOptionEqualToValue={(o, v) =>
+                                        o?.id === v?.id
+                                      }
+                                      renderInput={(params) => (
+                                        <TextField {...params} label="Дэд" />
+                                      )}
+                                    />
+                                    <Autocomplete
+                                      size="small"
+                                      sx={{ flex: 1, minWidth: 0 }}
+                                      value={rcT3}
+                                      disabled={!rcT2?.id || !rcTy3.length}
+                                      onChange={(_e, v) => setRcTypeLevel(3, v)}
+                                      options={rcTy3}
+                                      getOptionLabel={(o) => o?.name || ""}
+                                      isOptionEqualToValue={(o, v) =>
+                                        o?.id === v?.id
+                                      }
+                                      renderInput={(params) => (
+                                        <TextField
+                                          {...params}
+                                          label="Ангилал"
+                                        />
+                                      )}
+                                    />
+                                  </Stack>
+                                )}
+                                <Stack direction="row" spacing={1}>
+                                  <Button
+                                    size="small"
+                                    color="inherit"
+                                    variant="outlined"
+                                    disabled={saving}
+                                    onClick={() => setRcEdit(false)}
+                                    sx={{ flexShrink: 0 }}
+                                  >
+                                    Буцах
+                                  </Button>
+                                  <Button
+                                    fullWidth
+                                    size="small"
+                                    variant="contained"
+                                    color="primary"
+                                    disabled={saving}
+                                    onClick={saveRecountStatuses}
+                                  >
+                                    Хадгалах
+                                  </Button>
+                                </Stack>
+                              </Stack>
+                            )}
                           </Stack>
                         ) : (
                           <Typography variant="caption" color="warning.main">
@@ -814,7 +1217,6 @@ export default function NameDetailCard({
                   ))}
                 </Stepper>
               )}
-
               {/* Байрлал засах — QGIS маягаар геометр засах. ЗӨВХӨН төслийн газрын
             зураг (champaign/<id>/map) дээр — бусад газар харагдахгүй. */}
               {geonameId && recountProjectId && editingGeom && (
@@ -844,193 +1246,6 @@ export default function NameDetailCard({
                     </Button>
                   </Stack>
                 </Box>
-              )}
-              {/* Тодруулалт засах/устгах — ЗӨВХӨН төслийн газрын зурагт.
-                /dashboard/map дээр зөвхөн харах (readonly). */}
-              {!recountProjectId ? null : rcConfirm ? (
-                <Stack direction="row" spacing={0.5} alignItems="center">
-                  <Typography variant="body2" color="error">
-                    Устгах уу?
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="error"
-                    disabled={saving}
-                    onClick={deleteRecount}
-                  >
-                    Тийм
-                  </Button>
-                  <Button size="small" onClick={() => setRcConfirm(false)}>
-                    Үгүй
-                  </Button>
-                </Stack>
-              ) : (
-                <Stack direction="row" spacing={0.5}>
-                  {(geonameId || name?._isRecount) && !editingGeom && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={handleEditGeom}
-                      sx={{ textTransform: "none" }}
-                    >
-                      Байрлал засах
-                    </Button>
-                  )}
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    disabled={saving}
-                    onClick={() => (rcEdit ? setRcEdit(false) : openRcEdit())}
-                  >
-                    Төлөв засах
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    disabled={saving}
-                    onClick={() => setRcConfirm(true)}
-                  >
-                    Устгах
-                  </Button>
-                </Stack>
-              )}
-
-              {rcEdit && !rcConfirm && (
-                <Stack spacing={1.5} sx={{ mt: 0.5 }}>
-                  {/* Төлвүүд — 3 баганаар (мөр бүрд 3 сонголт) */}
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(3, 1fr)",
-                      columnGap: 0.5,
-                    }}
-                  >
-                    {rStatuses.map((s) => {
-                      const c = statusColor(s);
-                      return (
-                        <FormControlLabel
-                          key={s.id}
-                          sx={{ mr: 0, minWidth: 0 }}
-                          control={
-                            <Checkbox
-                              size="small"
-                              checked={rcStatusIds.has(s.id)}
-                              onChange={(e) =>
-                                toggleRcStatus(s.id, e.target.checked)
-                              }
-                              sx={{ color: c, "&.Mui-checked": { color: c } }}
-                            />
-                          }
-                          label={
-                            <Typography
-                              variant="body2"
-                              sx={{ color: c, fontWeight: 600 }}
-                              noWrap
-                            >
-                              {s.name}
-                            </Typography>
-                          }
-                        />
-                      );
-                    })}
-                  </Box>
-
-                  {/* Хилийн цэс — ТУСДАА мөрөнд, switch‑ээр. Батлагдсан нэрийнх
-                      GeoName дээр, тодруулалтынх ReCount дээр хадгалагдана. */}
-                  <FormControlLabel
-                    sx={{ ml: 0, mr: 0 }}
-                    control={
-                      <Switch
-                        size="small"
-                        checked={rcBorder}
-                        onChange={(e) => setRcBorder(e.target.checked)}
-                      />
-                    }
-                    label={
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        Хилийн цэс
-                      </Typography>
-                    }
-                  />
-
-                  {showDraftField && (
-                    <TextField
-                      size="small"
-                      fullWidth
-                      label={draftLabel}
-                      value={rcDraft}
-                      onChange={(e) => setRcDraft(e.target.value)}
-                    />
-                  )}
-                  {/* Ангилал — батлагдсан нэргүй (Уламжлалт / Шинээр үүссэн
-                      гэх мэт) тодруулалт ЗААВАЛ ангилалтай байна */}
-                  {showTypeField && (
-                    <Stack direction="row" spacing={1}>
-                      <Autocomplete
-                        size="small"
-                        sx={{ flex: 1, minWidth: 0 }}
-                        value={rcT1}
-                        onChange={(_e, v) => setRcTypeLevel(1, v)}
-                        options={rcTy1}
-                        getOptionLabel={(o) => o?.name || ""}
-                        isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                        renderInput={(params) => (
-                          <TextField {...params} label="Үндсэн" />
-                        )}
-                      />
-                      <Autocomplete
-                        size="small"
-                        sx={{ flex: 1, minWidth: 0 }}
-                        value={rcT2}
-                        disabled={!rcT1?.id || !rcTy2.length}
-                        onChange={(_e, v) => setRcTypeLevel(2, v)}
-                        options={rcTy2}
-                        getOptionLabel={(o) => o?.name || ""}
-                        isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                        renderInput={(params) => (
-                          <TextField {...params} label="Дэд" />
-                        )}
-                      />
-                      <Autocomplete
-                        size="small"
-                        sx={{ flex: 1, minWidth: 0 }}
-                        value={rcT3}
-                        disabled={!rcT2?.id || !rcTy3.length}
-                        onChange={(_e, v) => setRcTypeLevel(3, v)}
-                        options={rcTy3}
-                        getOptionLabel={(o) => o?.name || ""}
-                        isOptionEqualToValue={(o, v) => o?.id === v?.id}
-                        renderInput={(params) => (
-                          <TextField {...params} label="Ангилал" />
-                        )}
-                      />
-                    </Stack>
-                  )}
-                  <Stack direction="row" spacing={1}>
-                    <Button
-                      size="small"
-                      color="inherit"
-                      variant="outlined"
-                      disabled={saving}
-                      onClick={() => setRcEdit(false)}
-                      sx={{ flexShrink: 0 }}
-                    >
-                      Буцах
-                    </Button>
-                    <Button
-                      fullWidth
-                      size="small"
-                      variant="contained"
-                      color="primary"
-                      disabled={saving}
-                      onClick={saveRecountStatuses}
-                    >
-                      Хадгалах
-                    </Button>
-                  </Stack>
-                </Stack>
               )}
             </Stack>
           ) : recountProjectId ? (
