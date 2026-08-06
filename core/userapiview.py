@@ -226,6 +226,43 @@ class AdminUnitViewSet(PublicListMixin, viewsets.ModelViewSet):
 			qs = qs.filter(level__id=284).order_by('unit').distinct()
 		return Response({'results': self.get_serializer(qs, many=True).data}, status=200)
 
+	@action(detail=False, methods=['get'], url_path='near')
+	def near(self, request):
+		"""Цэгийн ОЙРОЛЦООХ ЗЗ нэгжүүд — хилийн цэсийн харьяаллыг сонгоход.
+
+		  ?lon=&lat=&level=<UNITLEVEL Constant id>[&parent=<id,id,…>][&km=<радиус>]
+
+		Хилийн цэс нь 2 буюу түүнээс дээш нэгжийн ЗААГ дээр байдаг тул зөвхөн
+		агуулж буй нэгжийг биш, өгсөн радиус (default 5 км) доторх БҮХ нэгжийг
+		ойрын дарааллаар буцаана. parent өгвөл ЗӨВХӨН тэдгээр нэгжийн дэд
+		нэгжүүдээс шүүнэ (ж: 2 аймаг сонгосон бол тэдгээрийн сумд).
+		"""
+		from django.contrib.gis.geos import Point
+		from django.contrib.gis.db.models.functions import Distance
+		try:
+			lon = float(request.query_params.get('lon'))
+			lat = float(request.query_params.get('lat'))
+		except (TypeError, ValueError):
+			return Response({'detail': 'lon, lat шаардлагатай'}, status=400)
+		pt = Point(lon, lat, srid=4326)
+		try:
+			km = float(request.query_params.get('km') or 5)
+		except ValueError:
+			km = 5
+
+		qs = AdminUnit.objects.exclude(geom__isnull=True)
+		level = request.query_params.get('level')
+		if level:
+			qs = qs.filter(level_id=level)
+		parents = [p for p in (request.query_params.get('parent') or '').split(',') if p]
+		if parents:
+			qs = qs.filter(parent_id__in=parents)
+		# 1° ≈ 111 км (Монголын өргөрөгт хангалттай нарийвчлалтай)
+		qs = (qs.filter(geom__dwithin=(pt, km / 111.0))
+		        .annotate(d=Distance('geom', pt)).order_by('d')[:50])
+		return Response({'results': AdminUnitDropDownSerializer(qs, many=True).data},
+		                status=200)
+
 	def get_queryset(self):
 		qs = AdminUnit.objects.exclude(level_id=296)
 		if self.action == 'list':

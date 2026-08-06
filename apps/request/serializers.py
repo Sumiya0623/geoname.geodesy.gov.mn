@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from django.contrib.contenttypes.models import ContentType
 
-from core.serializers import ProfileDropDownSerializer, PersonSerializerMixin
+from core.serializers import (ProfileDropDownSerializer, PersonSerializerMixin,
+                              AdminUnitDropDownSerializer)
 from core.models import (
 	Constant, AdminUnit, LegalOrder,
 	GeoName, RequestName, NameOption, RequestNameContact, Photo, Attach,
@@ -307,6 +308,11 @@ class ReCountSerializer(serializers.ModelSerializer):
 	type_l3 = serializers.SerializerMethodField()
 	# Үүсгэсэн хэрэглэгч (ProfileAvatar‑д зориулж бүтэн профайл) + огноо
 	user = ProfileDropDownSerializer(read_only=True)
+	# Хилийн цэсийн харьяа нэгжүүд (олон түвшин, олон нэгж)
+	borderunits = AdminUnitDropDownSerializer(source='borderunit', many=True, read_only=True)
+	borderunit_ids = serializers.PrimaryKeyRelatedField(
+		queryset=AdminUnit.objects.all(), source='borderunit',
+		many=True, write_only=True, required=False)
 
 	def _type_chain(self, obj):
 		"""Язгуураас навч хүртэлх ангиллын нэрсийн жагсаалт."""
@@ -360,7 +366,8 @@ class ReCountSerializer(serializers.ModelSerializer):
 			'name', 'name_id', 'draft', 'loc', 'type', 'type_id', 'photos',
 			'user', 'created_date', 'type_l1', 'type_l2', 'type_l3',
 			# Хилийн цэс — батлагдсан нэргүй (draft) тодруулалтын өөрийн шинж
-			'is_border',
+			# + аль нэгжүүдийн зааг дээр байгаа нь
+			'is_border', 'borderunits', 'borderunit_ids',
 		]
 
 	def get_loc(self, obj):

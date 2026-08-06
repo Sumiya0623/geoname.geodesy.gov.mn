@@ -6,7 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 
 from django.db.models import Count, Q
 
-from core.serializers import ProfileDropDownSerializer, PersonSerializerMixin
+from core.serializers import (ProfileDropDownSerializer, PersonSerializerMixin,
+                              AdminUnitDropDownSerializer)
 from core.models import (Constant, GeoName, LegalOrder, Photo, Attach, PrintMap,
                          Nomek, AdminUnit, Project, ProjectArea, ProjectMember)
 
@@ -72,12 +73,15 @@ class GeoNameDetailSerializer(serializers.ModelSerializer):
     photos = serializers.SerializerMethodField()
     attaches = serializers.SerializerMethodField()
     requests = serializers.SerializerMethodField()
+    # Хилийн цэс ба аль нэгжүүдийн зааг дээр байгаа нь
+    borderunits = AdminUnitDropDownSerializer(source='borderunit', many=True, read_only=True)
 
     class Meta:
         model = GeoName
         fields = ['id', 'name', 'number', 'is_approved', 'created_date',
                   'lat', 'lon', 'geom_type', 'type_path', 'units', 'nomeks',
-                  'orders', 'photos', 'attaches', 'requests']
+                  'orders', 'photos', 'attaches', 'requests',
+                  'is_border', 'borderunits']
 
     def get_type_path(self, obj):
         chain, c, seen = [], obj.type, set()
@@ -206,12 +210,17 @@ class GeoNameSerializer(serializers.ModelSerializer):
 		many=True, write_only=True, required=False)
 	# Засаг захиргааны нэгж (аймаг/сум) — M2M
 	units = serializers.SerializerMethodField()
+	# Хилийн цэс АЛЬ нэгжүүдийн зааг дээр байгаа нь (олон түвшин, олон нэгж)
+	borderunits = AdminUnitDropDownSerializer(source='borderunit', many=True, read_only=True)
+	borderunit_ids = serializers.PrimaryKeyRelatedField(
+		queryset=AdminUnit.objects.all(), source='borderunit',
+		many=True, write_only=True, required=False)
 
 	class Meta:
 		model = GeoName
 		fields = [
 			'id', 'name', 'number', 'type', 'type_id',
-			'is_approved', 'is_border',
+			'is_approved', 'is_border', 'borderunits', 'borderunit_ids',
 			'lat', 'lon', 'geom', 'geom_type', 'orders', 'order_ids',
 			'user_name', 'created_date', 'units',
 		]

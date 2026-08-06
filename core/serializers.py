@@ -11,9 +11,11 @@ from core.models import (
 	)
 class AdminUnitDropDownSerializer(serializers.ModelSerializer):
 	level=serializers.CharField(read_only=True,source='level.name')
+	# Дэд түвшний сонголтыг эцгээр нь бүлэглэхэд (ж: аль аймгийн сум бэ)
+	parent_unit=serializers.CharField(read_only=True,source='parent.unit',default=None)
 	class Meta:
 		model = AdminUnit
-		fields = ['id','unit','level']
+		fields = ['id','unit','level','parent','parent_unit']
 
 class AdminUnitSerializer(serializers.ModelSerializer):
 	# Засаг захиргааны нэгжийн мод (Аймаг→Сум→Баг). subcount нь хүүхдийн тоо (lazy expand).

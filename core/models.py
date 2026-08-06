@@ -289,7 +289,7 @@ class GeoName(UserMixin):
 	# orders=models.ManyToManyField(LegalOrder, related_name='ordernames', verbose_name='Эрх зүйн баримт бичиг', blank=True)
 	is_border=models.BooleanField(default=False,verbose_name='Хил цэс эсэх',blank=True,null=True)
 	other=models.CharField(max_length=1000,blank=True,null=True,verbose_name='Бусад')
-
+	borderunit=models.ManyToManyField(AdminUnit,related_name='borderunitnames',verbose_name='Хил',blank=True)
 	def _type_code_path(self):
 		"""Төрлийн өвөг→навч кодуудыг нийлүүлнэ (level1.code + level2.code + level3.code)."""
 		chain, c, seen = [], self.type, set()
@@ -414,6 +414,8 @@ class ReCount(UserMixin):
 	# Хилийн цэс — батлагдсан нэргүй (draft) тодруулалтад ЭНД, батлагдсан нэртэйд
 	# GeoName.is_border дээр хадгалагдана (recount_view нь хоёуланг COALESCE‑дэнэ)
 	is_border=models.BooleanField(default=False,verbose_name='Хилийн цэс')
+	# Хилийн цэс АЛЬ нэгжүүдийн зааг дээр байгаа нь (олон аймаг/сум/баг байж болно)
+	borderunit=models.ManyToManyField(AdminUnit,related_name='borderunitrecounts',verbose_name='Хилийн нэгжүүд',blank=True)
 
 class ReCountMap(models.Model):
 	names=models.ManyToManyField(ReCount,verbose_name='Нэрс', related_name='recountmaps')
