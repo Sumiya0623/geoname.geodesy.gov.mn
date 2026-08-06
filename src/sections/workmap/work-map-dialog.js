@@ -7,7 +7,6 @@ import {
   Box,
   Chip,
   Stack,
-  Alert,
   Switch,
   Dialog,
   Button,
@@ -33,7 +32,7 @@ import { useSnackbar } from "src/components/snackbar";
 // Сумдыг тооллогын байршлаас АВТО тодорхойлж, preview‑г шууд харуулна.
 // ----------------------------------------------------------------------
 
-export default function WorkMapDialog({ open, onClose, projectId }) {
+export default function WorkMapDialog({ open, onClose, onDone, projectId }) {
   const { enqueueSnackbar } = useSnackbar();
   const debounceRef = useRef(null);
 
@@ -99,42 +98,59 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
       .finally(() => setUnitsLoading(false));
   }, [open, projectId]);
 
-  // Preview — сонголт өөрчлөгдөх бүрд (debounce)
+  // Preview — ЗӨВХӨН «Харах» товч дарсны дараа (авто дуудалт байхгүй).
+  // reqKey нь товч дарах бүрд шинэчлэгдэж, тухайн үеийн сонголтыг агуулна.
+  const [reqKey, setReqKey] = useState(null);
+
+  const handleView = useCallback(() => {
+    if (!unitKey || !previewUnit) return;
+    setReqKey(`${unitKey}|${previewUnit}|${onlyBorder ? 1 : 0}|${Date.now()}`);
+  }, [unitKey, previewUnit, onlyBorder]);
+
+  // Сонголт өөрчлөгдвөл хуучин зургийг цэвэрлэнэ (буруу зураг харагдахгүй)
   useEffect(() => {
-    if (!open || !projectId) return undefined;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!unitKey || !previewUnit) {
-      setPreviewImg(null);
-      setMeta(null);
-      return undefined;
-    }
+    setReqKey(null);
+    setPreviewImg(null);
+    setMeta(null);
+    setPreviewLoading(false);
+  }, [unitKey, onlyBorder]);
+
+  useEffect(() => {
+    if (!open || !projectId || !reqKey) return undefined;
+    const [uk, pu, ob] = reqKey.split("|");
     setPreviewLoading(true);
-    debounceRef.current = setTimeout(() => {
-      const t = new Date().getTime();
-      axiosInstance
-        .get(
-          endpoints.raster.workPreview(
-            `project=${projectId}&units=${unitKey}&unit=${previewUnit}` +
-              `${onlyBorder ? "&is_border=1" : ""}&_t=${t}`,
-          ),
-        )
-        .then((res) => {
-          setPreviewImg(res.data?.image || null);
-          setMeta(res.data || null);
-        })
-        .catch((e) => {
-          setPreviewImg(null);
-          setMeta(null);
-          enqueueSnackbar(
-            e?.response?.data?.detail || "Зураг бэлтгэхэд алдаа гарлаа",
-            { variant: "warning" },
-          );
-        })
-        .finally(() => setPreviewLoading(false));
-    }, 500);
-    return () => debounceRef.current && clearTimeout(debounceRef.current);
+    let alive = true;
+    axiosInstance
+      .get(
+        endpoints.raster.workPreview(
+          `project=${projectId}&units=${uk}&unit=${pu}` +
+            `${ob === "1" ? "&is_border=1" : ""}&_t=${Date.now()}`,
+        ),
+      )
+      .then((res) => {
+        if (!alive) return;
+        setPreviewImg(res.data?.image || null);
+        setMeta(res.data || null);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setPreviewImg(null);
+        setMeta(null);
+        enqueueSnackbar(
+          e?.response?.data?.detail || "Зураг бэлтгэхэд алдаа гарлаа",
+          { variant: "warning" },
+        );
+      })
+      .finally(() => alive && setPreviewLoading(false));
+    return () => {
+      // Хүсэлт дуусахаас өмнө сонголт солигдвол (эсвэл цонх хаагдвал) хариу нь
+      // хэрэггүй болно. finally нь alive=false тул ажиллахгүй — spinner мөнхөд
+      // эргэхээс сэргийлж ЭНД заавал унтраана (шинэ хүсэлт өөрөө дахин асаана).
+      alive = false;
+      setPreviewLoading(false);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, projectId, unitKey, previewUnit, onlyBorder]);
+  }, [open, projectId, reqKey]);
 
   const handleClose = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -148,6 +164,7 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
       return;
     }
     setPrinting(true);
+    let url = null;
     try {
       // Backend нь PDF‑ийг ТӨСӨЛД хадгалж (PrintMap), файлын холбоос буцаана
       const res = await axiosInstance.post(endpoints.raster.workPrint, {
@@ -157,23 +174,41 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
         // Арын сканердсан зураг тул 250dpi нь 35МБ/50сек болдог — 170 хангалттай
         dpi: 170,
       });
-      const url = res?.data?.file_url;
-      if (!url) {
-        enqueueSnackbar("Зураг үүсгэхэд алдаа гарлаа", { variant: "warning" });
-        return;
-      }
-      enqueueSnackbar("Ажлын зураг үүсэж, жагсаалтад хадгалагдлаа");
-      window.open(url, "_blank", "noopener,noreferrer");
-      onDone?.();
-      handleClose();
+      url = res?.data?.file_url || null;
     } catch (error) {
       enqueueSnackbar(
         error?.response?.data?.detail || "Зураг үүсгэхэд алдаа гарлаа",
         { variant: "warning" },
       );
+      return;
     } finally {
       setPrinting(false);
     }
+    if (!url) {
+      enqueueSnackbar("Зураг үүсгэхэд алдаа гарлаа", { variant: "warning" });
+      return;
+    }
+    // ЭНДЭЭС хойш амжилттай — дараах алхмын алдааг «үүсгэхэд алдаа» гэж
+    // давхар мэдэгдэхгүй (өмнө нь popup хаагдахад давхар мэдэгдэл гардаг байв)
+    enqueueSnackbar("Ажлын зураг үүсэж, жагсаалтад хадгалагдлаа");
+    try {
+      // Popup blocker‑ийг тойрч <a> элементээр нээнэ
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      /* нээгдэхгүй ч файл жагсаалтад хадгалагдсан */
+    }
+    try {
+      onDone?.();
+    } catch (e) {
+      /* дуудагчийн шинэчлэл амжилтгүй ч зураг үүссэн */
+    }
+    handleClose();
   };
 
   const scaleText = meta?.scale
@@ -192,11 +227,6 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
             spacing={2.5}
             sx={{ p: 2.5, width: { md: 340 }, flexShrink: 0 }}
           >
-            <Alert severity="info" sx={{ py: 0.5 }}>
-              Тухайн төслийн дахин тооллогын цэгүүдээр зурагдана.
-              {recountCount != null ? ` Тооллого: ${recountCount}` : ""}
-            </Alert>
-
             <Autocomplete
               multiple
               size="small"
@@ -366,21 +396,33 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
                 {meta.title}
               </Typography>
             )}
+            <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+              <LoadingButton
+                variant="outlined"
+                color="primary"
+                loading={previewLoading}
+                disabled={!unitIds.length}
+                onClick={handleView}
+                startIcon={<Iconify icon="solar:eye-bold" />}
+              >
+                Харах
+              </LoadingButton>
 
-            <LoadingButton
-              variant="contained"
-              loading={printing}
-              disabled={!unitIds.length || previewLoading}
-              startIcon={<Iconify icon="solar:printer-bold" />}
-              onClick={handlePrint}
-            >
-              {unitIds.length > 1
-                ? `Ажлын зураг үүсгэх (${unitIds.length} хуудас PDF)`
-                : "Ажлын зураг үүсгэх (PDF)"}
-            </LoadingButton>
-            <Button color="inherit" onClick={handleClose}>
-              Хаах
-            </Button>
+              <LoadingButton
+                variant="outlined"
+                color="success"
+                loading={printing}
+                disabled={!unitIds.length || previewLoading}
+                startIcon={<Iconify icon="solar:printer-bold" />}
+                onClick={handlePrint}
+              >
+                save PDF
+              </LoadingButton>
+              <Button color="inherit" onClick={handleClose}>
+                Хаах
+              </Button>
+            </Stack>
+            {/* Зураг ХАРАХ — сонголтоо хийсний дараа энэ товчоор л дуудна */}
           </Stack>
 
           <Box
@@ -410,11 +452,11 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
               <Typography variant="body2" color="text.secondary">
                 {unitsLoading
                   ? ""
-                  : unitIds.length
-                    ? ""
-                    : aimagOpts.length
+                  : !aimagOpts.length
+                    ? "Төсөлд засаг захиргааны нэгж бүртгэгдээгүй"
+                    : !unitIds.length
                       ? "Аймгаа сонгоно уу"
-                      : "Төсөлд засаг захиргааны нэгж бүртгэгдээгүй"}
+                      : "Сонголтоо хийгээд «Харах» дарна уу"}
               </Typography>
             )}
             {(previewLoading || unitsLoading) && (
@@ -446,5 +488,6 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
 WorkMapDialog.propTypes = {
   open: PropTypes.bool,
   onClose: PropTypes.func,
+  onDone: PropTypes.func,
   projectId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };
