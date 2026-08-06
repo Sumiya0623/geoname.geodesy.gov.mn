@@ -16,6 +16,7 @@ import {
   StepContent,
   IconButton,
   Checkbox,
+  Switch,
   TextField,
   Typography,
   DialogTitle,
@@ -229,7 +230,8 @@ export default function NameDetailCard({
   // Геометр аль хэдийн client дээр (name.geometry — WFS‑ээс ачаалагдсан) байгаа
   // тул дахин ТАТАХГҮЙ, шууд түүнийг засна.
   const handleEditGeom = async () => {
-    if (!geonameId) return;
+    // Батлагдсан нэр (geoname) эсвэл тодруулалт (recount.loc) хоёуланд ажиллана
+    if (!geonameId && !name?._isRecount) return;
     // Click үед геометрийг _geom (GeoJSON 4326)‑д хадгалдаг (map-init.js). Дахин татахгүй.
     const geom = name?._geom || name?.geometry || null;
     if (!geom) {
@@ -277,8 +279,13 @@ export default function NameDetailCard({
       .filter(Boolean)
       .map(Number);
 
-  // Хилийн цэс (GeoName.is_border) — анхдагч тэмдэглээгүй
+  // Хилийн цэс — засах горимд rcBorder, бусад үед объектын одоогийн утга.
+  // Батлагдсан нэртэйд GeoName.is_border, батлагдсан нэргүй (draft)
+  // тодруулалтад ReCount.is_border дээр хадгалагдана (view нь COALESCE‑дэнэ).
   const [rcBorder, setRcBorder] = useState(false);
+  const isBorder = rcEdit
+    ? rcBorder
+    : name?.is_border === true || name?.is_border === "true";
 
   // Ангиллын сонголт — ЗӨВХӨН батлагдсан нэргүй (draft) тодруулалтад.
   // Ийм тодруулалтын төрөл нь ReCount.type дээр хадгалагдана.
@@ -336,7 +343,7 @@ export default function NameDetailCard({
   // Засах горимыг нээхэд ХУУЧИН төлвүүдийг set хийнэ. draft default = одоогийн нэр.
   const openRcEdit = () => {
     setRcStatusIds(new Set(parseStatusIds(name.status_ids)));
-    // Хилийн цэс (GeoName.is_border) — анхдагч false
+    // Хилийн цэс — одоогийн утгаас (draft бол ReCount, эс бөгөөс GeoName)
     setRcBorder(name.is_border === true || name.is_border === "true");
     // Засварласан нэр = ЗӨВХӨН draft (засвар). Батлагдсан нэр биш. Байхгүй бол хоосон.
     setRcDraft(name.draft || "");
@@ -373,9 +380,11 @@ export default function NameDetailCard({
         ...(showDraftField ? { draft: rcDraft.trim() } : {}),
         // Ангилал — зөвхөн draft тодруулалтад (батлагдсан нэрийнх нь өөрийн type)
         ...(showTypeField && rcTypeId ? { type_id: rcTypeId } : {}),
+        // Хилийн цэс — батлагдсан нэргүй (draft) тодруулалтын ӨӨРИЙН шинж
+        ...(name.name_id ? {} : { is_border: rcBorder }),
       });
-      // Хилийн цэс нь ТООЛЛОГЫН биш, ГАЗАР ЗҮЙН НЭРийн шинж чанар тул
-      // geoname‑ийг тусад нь шинэчилнэ (батлагдсан нэртэй холбоотой үед л).
+      // Батлагдсан нэртэй бол хилийн цэс нь ГАЗАР ЗҮЙН НЭРийн шинж тул
+      // geoname‑ийг тусад нь шинэчилнэ.
       if (name.name_id) {
         await axiosInstance.patch(endpoints.geoname.edit(name.name_id), {
           is_border: rcBorder,
@@ -569,7 +578,14 @@ export default function NameDetailCard({
           />
         </Box>
       ) : (
-        <Box sx={{ p: 2 }}>
+        <Box
+          sx={{
+            p: 2,
+            // Агуулгын урт (ж: төслийн нэр) өргөнийг ТЭЛЭХГҮЙ — тогтмол
+            width: { xs: "86vw", sm: 520 },
+            maxWidth: "calc(100vw - 32px)",
+          }}
+        >
           {typePath.length > 0 && (
             <Box
               sx={{
@@ -620,6 +636,22 @@ export default function NameDetailCard({
                     <OpenInNewIcon sx={{ fontSize: 15 }} />
                   </IconButton>
                 </Tooltip>
+              )}
+              {/* Хилийн цэс — нэрний ард жижиг тэмдэглэгээ */}
+              {isBorder && (
+                <Chip
+                  size="small"
+                  label="Хилийн цэс"
+                  variant="soft"
+                  color="warning"
+                  sx={{
+                    ml: 0.75,
+                    height: 20,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    verticalAlign: "text-bottom",
+                  }}
+                />
               )}
             </Typography>
           )}
@@ -699,7 +731,10 @@ export default function NameDetailCard({
                   <Typography variant="caption" color="text.secondary">
                     Төсөл:
                   </Typography>
-                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontWeight: 600, wordBreak: "break-word" }}
+                  >
                     {rcDetail.project.name}
                     {rcDetail.project.dugaar && rcDetail.project.dugaar !== "un"
                       ? ` · №${rcDetail.project.dugaar}`
@@ -832,7 +867,7 @@ export default function NameDetailCard({
                 </Stack>
               ) : (
                 <Stack direction="row" spacing={0.5}>
-                  {geonameId && !editingGeom && (
+                  {(geonameId || name?._isRecount) && !editingGeom && (
                     <Button
                       size="small"
                       variant="outlined"
@@ -864,13 +899,20 @@ export default function NameDetailCard({
 
               {rcEdit && !rcConfirm && (
                 <Stack spacing={1.5} sx={{ mt: 0.5 }}>
-                  <Box sx={{ display: "flex", flexWrap: "wrap" }}>
+                  {/* Төлвүүд — 3 баганаар (мөр бүрд 3 сонголт) */}
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, 1fr)",
+                      columnGap: 0.5,
+                    }}
+                  >
                     {rStatuses.map((s) => {
                       const c = statusColor(s);
                       return (
                         <FormControlLabel
                           key={s.id}
-                          sx={{ mr: 1 }}
+                          sx={{ mr: 0, minWidth: 0 }}
                           control={
                             <Checkbox
                               size="small"
@@ -885,6 +927,7 @@ export default function NameDetailCard({
                             <Typography
                               variant="body2"
                               sx={{ color: c, fontWeight: 600 }}
+                              noWrap
                             >
                               {s.name}
                             </Typography>
@@ -892,26 +935,26 @@ export default function NameDetailCard({
                         />
                       );
                     })}
-
-                    {/* Хилийн цэс (GeoName.is_border) — мөрийн БАРУУН ХЯЗГААРТ */}
-                    {!!name.name_id && (
-                      <FormControlLabel
-                        sx={{ ml: "auto", mr: 0 }}
-                        control={
-                          <Checkbox
-                            size="small"
-                            checked={rcBorder}
-                            onChange={(e) => setRcBorder(e.target.checked)}
-                          />
-                        }
-                        label={
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            Хилийн цэс
-                          </Typography>
-                        }
-                      />
-                    )}
                   </Box>
+
+                  {/* Хилийн цэс — ТУСДАА мөрөнд, switch‑ээр. Батлагдсан нэрийнх
+                      GeoName дээр, тодруулалтынх ReCount дээр хадгалагдана. */}
+                  <FormControlLabel
+                    sx={{ ml: 0, mr: 0 }}
+                    control={
+                      <Switch
+                        size="small"
+                        checked={rcBorder}
+                        onChange={(e) => setRcBorder(e.target.checked)}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        Хилийн цэс
+                      </Typography>
+                    }
+                  />
+
                   {showDraftField && (
                     <TextField
                       size="small"
