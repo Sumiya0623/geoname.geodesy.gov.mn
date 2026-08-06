@@ -1,13 +1,14 @@
 "use client";
 
 import PropTypes from "prop-types";
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useMemo, useState, useEffect, useCallback } from "react";
 
 import {
   Box,
   Chip,
   Stack,
   Alert,
+  Switch,
   Dialog,
   Button,
   TextField,
@@ -15,6 +16,7 @@ import {
   DialogTitle,
   Autocomplete,
   DialogContent,
+  FormControlLabel,
   CircularProgress,
 } from "@mui/material";
 import { LoadingButton } from "@mui/lab";
@@ -37,6 +39,8 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
 
   const [unitOpts, setUnitOpts] = useState([]);
   const [units, setUnits] = useState([]);
+  // Аймаг → Сум дараалсан сонголт (төсөлд бүртгэгдсэн нэгжээс)
+  const [aimags, setAimags] = useState([]);
   const [recountCount, setRecountCount] = useState(null);
   const [unitsLoading, setUnitsLoading] = useState(false);
 
@@ -45,8 +49,29 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
   const [meta, setMeta] = useState(null);
   const [printing, setPrinting] = useState(false);
   const [pageUnit, setPageUnit] = useState(null); // preview хийх сум (хуудас)
+  const [onlyBorder, setOnlyBorder] = useState(false); // зөвхөн хилийн цэс
 
-  const unitIds = units.map((u) => u.id);
+  // Төсөлд бүртгэгдсэн сумдаас гарсан АЙМГУУД (давхардалгүй)
+  const aimagOpts = useMemo(() => {
+    const m = new Map();
+    (unitOpts || []).forEach((u) => {
+      if (u.parent_id && !m.has(u.parent_id))
+        m.set(u.parent_id, { id: u.parent_id, unit: u.parent });
+    });
+    return [...m.values()].sort((a, b) => (a.unit || "").localeCompare(b.unit));
+  }, [unitOpts]);
+
+  // Сумын сонголт — ЗӨВХӨН сонгогдсон аймгуудынх
+  const sumOpts = useMemo(() => {
+    if (!aimags.length) return [];
+    const ids = new Set(aimags.map((a) => a.id));
+    return (unitOpts || []).filter((u) => ids.has(u.parent_id));
+  }, [unitOpts, aimags]);
+
+  // Сум заагаагүй бол — сонгосон АЙМГААР (бүхэлд нь) зурна; сум зааж өгвөл
+  // сум тус бүр нэг хуудас болно
+  const effUnits = units.length ? units : aimags;
+  const unitIds = effUnits.map((u) => u.id);
   const unitKey = unitIds.join(",");
   // Хуудас бүр НЭГ сум — preview‑д аль хуудсыг харахаа сонгоно
   const previewUnit = unitIds.includes(pageUnit) ? pageUnit : unitIds[0];
@@ -60,12 +85,15 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
       .then((res) => {
         const rows = res?.data?.results || [];
         setUnitOpts(rows);
-        setUnits(rows);
+        // Анхдагчаар юу ч сонгохгүй — аймгаа эхэлж сонгоно (зураг ч дуудагдахгүй)
+        setUnits([]);
+        setAimags([]);
         setRecountCount(res?.data?.recount_count ?? 0);
       })
       .catch(() => {
         setUnitOpts([]);
         setUnits([]);
+        setAimags([]);
         setRecountCount(0);
       })
       .finally(() => setUnitsLoading(false));
@@ -86,7 +114,8 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
       axiosInstance
         .get(
           endpoints.raster.workPreview(
-            `project=${projectId}&units=${unitKey}&unit=${previewUnit}&_t=${t}`,
+            `project=${projectId}&units=${unitKey}&unit=${previewUnit}` +
+              `${onlyBorder ? "&is_border=1" : ""}&_t=${t}`,
           ),
         )
         .then((res) => {
@@ -105,7 +134,7 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
     }, 500);
     return () => debounceRef.current && clearTimeout(debounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, projectId, unitKey, previewUnit]);
+  }, [open, projectId, unitKey, previewUnit, onlyBorder]);
 
   const handleClose = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -124,6 +153,7 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
       const res = await axiosInstance.post(endpoints.raster.workPrint, {
         project: projectId,
         units: unitIds,
+        is_border: onlyBorder,
         // Арын сканердсан зураг тул 250dpi нь 35МБ/50сек болдог — 170 хангалттай
         dpi: 170,
       });
@@ -171,7 +201,42 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
               multiple
               size="small"
               loading={unitsLoading}
-              options={unitOpts}
+              options={aimagOpts}
+              value={aimags}
+              onChange={(_e, v) => {
+                setAimags(v);
+                // Аймаг хасагдвал түүний сумд ч хасагдана
+                const ids = new Set(v.map((a) => a.id));
+                setUnits((prev) => prev.filter((u) => ids.has(u.parent_id)));
+              }}
+              getOptionLabel={(o) => o?.unit || ""}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              renderTags={(value, getTagProps) =>
+                value.map((o, i) => (
+                  // eslint-disable-next-line react/jsx-props-no-spreading
+                  <Chip
+                    size="small"
+                    label={o.unit}
+                    {...getTagProps({ index: i })}
+                    key={o.id}
+                  />
+                ))
+              }
+              renderInput={(p) => (
+                <TextField
+                  {...p}
+                  label="Аймаг / Нийслэл"
+                  placeholder="Төслийн нэгжээс"
+                />
+              )}
+            />
+
+            <Autocomplete
+              multiple
+              size="small"
+              loading={unitsLoading}
+              disabled={!aimags.length}
+              options={sumOpts}
               value={units}
               onChange={(_e, v) => setUnits(v)}
               getOptionLabel={(o) => o?.unit || ""}
@@ -190,13 +255,26 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
               renderInput={(p) => (
                 <TextField
                   {...p}
-                  label="Сум / Дүүрэг (авто)"
-                  placeholder="Тооллогын байршлаас"
+                  label="Сум / Дүүрэг"
+                  placeholder="Аймгаа эхэлж сонгоно"
                 />
               )}
             />
 
-            {units.length > 1 && (
+            {/* Зөвхөн хилийн цэс — сонгосон нэгжид холбогдсон хилийн цэс л зурагдана */}
+            <FormControlLabel
+              sx={{ ml: 0 }}
+              control={
+                <Switch
+                  size="small"
+                  checked={onlyBorder}
+                  onChange={(e) => setOnlyBorder(e.target.checked)}
+                />
+              }
+              label={<Typography variant="body2">Зөвхөн хилийн цэс</Typography>}
+            />
+
+            {effUnits.length > 1 && (
               <Box>
                 <Typography variant="caption" color="text.secondary">
                   Хуудас (сум тус бүр нэг хуудас) — үзэх хуудсаа сонгоно уу
@@ -207,7 +285,7 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
                   gap={0.75}
                   sx={{ mt: 0.75 }}
                 >
-                  {units.map((u, i) => (
+                  {effUnits.map((u, i) => (
                     <Chip
                       key={u.id}
                       size="small"
@@ -334,7 +412,9 @@ export default function WorkMapDialog({ open, onClose, projectId }) {
                   ? ""
                   : unitIds.length
                     ? ""
-                    : "Байршилтай дахин тооллого алга"}
+                    : aimagOpts.length
+                      ? "Аймгаа сонгоно уу"
+                      : "Төсөлд засаг захиргааны нэгж бүртгэгдээгүй"}
               </Typography>
             )}
             {(previewLoading || unitsLoading) && (
