@@ -214,9 +214,11 @@ from . import mapprint
 RECOUNT_STATUS_FALLBACK = '#64748b'
 
 # Арын зураг — сканердсан байр зүйн зураг М1:100000 (BaseMapLayer: M100kGeoName)
-BASE_LAYER = 'raster:m100k_1984'
+BASE_LAYER = 'raster:1970_100k'
 HEADER_RIGHT = 'ХЭЭРИЙН ТОДРУУЛАЛТАД'
-LABEL_FONT_SIZE = 9      # нэрийн фонт (давхцвал 0.6 хүртэл өөрөө жижгэрнэ)
+# PDF өөрөө бичдэг нэрсийн фонт. WMS style‑ийн шошготой ижил хэмжээтэй байх
+# ёстой: style дээр 15px × PRINT_SYMBOL_SCALE(0.5) × dpi/90 ≈ 6pt.
+LABEL_FONT_SIZE = 6      # нэрийн фонт (давхцвал жижгэрнэ — minLabelFontSize)
 
 
 # ---------------------------------------------------------------- төслийн дата
@@ -236,13 +238,40 @@ def project_union(project_id):
 
 
 def project_units(project_id):
-    """Тооллогын цэгүүд оногдох сумд (авто сонголт) — [{id, unit, parent}]."""
+    """Ажлын зурагт сонгуулах сумд — [{id, unit, parent_id, parent}].
+
+    ТӨСӨЛД БҮРТГЭГДСЭН ЗЗ нэгжээс гарна: unit нь сум бол өөрөө, аймаг бол
+    түүний бүх сум. Төсөлд нэгж бүртгээгүй бол (хуучин төслүүд) тооллогын
+    байршлаас авто тодорхойлно."""
     from .apiviews import SUM_LVL
-    u = project_union(project_id)
-    if u is None:
-        return []
-    rows = (AdminUnit.objects.filter(level__name=SUM_LVL, geom__intersects=u)
-            .select_related('parent').order_by('unit'))
+    p = (Project.objects.prefetch_related('units__level', 'units__parent')
+         .filter(id=project_id).first())
+    rows, seen = [], set()
+    if p:
+        aimag_ids = []
+        for u in p.units.all():
+            if u.level_id and (u.level.name or '') == SUM_LVL:
+                if u.id not in seen:
+                    seen.add(u.id)
+                    rows.append(u)
+            else:
+                aimag_ids.append(u.id)
+        if aimag_ids:
+            for u in (AdminUnit.objects.filter(parent_id__in=aimag_ids,
+                                               level__name=SUM_LVL)
+                      .select_related('parent')):
+                if u.id not in seen:
+                    seen.add(u.id)
+                    rows.append(u)
+    if not rows:
+        # Нэгж бүртгээгүй төсөл — тооллогын байршлаас
+        u = project_union(project_id)
+        if u is None:
+            return []
+        rows = list(AdminUnit.objects.filter(level__name=SUM_LVL,
+                                             geom__intersects=u)
+                    .select_related('parent'))
+    rows.sort(key=lambda r: ((r.parent.unit if r.parent_id else ''), r.unit or ''))
     return [{'id': r.id, 'unit': r.unit, 'parent_id': r.parent_id,
              'parent': (r.parent.unit if r.parent_id else None)} for r in rows]
 
@@ -281,6 +310,8 @@ def recount_features(cql):
     colors = {c.name: (c.color or '').strip() or RECOUNT_STATUS_FALLBACK
               for c in rows}
     counts = {c.name: 0 for c in rows}
+    # Хилийн цэс — төлөв биш ч таних тэмдэгт тусдаа мөрөөр тоологдоно
+    border_label, border_color, border_count = 'Хилийн цэс', '#b45309', 0
     for f in feats:
         props = f.get('properties') or {}
         ids = [s for s in str(props.get('status_ids') or '').split() if s.isdigit()]
@@ -288,9 +319,64 @@ def recount_features(cql):
         f['_colors'] = [colors.get(n, RECOUNT_STATUS_FALLBACK) for n in names]
         for n in names:
             counts[n] = counts.get(n, 0) + 1
+        if props.get('is_border') in (True, 'true', 'True', 1):
+            border_count += 1
     legend = [{'name': c.name, 'color': colors[c.name],
                'count': counts.get(c.name, 0)} for c in rows]
+    legend.append({'name': border_label, 'color': border_color,
+                   'count': border_count})
     return feats, legend
+
+
+def _border_name_ids(unit_ids, is_sum):
+    """Сонгосон нэгжийн ТҮВШНИЙ зааг дээрх хилийн цэс → (geoname_ids, recount_ids).
+
+    Хилийн цэс нь borderunit (олон нэгж)‑ээр тодорхойлогдоно:
+      • сум сонгосон  → 2+ ӨӨР СУМД харьяалагдсан, нэг нь сонгосон сум
+      • аймаг сонгосон → 2+ ӨӨР АЙМАГТ харьяалагдсан, нэг нь сонгосон аймаг
+        (сумын хоорондох зааг дээрх цэс аймгийн зурагт орохгүй)
+    """
+    from .apiviews import AIMAG_LVL, SUM_LVL
+    from core.models import GeoName
+    sel = set(int(x) for x in unit_ids)
+
+    def _match(obj):
+        # Түвшин бүрийг ТУСАД нь цуглуулна. Баг сонгогдсон байвал түүний
+        # эцэг сум, өвөг аймгийг л тооцно — БАГИЙН id нь аймгийн жагсаалтад
+        # орохгүй (эс бөгөөс 2 багийн зааг = аймгийн зааг мэт болно).
+        sums, aimags = set(), set()
+        for u in obj.borderunit.all():
+            lvl = (u.level.name or '') if u.level_id else ''
+            if lvl == AIMAG_LVL:
+                aimags.add(u.id)
+            elif lvl == SUM_LVL:
+                sums.add(u.id)
+                if u.parent_id:
+                    aimags.add(u.parent_id)
+            else:  # Баг/Хороо (эсвэл түүнээс доод) — эцэг сум, өвөг аймгаар
+                if u.parent_id:
+                    sums.add(u.parent_id)
+                    par = u.parent
+                    if par is not None and par.parent_id:
+                        aimags.add(par.parent_id)
+        if is_sum:
+            # СУМ сонгосон — тухайн суманд ЭСВЭЛ түүнтэй хиллэсэн гэж
+            # заасан цэс. Харьяалал заагаагүй бол ч орон зайн шүүлтээр орно.
+            if not sums and not aimags:
+                return True
+            return bool(sums & sel)
+        # АЙМАГ сонгосон — сонгосон аймгаас ӨӨР аймагтай хиллэсэн цэс л.
+        # (нэг аймгийн доторх сум/багийн зааг дээрх цэс аймгийн зурагт орохгүй)
+        return bool(aimags - sel)
+
+    gids = [g.id for g in GeoName.objects.filter(is_border=True)
+            .prefetch_related('borderunit__level', 'borderunit__parent__parent')
+            if _match(g)]
+    # Батлагдсан нэргүй (draft) тодруулалтын хилийн цэс — ReCount дээрээ
+    rids = [r.id for r in ReCount.objects.filter(is_border=True, name__isnull=True)
+            .prefetch_related('borderunit__level', 'borderunit__parent__parent')
+            if _match(r)]
+    return gids, rids
 
 
 def build_title(units):
@@ -308,12 +394,36 @@ def build_title(units):
 
 # ------------------------------------------------------------------ params
 
-def build_params(unit_ids, project_id, dpi=200, corner_left=None):
+def build_params(unit_ids, project_id, dpi=200, corner_left=None,
+                 is_border=False):
     """Ажлын зургийн mapprint params + meta. Нэрийн зургийн _build_params‑аас
-    БҮРЭН тусдаа (DEM/индекс/geoname_view давхаргагүй)."""
+    БҮРЭН тусдаа (DEM/индекс/geoname_view давхаргагүй).
+
+    is_border=True бол ЗӨВХӨН хилийн цэсийг (сонгосон нэгжид холбогдсоныг) зурна."""
     from .apiviews import (
-        SUM_LVL, _union_geom, _geom_rings, _buffer_band_rings,
+        AIMAG_LVL, SUM_LVL, _union_geom, _geom_rings, _buffer_band_rings,
         _bordering_units, _shared_border_dense)
+    from apps.geoserver.apiviews import (
+        GEONAME_WS, RECOUNT_VIEW, _GEONAME_TYPE_STYLE, ensure_geoname_type_style)
+    # Ангиллын таних тэмдэг бүхий style (geoname_view‑тэй ижил баганатай тул
+    # recount_view‑д мөн хүчинтэй)
+    try:
+        ensure_geoname_type_style()
+    except Exception:
+        pass
+    RECOUNT_STYLE = f'{GEONAME_WS}:{_GEONAME_TYPE_STYLE}'
+    # Нэрсийг WMS давхарга ӨӨРӨӨ бичнэ: үндсэн style‑ээс ҮҮСМЭЛ named style
+    # (geoname_types_p<dpi>) — бүх шошгыг харуулах vendor option + тухайн dpi‑д
+    # тохируулсан scale denominator. ҮНДСЭН STYLE ХЭВЭЭР (PDF талд
+    # featureLabels=False тул нэр давхар бичигдэхгүй).
+    _print_style = mapprint.ensure_print_style(
+        GEONAME_WS, _GEONAME_TYPE_STYLE, dpi)
+    # Style дотор шошгын дүрэмтэй ангиллууд — үлдсэнийх нь нэрийг PDF бичнэ
+    try:
+        _labeled_types = mapprint.sld_label_type_ids(
+            mapprint.fetch_style_sld(GEONAME_WS, _GEONAME_TYPE_STYLE))
+    except Exception:
+        _labeled_types = set()
 
     union = _union_geom(unit_ids)
     if union is None:
@@ -323,6 +433,9 @@ def build_params(unit_ids, project_id, dpi=200, corner_left=None):
     is_sum = bool(units and units[0].level_id
                   and units[0].level.name == SUM_LVL)
     grid_minutes = 5.0 if is_sum else 15.0
+    # Хөрш нэгжийн түвшин = сонгосныхтой ИЖИЛ. Аймгийн зураг дээр дотоод
+    # сумдын хил зурагдахгүй (зөвхөн хөрш АЙМГИЙН хил).
+    nb_level = SUM_LVL if is_sum else AIMAG_LVL
 
     # Хилээс ГАДАГШ ~1км амьсгаа (хүрээнд наалдахгүй хэрийн бага зай)
     u_buf = union
@@ -346,12 +459,40 @@ def build_params(unit_ids, project_id, dpi=200, corner_left=None):
     # Тооллогын дата — сонгосон хилд багтах, тухайн төслийнх (WFS)
     wkt = (union.simplify(0.004, preserve_topology=True) or union).wkt
     cql = f"project_id={int(project_id)} AND INTERSECTS(geoloc, {wkt})"
+    if is_border:
+        cql += ' AND is_border=true'
+        if not is_sum:
+            # АЙМГИЙН зураг — зөвхөн АЙМГИЙН зааг дээрх цэс. borderunit нь
+            # «нөгөө талд аль нэгж байна» гэдгийг заадаг тул сонгосон аймгаас
+            # ӨӨР аймаг заасан цэс л аймгийн хил дээрх болно (сум/багийн
+            # хоорондох цэс аймгийн зурагт орохгүй).
+            gids, rids = _border_name_ids(unit_ids, False)
+            parts = []
+            if gids:
+                parts.append('name_id IN (%s)' % ','.join(str(i) for i in gids))
+            if rids:
+                parts.append('id IN (%s)' % ','.join(str(i) for i in rids))
+            cql += (' AND (%s)' % ' OR '.join(parts)) if parts else ' AND id=-1'
+        # СУМЫН зураг — сумын дотор буй БҮХ хилийн цэс (орон зайн шүүлт хангалттай)
     features, status_legend = recount_features(cql)
+    # WMS style шошголохгүй ангиллын нэрийг PDF өөрөө бичнэ (нэргүй үлдэхгүй)
+    if _print_style and _labeled_types:
+        for f in features:
+            try:
+                tid = int((f.get('properties') or {}).get('type_id') or 0)
+            except (TypeError, ValueError):
+                tid = 0
+            if tid not in _labeled_types:
+                f['_label'] = True
+    elif not _print_style:
+        # Үүсмэл style үүсээгүй — үндсэн style шошголохгүй тул бүгдийг PDF бичнэ
+        for f in features:
+            f['_label'] = True
 
     boundary = _geom_rings(union)
     buffer_rings = _buffer_band_rings(union)
     neighbors = []
-    for b in _bordering_units(union, SUM_LVL, unit_ids):
+    for b in _bordering_units(union, nb_level, unit_ids):
         cen = b.geom.centroid
         nb = {'name': b.unit, 'rings': _geom_rings(b.geom),
               'cx': round(cen.x, 6), 'cy': round(cen.y, 6),
@@ -370,9 +511,22 @@ def build_params(unit_ids, project_id, dpi=200, corner_left=None):
         'map': {'bbox': bbox, 'scale': scale, 'dpi': dpi, 'rotation': 0},
         # Зөвхөн сканердсан байр зүйн зураг (DEM‑гүй). Тооллогын цэгүүдийг
         # WMS‑ээр биш, доорх features‑ээс PDF рүү шууд зурна.
+        # Тодруулалтын ДҮРС ба НЭРИЙГ хоёуланг нь GeoServer‑ийн WMS давхарга
+        # (ангиллын таних тэмдэг бүхий style) зурна — шошгыг нэг ч алгасахгүй
+        # (SLD_BODY дээр conflictResolution=false). PDF нь зөвхөн төлвийн
+        # өнгөт зураасыг нэмнэ (featureMarks=False, featureLabels=False).
         'layers': [
             {'type': 'wms', 'layerFullName': BASE_LAYER,
              'name': 'Нэрийн зураг (М1:100000)', 'opacity': 1.0, 'visible': True},
+            {'type': 'wms', 'layerFullName': f'{GEONAME_WS}:{RECOUNT_VIEW}',
+             'name': 'Тодруулалт', 'opacity': 1.0, 'visible': True,
+             'cql': cql,
+             # Үүсмэл style (бүх шошго + dpi‑д тохирсон масштаб). Үүсгэж
+             # чадаагүй бол үндсэн style‑аар л зурна.
+             'styles': _print_style or RECOUNT_STYLE,
+             # dpi тохируулга үүсмэл style дотор аль хэдийн хийгдсэн —
+             # mapprint дахин SLD_BODY болгож дарж бичих ёсгүй.
+             'noDpiSld': True},
         ],
         'layout': {
             'titleText': '', 'subtitle': title,
@@ -383,9 +537,12 @@ def build_params(unit_ids, project_id, dpi=200, corner_left=None):
             'gridMinutes': grid_minutes,
             'cornerLeft': [ln for ln in (corner_left or []) if ln] or None,
             'headerRight': HEADER_RIGHT,
-            'features': features,            # WFS дүрсүүд (PDF дээр өөрсдөө зурна)
+            'features': features,            # ЗӨВХӨН төлвийн өнгөт зураас
+            'featureMarks': False,           # дүрсийг WMS давхарга зурна
+            'featureLabels': False,          # нэрийг ч WMS давхарга бичнэ
             'statusLegend': status_legend,   # төлөв бүрийн өнгө + тоо
             'labelFontSize': LABEL_FONT_SIZE,
+            'minLabelFontSize': 4.5,   # давхцвал ийш нь хүртэл жижгэрнэ
         },
     }
     meta = {'scale': scale, 'name_count': len(features), 'title': title,

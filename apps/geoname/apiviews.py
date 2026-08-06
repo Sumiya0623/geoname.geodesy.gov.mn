@@ -997,11 +997,18 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
         # (geoloc нь сонгосон хилийн геометрт багтах). geoname_view-д geoloc багана бий.
         wkt = (union.simplify(0.004, preserve_topology=True) or union).wkt
         cql = f"INTERSECTS(geoloc, {wkt})"
-        if is_border:
-            cql += ' AND is_border=true'
         nq = GeoName.objects.filter(geoloc__intersects=union)
         if is_border:
             nq = nq.filter(is_border=True)
+            cql += ' AND is_border=true'
+            if not is_sum:
+                # АЙМГИЙН зураг — сонгосон аймгаас ӨӨР аймагтай хиллэсэн цэс л
+                # (дотоод сум/багийн зааг дээрх цэс орохгүй)
+                from . import views as workmap
+                ids, _rids = workmap._border_name_ids(unit_ids, False)
+                nq = nq.filter(id__in=ids)
+                cql += (f" AND id IN ({','.join(str(i) for i in ids)})"
+                        if ids else ' AND id=-1')
         name_count = nq.distinct().count()
 
         title = _build_title(units)
@@ -1173,8 +1180,10 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
                             status=400)
         one = request.query_params.get('unit')
         page_id = int(one) if one and int(one) in ids else ids[0]
+        border = request.query_params.get('is_border') in ('1', 'true', 'True')
         built = workmap.build_params([page_id], int(pid), dpi=45,
-                                     corner_left=workmap.project_corner(pid))
+                                     corner_left=workmap.project_corner(pid),
+                                     is_border=border)
         if built is None:
             return Response({'detail': 'геометр алга'}, status=400)
         params, meta = built
@@ -1230,12 +1239,13 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
             return Response({'detail': 'Тухайн төсөлд байршилтай тооллого алга'},
                             status=400)
         dpi = int(d.get('dpi') or 170)
+        border = bool(d.get('is_border'))
         corner = workmap.project_corner(pid)
         out = fitz.open()
         first_title, total_names, scales = None, 0, []
         for uid in ids:
             built = workmap.build_params([uid], int(pid), dpi=dpi,
-                                         corner_left=corner)
+                                         corner_left=corner, is_border=border)
             if built is None:
                 continue
             params, meta = built
@@ -1264,7 +1274,7 @@ class PrintMapViewSet(PublicListMixin, viewsets.ModelViewSet):
         close_old_connections()
         pm = PrintMap.objects.create(
             user=request.user if request.user.is_authenticated else None,
-            project_id=int(pid), is_border=False, name_count=total_names,
+            project_id=int(pid), is_border=border, name_count=total_names,
             title=first_title or 'Ажлын зураг',
             scale=int(scales[0]) if scales and scales[0].isdigit() else None)
         pm.units.set(ids)

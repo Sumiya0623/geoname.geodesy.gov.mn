@@ -11,6 +11,7 @@ layout_elements/pdf_renderer) НЭГ модульд нэгтгэж, geoname-д �
 import os
 import re
 import math
+import hashlib
 import logging
 import datetime
 from io import BytesIO
@@ -137,7 +138,7 @@ def mm_to_pt(val_mm):
     return val_mm * 72.0 / MM_PER_INCH
 
 
-def mm_to_px(val_mm, dpi=300):
+def mm_to_px(val_mm, dpi=600):
     """Convert millimeters to pixels at given DPI."""
     return round(val_mm * dpi / MM_PER_INCH)
 
@@ -401,6 +402,182 @@ def _fetch_layer_sld(layer_full_name, auth):
     return None
 
 
+def fetch_style_sld(workspace, style_name):
+    """GeoServer‑ээс НЭРТЭЙ style‑ийн SLD‑г татна (файлыг хөндөхгүй, зөвхөн унших)."""
+    rest_base = _gs_base() + '/rest'
+    auth = (settings.GEOSERVER_USER, settings.GEOSERVER_PASSWORD)
+    for url in (f'{rest_base}/workspaces/{workspace}/styles/{style_name}.sld',
+                f'{rest_base}/styles/{style_name}.sld'):
+        try:
+            r = requests.get(url, auth=auth, timeout=15)
+            if r.ok and r.text.strip():
+                return r.text
+        except Exception:
+            continue
+    return None
+
+
+# Шошгыг БҮГДИЙГ нь харуулах vendor option‑ууд (GeoServer):
+#   conflictResolution=false → давхцсан ч алгасахгүй
+#   partials=true            → зургийн захад хэсэгчлэн багтсан шошгыг ч зурна
+#   spaceAround=-1           → шошго хооронд зай шаардахгүй
+#   goodnessOfFit=0          → байрлалын «тохиромж»‑оор шүүхгүй
+_LABEL_OPTS = {
+    'conflictResolution': 'false',
+    'partials': 'true',
+    'spaceAround': '-1',
+    'goodnessOfFit': '0',
+}
+
+
+def sld_show_all_labels(sld_xml):
+    """SLD доторх TextSymbolizer бүрд «бүх шошгыг харуул» тохиргоог НЭМНЭ.
+
+    ЗӨВХӨН санах ойд — GeoServer дээрх үндсэн style огт хөндөгдөхгүй
+    (SLD_BODY‑гоор тухайн хүсэлтэд л дамжина). Тэмдэг (symbol), өнгө, дүрэм
+    бүгд ХЭВЭЭР үлдэнэ.
+    """
+    if not sld_xml:
+        return sld_xml
+    # SLD 1.0/1.1 хоёуланд (sld:/se: prefix‑тэй ч байж болно)
+    pat = re.compile(r'</(\w+:)?TextSymbolizer>')
+    out, pos = [], 0
+    for m in pat.finditer(sld_xml):
+        head = sld_xml[pos:m.start()]
+        pfx = m.group(1) or ''
+        # Тухайн symbolizer дотор аль хэдийн байгаа сонголтыг давхардуулахгүй
+        blk = head[head.rfind('TextSymbolizer'):] if 'TextSymbolizer' in head else head
+        add = ''.join(
+            f'<{pfx}VendorOption name="{k}">{v}</{pfx}VendorOption>'
+            for k, v in _LABEL_OPTS.items() if f'name="{k}"' not in blk)
+        out.append(head + add + m.group(0))
+        pos = m.end()
+    out.append(sld_xml[pos:])
+    return ''.join(out)
+
+
+# Хэвлэлийн үүсмэл style дээр тэмдэг/фонтыг хэдэн дахин багасгах вэ.
+# (GeoServer нь FORMAT_OPTIONS dpi‑аар тэмдэг/фонтыг dpi/90 дахин ТОМРУУЛДАГ
+# тул A0 хэвлэлд хэт том гардаг.) ЗӨВХӨН хэвлэлийн хуулбар style‑д хамаарна —
+# GeoServer дээрх ҮНДСЭН style хөндөгдөхгүй.
+PRINT_SYMBOL_SCALE = 0.5
+
+
+def sld_scale_symbols(sld_xml, factor):
+    """SLD доторх тэмдгийн хэмжээ (Graphic/Size), фонтын хэмжээ (font-size),
+    Halo радиусыг factor дахин өөрчилнө. Зөвхөн ТОО байх утгыг хөндөнө
+    (илэрхийлэл/PropertyName‑ийг орхино)."""
+    if not sld_xml or not factor or factor == 1:
+        return sld_xml
+
+    def _num(v):
+        x = float(v) * factor
+        return f'{x:.2f}'.rstrip('0').rstrip('.') or '0'
+
+    def _tag(m):
+        return m.group(1) + _num(m.group(2)) + m.group(3)
+
+    out = re.sub(r'(<(?:\w+:)?Size>\s*)([\d.]+)(\s*</(?:\w+:)?Size>)',
+                 _tag, sld_xml)
+    out = re.sub(r'(<(?:\w+:)?Radius>\s*)([\d.]+)(\s*</(?:\w+:)?Radius>)',
+                 _tag, out)
+    out = re.sub(
+        r'(<(?:\w+:)?(?:CssParameter|SvgParameter) name="font-size">\s*)'
+        r'([\d.]+)(\s*</(?:\w+:)?(?:CssParameter|SvgParameter)>)', _tag, out)
+    return out
+
+
+def sld_label_type_ids(sld_xml):
+    """SLD дотор TextSymbolizer (шошго) бүхий дүрмүүдийн type_id‑уудыг цуглуулна.
+
+    geoname_types style нь ангилал (type_id) тус бүрд дүрэмтэй. Зарим ангилалд
+    шошгын дүрэм БАЙХГҮЙ — тэдгээрийн нэрийг WMS бичихгүй тул PDF өөрөө бичих
+    ёстой (эс бөгөөс зурагт нэргүй үлдэнэ)."""
+    ids = set()
+    if not sld_xml:
+        return ids
+    for rule in re.findall(r'<(?:\w+:)?Rule>.*?</(?:\w+:)?Rule>', sld_xml, re.S):
+        if 'TextSymbolizer' not in rule:
+            continue
+        ids.update(re.findall(
+            r'<(?:\w+:)?PropertyName>\s*type_id\s*</(?:\w+:)?PropertyName>\s*'
+            r'<(?:\w+:)?Literal>\s*(\d+)\s*</(?:\w+:)?Literal>', rule))
+    return {int(i) for i in ids}
+
+
+_print_style_cache = {}
+
+
+def ensure_print_style(workspace, base_style, dpi, all_labels=True,
+                       symbol_scale=PRINT_SYMBOL_SCALE):
+    """<base_style>‑аас ҮҮСМЭЛ named style GeoServer‑т үүсгэж/шинэчилж нэрийг
+    буцаана (жишээ: geoname_types_p170). ҮНДСЭН STYLE ХЭВЭЭР ҮЛДЭНЭ.
+
+    Яагаад SLD_BODY биш вэ: SLD_BODY доторх ExternalGraphic href нь
+    'symbols/<нэр>' гэсэн ХАРЬЦАНГУЙ зам бөгөөд GeoServer түүнийг зөвхөн диск
+    дээрх style‑ийн хавтастай харьцуулж олдог. SLD_BODY‑гоор явуулбал
+    «Errors while inspecting the location of an external graphic» алдаа өгнө.
+    Мөн SLD_BODY‑гийн NamedLayer нэр давхаргатай тохирохгүй бол GeoServer
+    style‑ийг ЧИМЭЭГҮЙ орхиод анхдагчаар зурдаг. Тиймээс ижил workspace дотор
+    үүсмэл style (symbols/ нь хэвээр олдоно) үүсгээд STYLES‑ээр дуудна.
+
+    all_labels=True — TextSymbolizer бүрд бүх шошгыг харуулах vendor option.
+    dpi > 96 — GeoServer нь OGC пиксел (0.28мм)‑ээр масштаб тооцдог тул
+    Min/MaxScaleDenominator‑ыг харьцаагаар нь тохируулна (эс бөгөөс өндөр dpi
+    дээр шошго/дүрмүүд «хэт жижиг масштаб» гэж тооцогдоод унтардаг).
+    """
+    try:
+        sld = fetch_style_sld(workspace, base_style)
+        if not sld:
+            return ''
+        if all_labels:
+            sld = sld_show_all_labels(sld)
+        if symbol_scale and symbol_scale != 1:
+            sld = sld_scale_symbols(sld, symbol_scale)
+        if dpi and dpi > _OGC_DPI:
+            sld = _adjust_sld_scale_denominators(sld, dpi / _OGC_DPI)
+        name = f'{base_style}_p{int(dpi or 0)}'
+        key = (workspace, name)
+        digest = hashlib.md5(sld.encode('utf-8')).hexdigest()
+        if _print_style_cache.get(key) == digest:
+            return f'{workspace}:{name}'
+        rest = _gs_base() + '/rest'
+        auth = (settings.GEOSERVER_USER, settings.GEOSERVER_PASSWORD)
+        chk = requests.get(f'{rest}/workspaces/{workspace}/styles/{name}.json',
+                           auth=auth, timeout=15)
+        if chk.status_code != 200:
+            requests.post(f'{rest}/workspaces/{workspace}/styles',
+                          json={'style': {'name': name,
+                                          'filename': f'{name}.sld'}},
+                          auth=auth, timeout=15)
+        r = requests.put(f'{rest}/workspaces/{workspace}/styles/{name}',
+                         data=sld.encode('utf-8'),
+                         headers={'Content-Type': 'application/vnd.ogc.sld+xml'},
+                         auth=auth, timeout=60)
+        if not r.ok:
+            logger.warning('ensure_print_style PUT failed %s: %s',
+                           name, r.text[:300])
+            return ''
+        _print_style_cache[key] = digest
+        return f'{workspace}:{name}'
+    except Exception:
+        logger.warning('ensure_print_style failed', exc_info=True)
+        return ''
+
+
+def sld_strip_labels(sld_xml):
+    """SLD‑ээс ЗӨВХӨН TextSymbolizer‑уудыг (шошго) хасна — тэмдэг, өнгө, дүрэм
+    бүгд хэвээр. Санах ойд л ажиллана: GeoServer дээрх style хөндөгдөхгүй.
+
+    Ажлын зурагт нэрсийг PDF өөрөө (давхцалгүй, төлвийн зураастай) бичдэг тул
+    WMS давхарга дээр дахин бичигдвэл ДАВХАРДАНА.
+    """
+    if not sld_xml:
+        return sld_xml
+    return re.sub(r'<(\w+:)?TextSymbolizer\b.*?</\1?TextSymbolizer>', '',
+                  sld_xml, flags=re.S)
+
+
 def _adjust_sld_scale_denominators(sld_xml, dpi_ratio):
     """Adjust Min/MaxScaleDenominator values in SLD XML by dividing by dpi_ratio.
 
@@ -424,9 +601,34 @@ def _adjust_sld_scale_denominators(sld_xml, dpi_ratio):
     )
 
 
+def _sld_retarget_layer(sld_xml, wms_url, layer_full_name):
+    """SLD_BODY доторх NamedLayer/Name‑ийг ЗУРАГДАХ давхаргын нэр болгоно.
+
+    GeoServer нь SLD_BODY‑гийн NamedLayer нэр LAYERS‑тэй тохирохгүй бол style‑ийг
+    ЧИМЭЭГҮЙ ГЭЭЖ, давхаргыг анхдагч (улаан дөрвөлжин/цэнхэр шугам) style‑аар
+    зурдаг — алдаа ч буцаадаггүй. Жишээ: geoname_types style‑ийн SLD дотор
+    <Name>geoname_view</Name> байхад recount_view‑г зурах гэвэл style алга болно.
+
+    Workspace‑ийн дотоод endpoint (…/geoserver/<ws>/wms) дээр нэр нь ПРЕФИКСГҮЙ
+    байх ёстой; глобал endpoint дээр ws:layer хэлбэрээр.
+    """
+    if not sld_xml:
+        return sld_xml
+    local = layer_full_name.split(':')[-1]
+    ws = layer_full_name.split(':')[0] if ':' in layer_full_name else ''
+    want = local if (ws and f'/{ws}/wms' in (wms_url or '')) else layer_full_name
+    pat = re.compile(r'(<(\w+:)?NamedLayer>\s*<(\w+:)?Name>)([^<]*)(</)')
+    hits = pat.findall(sld_xml)
+    if len(hits) != 1:
+        # Олон NamedLayer‑тэй style — алийг нь ч хөндөхгүй (буруу давхарга зурахаас)
+        return sld_xml
+    return pat.sub(lambda m: m.group(1) + want + m.group(5), sld_xml, count=1)
+
+
 def _fetch_wms_single(wms_url, auth, layer_full_name, bbox, w, h, dpi,
                        sld_body=None, cql=None, styles=None, clip=None):
     """Fetch a single WMS GetMap request — no tiling."""
+    sld_body = _sld_retarget_layer(sld_body, wms_url, layer_full_name)
     lon_min, lat_min, lon_max, lat_max = bbox
     params = {
         'SERVICE': 'WMS',
@@ -476,7 +678,8 @@ def _fetch_wms_single(wms_url, auth, layer_full_name, bbox, w, h, dpi,
 
 
 def fetch_wms_layer(layer_full_name, bbox_4326, width_px, height_px, dpi=300,
-                    scale=None, cql=None, styles=None, clip=None, sld_body=None):
+                    scale=None, cql=None, styles=None, clip=None, sld_body=None,
+                    adjust_scale=True):
     """
     Fetch a single WMS layer from GeoServer at the specified DPI.
 
@@ -493,9 +696,13 @@ def fetch_wms_layer(layer_full_name, bbox_4326, width_px, height_px, dpi=300,
 
     # For high-DPI print: adjust SLD scale denominators so that
     # MinScaleDenominator / MaxScaleDenominator rules match correctly.
-    if sld_body is None and scale and dpi > 96:
+    # adjust_scale=False — дуудагч аль хэдийн dpi‑д тохируулсан NAMED style
+    # (ensure_print_style) дамжуулсан; энд SLD_BODY болгож дарж бичвэл тэр
+    # style алдагдана (мөн relative symbols/ href унана).
+    if adjust_scale and scale and dpi > 96:
         dpi_ratio = dpi / _OGC_DPI
-        original_sld = _fetch_layer_sld(layer_full_name, auth)
+        # sld_body дамжуулсан бол ТҮҮНИЙГ, эс бөгөөс давхаргын default style‑ийг
+        original_sld = sld_body or _fetch_layer_sld(layer_full_name, auth)
         if original_sld and 'ScaleDenominator' in original_sld:
             sld_body = _adjust_sld_scale_denominators(original_sld, dpi_ratio)
             logger.info(
@@ -728,6 +935,7 @@ def composite_layers(layers_config, bbox_4326, width_px, height_px, dpi=300,
                         styles=layer_cfg.get('styles') or None,
                         clip=layer_cfg.get('clip') or None,
                         sld_body=layer_cfg.get('sld_body') or None,
+                        adjust_scale=not layer_cfg.get('noDpiSld'),
                     )
         except LayerNotFoundError:
             logger.info("Skipping non-existent layer: %s", layer_cfg.get('layerFullName', ''))
@@ -2411,6 +2619,9 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
     if not feats or not bbox:
         return
     fs = float(layout.get('labelFontSize') or 11)
+    # featureMarks=False бол дүрсийг ӨӨРИЙГ нь зурахгүй — зөвхөн нэр/төлвийн
+    # зураас (дүрсийг GeoServer‑ийн WMS давхарга таних тэмдгээрээ зурна)
+    marks = layout.get('featureMarks', True)
     r_out, r_in = mm_to_pt(STAR_R_MM), mm_to_pt(STAR_R2_MM)
     gap = mm_to_pt(LABEL_GAP_MM)
     bar_len, bar_gap = mm_to_pt(BAR_LEN_MM), mm_to_pt(BAR_GAP_MM)
@@ -2453,13 +2664,16 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
         props = f.get('properties') or {}
         name = (props.get('name') or props.get('draft') or '').strip()
         colors = f.get('_colors') or []
+        # WMS style энэ ангиллыг шошголохгүй бол PDF өөрөө бичнэ (_label)
+        want_label = bool(f.get('_label'))
 
         if gt in ('Point', 'MultiPoint'):
             ax, ay = px(coords if gt == 'Point' else coords[0])
-            _draw_star(c, ax, ay, r_out, r_in, red, white)
+            if marks:
+                _draw_star(c, ax, ay, r_out, r_in, red, white)
             idx.add((ax - r_out, ay - r_out, ax + r_out, ay + r_out))
             if name:
-                items.append((ax, ay, name, colors))
+                items.append((ax, ay, name, colors, want_label))
             continue
 
         if gt not in ('LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'):
@@ -2493,7 +2707,8 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
                     path.lineTo(x, y)
             if closed:
                 path.close()
-            c.drawPath(path, stroke=1, fill=1 if closed else 0)
+            if marks:
+                c.drawPath(path, stroke=1, fill=1 if closed else 0)
             ln = _polyline_len(pts)
             if ln > blen:
                 blen, best = ln, pts
@@ -2503,14 +2718,28 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
             # Талбай — нэрийг голд нь ХЭВТЭЭ (энгийн шошго)
             ax = sum(p[0] for p in best) / len(best)
             ay = sum(p[1] for p in best) / len(best)
-            items.append((ax, ay, name, colors))
+            items.append((ax, ay, name, colors, want_label))
         else:
-            lines.append((best, name, colors))
+            lines.append((best, name, colors, want_label))
+
+    # 1.5) featureLabels=False — НЭРИЙГ WMS давхарга өөрөө (бүх шошгыг харуулах
+    # үүсмэл style‑аар) бичнэ. PDF дахин бичвэл давхардана тул зөвхөн төлвийн
+    # өнгөт зураасыг дүрсийн доор тавина. ГЭХДЭЭ style дотор шошгын дүрэмгүй
+    # ангиллын нэр (f['_label']=True) нэргүй үлдэхгүй — түүнийг PDF өөрөө бичнэ.
+    if not layout.get('featureLabels', True):
+        # WMS шошготой дүрсэд ТӨЛВИЙН ЗУРААС ТАВИХГҮЙ — нэргүй зураас нь
+        # тэмдгийг халхалж, юуны төлөв нь болох нь ойлгогдохгүй (хэрэглэгчийн
+        # шийдвэр). Төлвийн зураас зөвхөн PDF өөрөө нэр бичсэн дүрсэд үлдэнэ.
+        items = [it for it in items if it[4]]
+        lines = [ln for ln in lines if ln[3]]
+        if not items and not lines:
+            c.restoreState()
+            return []
 
     # 2) ШУГАМАН дүрсийн нэр — МУРУЙГ ДАГАЖ (тэмдэгт тус бүр эргэнэ). Нэр нь
     # шугамын уртаас хэтрэхгүй: багтахгүй бол фонт нь автоматаар жижгэрнэ.
     min_fs = float(layout.get('minLabelFontSize') or 6.0)
-    for pts, name, colors in lines:
+    for pts, name, colors, _want in lines:
         cum = _path_cum(pts)
         total = cum[-1]
         if total <= 1.0:
@@ -2574,7 +2803,7 @@ def draw_features(c, layout, bbox, map_x, map_y, map_w, map_h, obstacles=None):
     # тэр үед заагч шугам татна.
     items.sort(key=lambda it: (-it[1], it[0]))
     ladder = [max(min_fs, fs * k) for k in (1.0, 0.9, 0.8, 0.7, 0.6)]
-    for ax, ay, name, colors in items:
+    for ax, ay, name, colors, _want in items:
         spot = None
         for lfs in ladder:                 # ойрын зайнууд, фонт нь буурна
             w = c.stringWidth(name, FONT, lfs)
