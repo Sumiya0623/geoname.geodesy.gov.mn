@@ -9,17 +9,54 @@
   * is_approved = True.
   * type-ыг «дэвсгэр нэр»-ээр GEONAME_TYPES-д тулгана; олдохгүй бол шинээр үүсгэнэ
     (давхардмал төрлүүд геометрээр ялгардаг тул нэгийг нь авна).
-  * unit(M2M)-ыг аймаг+сумаар AdminUnit-т тулгана (core Resolver-ийн логик).
+  * unit(M2M)-ыг аймаг+сумаар AdminUnit-т тулгана (доорх _UnitResolver).
   * геометртэй (geoloc≠NULL) мөрүүдийг ХАДГАЛНА; зөвхөн геометргүйг устгаад дахин бичнэ.
 
 Жишээ:
   manage.py geoname_import_xlsx                 # dry-run (тоолол)
   manage.py geoname_import_xlsx --apply         # бодитоор бичих
 """
+import difflib
 import os
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+
+
+def _norm(s):
+    return (s or '').strip().lower().replace('ё', 'е')
+
+
+class _UnitResolver:
+    """DB-ийн Constant(GEONAME_TYPES)/AdminUnit-ыг нэг удаа кэшлээд аймаг+сумыг тулгана."""
+
+    def __init__(self):
+        from core.models import Constant, AdminUnit
+        self.types = {_norm(c.name): c
+                      for c in Constant.objects.filter(key='GEONAME_TYPES')}
+        self.aimags = {_norm(a.unit): a
+                       for a in AdminUnit.objects.filter(level__name='Аймаг/Нийслэл')}
+        self.sums = list(AdminUnit.objects.filter(
+            level__name='Сум/Дүүрэг').select_related('parent'))
+
+    @staticmethod
+    def _fuzzy(name, pool):
+        """Яг тохирол, эс бөгөөс ойролцоо (бичлэгийн жижиг зөрүү) → (объект, оноо)."""
+        n = _norm(name)
+        if n in pool:
+            return pool[n], 1.0
+        m = difflib.get_close_matches(n, list(pool), n=1, cutoff=0.82)
+        if m:
+            return pool[m[0]], round(difflib.SequenceMatcher(None, n, m[0]).ratio(), 2)
+        return None, 0.0
+
+    def resolve_unit(self, aimag, sm):
+        """(аймаг, сум) → (AdminUnit аймаг, AdminUnit сум, оноо). Сумыг зөвхөн
+        тухайн аймгийн хүүхдүүдээс хайна."""
+        a, _ = self._fuzzy(aimag, self.aimags)
+        cand = {_norm(s.unit): s for s in self.sums if a and s.parent_id == a.id}
+        s, sc = self._fuzzy(sm, cand) if cand else (None, 0.0)
+        return a, s, sc
 
 
 class Command(BaseCommand):
@@ -39,7 +76,6 @@ class Command(BaseCommand):
         except ImportError:
             raise CommandError('pandas/openpyxl шаардлагатай: pip install pandas openpyxl')
         from core.models import GeoName, GeoNameSource, Constant, AdminUnit
-        from core.geoname_import.resolver import Resolver, _norm
 
         path = o['xlsx']
         if not os.path.exists(path):
@@ -61,7 +97,7 @@ class Command(BaseCommand):
         rows = df.to_dict('records')
         self.stdout.write(f'Нэр бүхий мөр: {len(rows)}')
 
-        R = Resolver()
+        R = _UnitResolver()
         apply = o['apply']
 
         # --- 1) type: ЗӨВХӨН стандартад (GEONAME_TYPES) тохирсон төрлийг авна.

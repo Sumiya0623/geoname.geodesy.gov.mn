@@ -8,11 +8,14 @@ from .apiviews import (
     ProjectAreaViewSet,
     ProjectMemberViewSet,
 )
+from .namestat import NameStatViewSet
 
 
 router = DefaultRouter()
 router.register('geoname', GeoNameViewSet, basename='geoname')
 router.register('namecategory', NameCategoryViewSet, basename='namecategory')
+# Нүүр хуудасны газрын зураг — нэгж бүрийн нэрийн тоо (нэвтрэлтгүй)
+router.register('name-stat', NameStatViewSet, basename='name-stat')
 router.register('raster', PrintMapViewSet, basename='raster')
 # Төсөл (гэрээт ажил) ба түүний ажлын талбай, багийн бүрэлдэхүүн
 router.register('project', ProjectViewSet, basename='project')
