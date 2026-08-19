@@ -153,6 +153,7 @@ export default function AdvancedSearch({
   onClear,
   onFlyTo,
   seed,
+  seedUnit,
   onStartDrawRectangle,
   onStartDrawCircle,
   onStartDrawPolygon,
@@ -334,6 +335,50 @@ export default function AdvancedSearch({
       setSearching(false);
     }
   };
+
+  // Нүүр хуудасны статистикаас ирсэн ЗЗ нэгжийг (URL ?unit=) талбаруудад
+  // урьдчилан СОНГОНО (хайлтыг нь ажиллуулахгүй). Нэгжийн өвгүүдийг
+  // /core/unit/<id>/‑ээр дээш нь мөшгинө: chain[0]=аймаг, [1]=сум, [2]=баг.
+  useEffect(() => {
+    const uid = seedUnit?.id;
+    if (!uid) return;
+    let stop = false;
+    (async () => {
+      const chain = [];
+      let cur = uid;
+      for (let i = 0; i < 4 && cur; i += 1) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const res = await axiosInstance.get(endpoints.unit.details(cur));
+          const u = res?.data;
+          if (!u?.id) break;
+          chain.unshift(u);
+          cur = u.parent ?? null;
+        } catch (e) {
+          break;
+        }
+      }
+      if (stop || !chain.length) return;
+      const pick = (u) => (u ? { id: u.id, unit: u.unit } : null);
+      const next = {
+        ...EMPTY,
+        aimag: pick(chain[0]),
+        sum: pick(chain[1]),
+        bag: pick(chain[2]),
+      };
+      setF(next);
+      // ЧУХАЛ: хуудас нээгдэх үед БҮТЭН хайлт (тоолол + модны тоо) ажиллуулахгүй
+      // — 200 мянган нэр дээр удаан. Зөвхөн газрын зургийн CQL‑ийг тавина
+      // (WMS талд шүүгддэг тул хурдан).
+      const cql = textCqlParts(next);
+      onSearch?.(cql.length ? cql.join(" AND ") : "INCLUDE");
+      onExtraCql?.(nonTypeCqlParts(next, EMPTY_GEO));
+    })();
+    return () => {
+      stop = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedUnit?.n]);
 
   // 100‑с дээш үед "Хүснэгтээр харах" дарахад хуудаслалттай хүснэгтийг нээнэ
   // (бүх илэрцийг серверээс хуудас хуудсаар татна)
@@ -725,6 +770,7 @@ export default function AdvancedSearch({
 }
 
 AdvancedSearch.propTypes = {
+  seedUnit: PropTypes.object,
   onSearch: PropTypes.func,
   onClear: PropTypes.func,
   onFlyTo: PropTypes.func,

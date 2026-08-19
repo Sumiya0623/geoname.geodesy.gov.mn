@@ -171,8 +171,9 @@ export default function WorkMapDialog({ open, onClose, onDone, projectId }) {
         project: projectId,
         units: unitIds,
         is_border: onlyBorder,
-        // Арын сканердсан зураг тул 250dpi нь 35МБ/50сек болдог — 170 хангалттай
-        dpi: 170,
+        // Шошго/тэмдгийн чанарыг өндөр байлгахаар 250dpi (хуудас тутамд
+        // ~30МБ / ~60сек — цаг, файлын хэмжээ өснө)
+        dpi: 250,
       });
       url = res?.data?.file_url || null;
     } catch (error) {

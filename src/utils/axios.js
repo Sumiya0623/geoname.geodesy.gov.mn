@@ -180,6 +180,12 @@ export const endpoints = {
     addRequest: (id) => `/api/n/geoname/${id}/add-request/`,
     inquire: (id) => `/api/n/geoname/${id}/inquire/`,
     inquireVerify: (code) => `/api/n/geoname/inquire-verify/?code=${code}`,
+    // Нүүр хуудасны газрын зураг — ЗЗ нэгж бүрийн нэрийн тоо (нэвтрэлтгүй)
+    nameStat: (parent) =>
+      `/api/n/name-stat/${parent ? `?parent=${parent}` : ""}`,
+    // Онцлох нэрс: хамгийн их давтагдсан / урт / богино
+    nameFacts: (unit) =>
+      `/api/n/name-stat/facts/${unit ? `?unit=${unit}` : ""}`,
   },
 
   raster: {

@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useMemo, useEffect, useCallback } from "react";
 import {
   Box,
   Typography,
@@ -17,9 +17,91 @@ import {
   Terrain as TerrainIcon,
   Public as PublicIcon,
   Close as CloseIcon,
+  DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
+import {
+  DndContext,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  closestCenter,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  useSortable,
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useGetBaseLayers } from "src/api/map";
 import OpacityController from "./OpacityController";
+
+// ----------------------------------------------------------------------
+// Чирж эрэмбэлэх нэг мөр. Жагсаалтын ДЭЭД нь газрын зураг дээр ч ДЭЭР
+// зурагдана (эрэмбэ = zIndex).
+// ----------------------------------------------------------------------
+const SortableOverlayRow = ({
+  oc,
+  checked,
+  onToggle,
+  opacity,
+  onOpacityChange,
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: oc.key });
+
+  return (
+    <Box
+      ref={setNodeRef}
+      sx={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        borderRadius: 1,
+        ...(isDragging
+          ? { opacity: 0.7, bgcolor: "action.hover", position: "relative", zIndex: 1 }
+          : {}),
+      }}
+    >
+      <Box sx={{ display: "flex", alignItems: "center" }}>
+        <Box
+          {...attributes}
+          {...listeners}
+          title="Чирж эрэмбэлэх"
+          sx={{
+            display: "flex",
+            color: "text.disabled",
+            cursor: "grab",
+            touchAction: "none",
+            "&:active": { cursor: "grabbing" },
+            "&:hover": { color: "text.primary" },
+          }}
+        >
+          <DragIndicatorIcon fontSize="small" />
+        </Box>
+        <FormControlLabel
+          sx={{ ml: 0, flex: 1 }}
+          control={
+            <Checkbox size="small" checked={checked} onChange={onToggle} />
+          }
+          label={oc.label || oc.key}
+        />
+      </Box>
+      {checked && onOpacityChange && (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <OpacityController
+            value={opacity}
+            onChange={onOpacityChange}
+            color={oc.color || "#607d8b"}
+            label="Ил тод байдал"
+            showLabel={false}
+            showValue
+            sx={{ px: 4, pb: 1, pt: 0.5, opacity: 0.85 }}
+          />
+        </Box>
+      )}
+    </Box>
+  );
+};
 
 const LayerControl = ({
   open,
@@ -44,8 +126,29 @@ const LayerControl = ({
   extraOverlays = [],
   extraOverlayOn = {},
   onToggleExtraOverlay,
+  // Чирж эрэмбэ солих — шинэ дараалал (түлхүүрүүд, дээрээс доош) буцаана
+  onReorderOverlays,
 }) => {
   const { baseLayers } = useGetBaseLayers();
+
+  // Чирэх мэдрэгч — 4px хөдөлсний дараа эхэлнэ (checkbox дарахад саад болохгүй)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+  const overlayKeys = useMemo(
+    () => extraOverlays.map((o) => o.key),
+    [extraOverlays],
+  );
+  const handleDragEnd = useCallback(
+    ({ active, over }) => {
+      if (!over || active.id === over.id || !onReorderOverlays) return;
+      const from = overlayKeys.indexOf(active.id);
+      const to = overlayKeys.indexOf(over.id);
+      if (from < 0 || to < 0) return;
+      onReorderOverlays(arrayMove(overlayKeys, from, to));
+    },
+    [overlayKeys, onReorderOverlays],
+  );
 
   useEffect(() => {
     if (baseLayers) {
@@ -295,39 +398,35 @@ const LayerControl = ({
                 />
               )}
 
-            {/* Backend‑ээс ирсэн бусад бүх overlay — generic */}
-            {extraOverlays.map((oc) => (
-              <Box key={oc.key}>
-                <FormControlLabel
-                  sx={{ ml: 0, display: "flex" }}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={!!extraOverlayOn[oc.key]}
-                      onChange={() =>
-                        onToggleExtraOverlay && onToggleExtraOverlay(oc.key)
-                      }
-                    />
-                  }
-                  label={oc.label || oc.key}
-                />
-                {extraOverlayOn[oc.key] && onOverlayOpacity && (
-                  <Box onClick={(e) => e.stopPropagation()}>
-                    <OpacityController
-                      value={
-                        overlayOpacity[oc.key] ?? oc?.params?.opacity ?? 1
-                      }
-                      onChange={(v) => onOverlayOpacity(oc.key, v)}
-                      color={oc.color || "#607d8b"}
-                      label="Ил тод байдал"
-                      showLabel={false}
-                      showValue
-                      sx={{ px: 4, pb: 1, pt: 0.5, opacity: 0.85 }}
-                    />
-                  </Box>
-                )}
-              </Box>
-            ))}
+            {/* Backend‑ээс ирсэн бусад бүх overlay — чирж эрэмбэлж болно.
+                Жагсаалтын дээд нь газрын зураг дээр ч дээр зурагдана. */}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={overlayKeys}
+                strategy={verticalListSortingStrategy}
+              >
+                {extraOverlays.map((oc) => (
+                  <SortableOverlayRow
+                    key={oc.key}
+                    oc={oc}
+                    checked={!!extraOverlayOn[oc.key]}
+                    onToggle={() =>
+                      onToggleExtraOverlay && onToggleExtraOverlay(oc.key)
+                    }
+                    opacity={overlayOpacity[oc.key] ?? oc?.params?.opacity ?? 1}
+                    onOpacityChange={
+                      onOverlayOpacity
+                        ? (v) => onOverlayOpacity(oc.key, v)
+                        : null
+                    }
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </Box>
         </Box>
       </Box>

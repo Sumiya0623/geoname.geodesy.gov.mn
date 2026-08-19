@@ -131,6 +131,7 @@ function GeoserverDialog({
   onProjectAreas,
   onPanelClose,
   geonameSearchTerm,
+  geonameSeedUnit,
   scaleDenom,
   onRecountCql,
   // Ангиллын мөрийн 3 цэгийн цэс (Zoom/Feature table/Чанар) — map2 боловсруулна
@@ -257,6 +258,11 @@ function GeoserverDialog({
   useEffect(() => {
     if (geonameSearchTerm?.term) setSearchOpen(true);
   }, [geonameSearchTerm]);
+
+  // URL‑ээс ЗЗ нэгж ирвэл (нүүрийн статистикаас) дэлгэрэнгүй хайлтыг нээнэ
+  useEffect(() => {
+    if (geonameSeedUnit?.id) setSearchOpen(true);
+  }, [geonameSeedUnit]);
   const checkedNodesRef = useRef(new Map());
   const onFilterChangeRef = useRef(onFilterChange);
   onFilterChangeRef.current = onFilterChange;
@@ -815,6 +821,7 @@ function GeoserverDialog({
                       onClear={handleGeonameSearchClear}
                       onFlyTo={onFlyTo}
                       seed={geonameSearchTerm}
+                      seedUnit={geonameSeedUnit}
                       onStartDrawRectangle={onStartDrawRectangle}
                       onStartDrawCircle={onStartDrawing}
                       onStartDrawPolygon={onStartDrawPolygon}

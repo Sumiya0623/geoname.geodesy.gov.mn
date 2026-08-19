@@ -460,6 +460,9 @@ function Map2() {
       lon: params.get("lon") ? parseFloat(params.get("lon")) : null,
       zoom: params.get("zoom") ? parseInt(params.get("zoom")) : null,
       point_id: params.get("point_id"),
+      // Нүүр хуудасны статистикаас "Газрын зураг" товчоор ирэхэд сонгосон
+      // засаг захиргааны нэгж (аймаг/сум/баг) — түүгээр шүүж, тийш нисэнэ
+      unit: params.get("unit"),
     };
   }, []);
 
@@ -575,6 +578,26 @@ function Map2() {
   const [mapReady, setMapReady] = useState(false);
   const [extraOverlayOn, setExtraOverlayOn] = useState({});
   const extraOverlayLayersRef = useRef({});
+  // Overlay‑н ЧИРЖ СОЛЬСОН эрэмбэ (түлхүүрүүд, дээрээс доош). null бол DB‑ийн
+  // sort_order хэвээр. Хэрэглэгч тус бүрт браузарт хадгалагдана.
+  const OVERLAY_ORDER_LS = "geoname.map.overlayOrder";
+  const [overlayOrder, setOverlayOrder] = useState(null);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(OVERLAY_ORDER_LS);
+      if (raw) setOverlayOrder(JSON.parse(raw));
+    } catch (e) {
+      /* хадгалагдсан эрэмбэ уншигдахгүй бол DB‑ийнхээр */
+    }
+  }, []);
+  const handleReorderOverlays = useCallback((keys) => {
+    setOverlayOrder(keys);
+    try {
+      window.localStorage.setItem(OVERLAY_ORDER_LS, JSON.stringify(keys));
+    } catch (e) {
+      /* private mode — санах ойд л үлдэнэ */
+    }
+  }, []);
   // "Шийдвэрийн сан" overlay (ЗЗ нэгжийн тогтоол/шийдвэрийн тоо). URL ?overlay=legal
   // үед автоматаар асна (legal хуудасны "Газрын зураг" товчноос ирэхэд).
   const [overlayLegal, setOverlayLegal] = useState(false);
@@ -743,6 +766,8 @@ function Map2() {
   const [forceGeoserverOpen, setForceGeoserverOpen] = useState(false);
   // Толгойн хайлтын утга (илэрц 1‑с их бол дэлгэрэнгүй форм руу дамжина)
   const [geonameSearchTerm, setGeonameSearchTerm] = useState(null);
+  // URL‑ээс ирсэн ЗЗ нэгж — дэлгэрэнгүй хайлтын нэгжийн талбарт үрлэнэ
+  const [geonameSeedUnit, setGeonameSeedUnit] = useState(null);
   const headerSearchNonce = useRef(0);
   const [forceGeoserverTab, setForceGeoserverTab] = useState(null);
   // Хайлтын илэрцийг газрын зургийн дээд талд хуудаслалттай хүснэгтээр жагсаах.
@@ -1273,6 +1298,32 @@ function Map2() {
       });
     }
   }, []);
+
+  // URL‑д ?unit=<id> ирвэл (нүүр хуудасны статистикаас) тухайн нэгж рүү нисэж,
+  // дэлгэрэнгүй хайлтын "Аймаг/Сум/Баг" талбарыг урьдчилан сонгоно.
+  useEffect(() => {
+    const uid = urlParams.unit;
+    if (!uid || !mapReady) return;
+    setGeonameSeedUnit({ id: uid, n: Date.now() });
+    // Хаягийн мөрөнд ?unit=<id> үлдээхгүй (хэрэглэгчид харагдах шаардлагагүй)
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("unit");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    } catch (e) {
+      /* хуучин browser — алгасна */
+    }
+    (async () => {
+      try {
+        const q = new URLSearchParams({ unit: uid }).toString();
+        const res = await axiosInstance.get(endpoints.nameCategory.locate(q));
+        if (res?.data?.found) handleFlyTo(res.data);
+      } catch (e) {
+        /* байршил олдохгүй бол зүгээр шүүлт нь ажиллана */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlParams.unit, mapReady]);
 
   // Толгойн хайлт — нэрээр geoname_view‑д CQL тавьж газрын зурагт харуулна.
   // Илэрц 1‑с их бол зүүн талын дэлгэрэнгүй филтрийг нээж, "Нэр"‑д утгыг сетлэнэ.
@@ -2703,6 +2754,31 @@ function Map2() {
     () => (overlayConfigs || []).filter((c) => c?.params?.special !== "legal"),
     [overlayConfigs],
   );
+  // Харагдах/зурагдах эцсийн дараалал: чирж сольсон эрэмбэ байвал түүгээр,
+  // жагсаалтад ороогүй (шинэ) давхарга нь DB эрэмбээрээ ард нь орно.
+  const orderedOverlays = useMemo(() => {
+    if (!overlayOrder?.length) return extraOverlayConfigs;
+    const pos = new Map(overlayOrder.map((k, i) => [k, i]));
+    return [...extraOverlayConfigs].sort(
+      (a, b) =>
+        (pos.has(a.key) ? pos.get(a.key) : 1e6 + (a.sort_order || 0)) -
+        (pos.has(b.key) ? pos.get(b.key) : 1e6 + (b.sort_order || 0)),
+    );
+  }, [extraOverlayConfigs, overlayOrder]);
+
+  // Давхарга үүсгэх effect эрэмбийг ЭНД‑ээс уншина (эрэмбэ солиход давхаргыг
+  // дахин үүсгэхгүйн тулд dependency болгохгүй)
+  const orderedOverlaysRef = useRef([]);
+  orderedOverlaysRef.current = orderedOverlays;
+
+  // Эрэмбэ өөрчлөгдөхөд давхаргыг ДАХИН ҮҮСГЭХГҮЙ — зөвхөн zIndex‑ийг шинэчилнэ
+  useEffect(() => {
+    orderedOverlays.forEach((cfg, i) => {
+      const lyr = extraOverlayLayersRef.current[cfg.key];
+      if (lyr) setLayerZIndex(lyr, overlayZ(i + 1));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedOverlays, mapReady]);
 
   useEffect(() => {
     const map = mapObjRef.current;
@@ -2712,8 +2788,12 @@ function Map2() {
       try {
         const lyr = buildOlBaseLayer(cfg);
         lyr.setVisible(!!extraOverlayOn[cfg.key]);
-        // Байрлал = /settings/gis дээрх «Эрэмбэ»: 1 нь дээр, 2 нь түүний доор
-        setLayerZIndex(lyr, overlayZ(cfg.sort_order));
+        // Байрлал = жагсаалт дахь дараалал (чирж сольж болно). Чирээгүй бол
+        // /settings/gis дээрх «Эрэмбэ»: 1 нь дээр, 2 нь түүний доор.
+        const oi = orderedOverlaysRef.current.findIndex(
+          (o) => o.key === cfg.key,
+        );
+        setLayerZIndex(lyr, overlayZ(oi < 0 ? cfg.sort_order : oi + 1));
         const op = overlayOpacity[cfg.key] ?? cfg?.params?.opacity;
         if (op != null) lyr.setOpacity(op);
         map.addLayer(lyr);
@@ -4587,6 +4667,7 @@ function Map2() {
           onFlyTo={handleFlyTo}
           onPanelClose={() => setForceGeoserverOpen(false)}
           geonameSearchTerm={geonameSearchTerm}
+          geonameSeedUnit={geonameSeedUnit}
           onOrderChange={handleGeoserverOrderChange}
           onSearchChange={setGeoserverSearchValue}
           searchValue={geoserverSearchValue}
@@ -4849,9 +4930,10 @@ function Map2() {
           }
           baseConfigs={baseConfigs}
           overlayConfigs={overlayConfigs}
-          extraOverlays={extraOverlayConfigs}
+          extraOverlays={orderedOverlays}
           extraOverlayOn={extraOverlayOn}
           onToggleExtraOverlay={handleToggleExtraOverlay}
+          onReorderOverlays={handleReorderOverlays}
         />
 
         {featureSelector.show && (
