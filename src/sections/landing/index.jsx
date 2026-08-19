@@ -264,22 +264,11 @@ export default function Landing() {
         >
           Газар зүйн нэрийн дэд систем
         </Typography>
-        <Typography
-          variant="body2"
-          sx={{
-            color: "rgba(255, 255, 255, 0.7)",
-            fontSize: "0.9rem",
-            mb: 4,
-            textAlign: "center",
-            fontStyle: "italic",
-          }}
-        >
-          Доорхи холбоос дээр дарж үргэлжлүүлнэ үү
-        </Typography>
+
         <Grid
           container
           sx={{
-            mb: 4,
+            mb: 2,
             justifyContent: "center",
             alignItems: "center",
           }}
