@@ -269,7 +269,10 @@ export default function AdvancedSearch({
     const catId = catIdOf(ff);
     if (catId) params.type = catId;
     const unitId = unitIdOf(ff);
-    if (unitId) params.unit_tree = unitId;
+    // Газрын зурагт ЗӨВХӨН байршилтай нэр харагддаг тул нэгжээр хайхад
+    // орон зайн шүүлт (unit_geom) ашиглана — M2M гишүүнчлэл (unit_tree) нь
+    // координатгүй импортын нэрсийг оруулж ирдэг ба удаан.
+    if (unitId) params.unit_geom = unitId;
     if (ff.approved) params.is_approved = true;
     if (ff.border) params.is_border = true;
     if ((g.mode === "rect" || g.mode === "polygon") && g.ring?.length >= 3) {
@@ -339,6 +342,7 @@ export default function AdvancedSearch({
   // Нүүр хуудасны статистикаас ирсэн ЗЗ нэгжийг (URL ?unit=) талбаруудад
   // урьдчилан СОНГОНО (хайлтыг нь ажиллуулахгүй). Нэгжийн өвгүүдийг
   // /core/unit/<id>/‑ээр дээш нь мөшгинө: chain[0]=аймаг, [1]=сум, [2]=баг.
+  const skipAutoRef = useRef(false);
   useEffect(() => {
     const uid = seedUnit?.id;
     if (!uid) return;
@@ -359,6 +363,7 @@ export default function AdvancedSearch({
         }
       }
       if (stop || !chain.length) return;
+      skipAutoRef.current = true; // доорх debounce хайлт ажиллуулахгүй
       const pick = (u) => (u ? { id: u.id, unit: u.unit } : null);
       const next = {
         ...EMPTY,
@@ -367,12 +372,15 @@ export default function AdvancedSearch({
         bag: pick(chain[2]),
       };
       setF(next);
-      // ЧУХАЛ: хуудас нээгдэх үед БҮТЭН хайлт (тоолол + модны тоо) ажиллуулахгүй
-      // — 200 мянган нэр дээр удаан. Зөвхөн газрын зургийн CQL‑ийг тавина
-      // (WMS талд шүүгддэг тул хурдан).
+      // ЧУХАЛ: хуудас нээгдэх үед БҮТЭН хайлт (илэрцийн ТООЛОЛ) ажиллуулахгүй
+      // — 200 мянган нэр дээр удаан. Зөвхөн газрын зургийн CQL болон модны
+      // шүүлтийг тавина (хоёулаа байршилтай нэр дээр л ажилладаг).
       const cql = textCqlParts(next);
       onSearch?.(cql.length ? cql.join(" AND ") : "INCLUDE");
       onExtraCql?.(nonTypeCqlParts(next, EMPTY_GEO));
+      // Ангиллын модны тоо ч тухайн нэгжээр гарна (unit_geom — орон зайн,
+      // байршилтай нэрс дээр л ажилладаг тул хурдан)
+      onTreeFilters?.(treeFilterParams(EMPTY_GEO, next));
     })();
     return () => {
       stop = true;
@@ -430,6 +438,11 @@ export default function AdvancedSearch({
   const autoTimer = useRef(null);
   useEffect(() => {
     if (autoTimer.current) clearTimeout(autoTimer.current);
+    // Нүүр хуудаснаас нэгж үрлэсэн бол хайлт автоматаар ажиллахгүй
+    if (skipAutoRef.current) {
+      skipAutoRef.current = false;
+      return undefined;
+    }
     const hasFilter =
       f.name ||
       f.number ||

@@ -237,6 +237,9 @@ export default function CategoryPanel({
                   ? `${process.env.NEXT_PUBLIC_BASE_PATH || ""}/dashboard/map?unit=${unitId}`
                   : undefined
               }
+              // Нүүр хуудсаа хэвээр үлдээж, зургийг ШИНЭ ТАБ дээр нээнэ
+              target={canOpenMap ? "_blank" : undefined}
+              rel={canOpenMap ? "noopener noreferrer" : undefined}
               sx={{
                 width: 42,
                 height: 42,

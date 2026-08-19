@@ -18,21 +18,21 @@ import Iconify from "src/components/iconify";
 const CARDS = [
   {
     key: "common",
-    title: "Хамгийн их давтагдсан",
+    title: "Хамгийн түгээмэл",
     unit: "газар",
     icon: "solar:copy-bold-duotone",
     color: "#7dd3fc",
   },
   {
     key: "longest",
-    title: "Хамгийн урт нэр",
+    title: "Хамгийн урт",
     unit: "тэмдэгт",
     icon: "solar:ruler-angular-bold-duotone",
     color: "#c4b5fd",
   },
   {
     key: "shortest",
-    title: "Хамгийн богино нэр",
+    title: "Хамгийн богино",
     unit: "тэмдэгт",
     icon: "solar:minimize-square-bold-duotone",
     color: "#fcd34d",

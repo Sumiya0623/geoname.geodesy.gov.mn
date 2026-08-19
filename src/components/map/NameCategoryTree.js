@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 
 import {
   Box,
@@ -197,7 +197,12 @@ TreeNode.propTypes = {
   hasCheckedDescendant: PropTypes.func,
 };
 
-export default function NameCategoryTree({ onToggle, checkedSet, filters }) {
+export default function NameCategoryTree({
+  onToggle,
+  checkedSet,
+  filters,
+  autoCheck,
+}) {
   const [roots, setRoots] = useState([]);
   const [total, setTotal] = useState(0);
   const [rootLoading, setRootLoading] = useState(true);
@@ -239,6 +244,19 @@ export default function NameCategoryTree({ onToggle, checkedSet, filters }) {
       active = false;
     };
   }, [fetchNodes]);
+
+  // Нүүр хуудаснаас ЗЗ нэгжтэй ирэхэд (autoCheck) үндсэн ангиллуудыг
+  // АВТОМАТААР асаана — газрын зураг хоосон биш, нэрс нь шууд харагдана.
+  const autoRef = useRef(null);
+  useEffect(() => {
+    if (!autoCheck || rootLoading || !roots.length) return;
+    if (autoRef.current === autoCheck) return;
+    autoRef.current = autoCheck;
+    roots.forEach((r) => {
+      if ((r.count ?? 0) > 0 && !checkedSet?.has(r.id)) onToggle?.(r, true);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCheck, rootLoading, roots]);
 
   // childrenMap‑аас тухайн нодын ачаалагдсан бүх удам (node) цуглуулна
   const collectDescNodes = useCallback(
@@ -342,6 +360,7 @@ export default function NameCategoryTree({ onToggle, checkedSet, filters }) {
 }
 
 NameCategoryTree.propTypes = {
+  autoCheck: PropTypes.any,
   onToggle: PropTypes.func,
   checkedSet: PropTypes.object,
   filters: PropTypes.object,

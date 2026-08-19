@@ -1305,6 +1305,9 @@ function Map2() {
     const uid = urlParams.unit;
     if (!uid || !mapReady) return;
     setGeonameSeedUnit({ id: uid, n: Date.now() });
+    // Удирдлагын самбар хаалттай бол NameCategoryTree/AdvancedSearch mount
+    // болдоггүй тул нэгжийн шүүлт ажиллахгүй — заавал нээнэ.
+    setForceGeoserverOpen(true);
     // Хаягийн мөрөнд ?unit=<id> үлдээхгүй (хэрэглэгчид харагдах шаардлагагүй)
     try {
       const url = new URL(window.location.href);
@@ -1317,7 +1320,18 @@ function Map2() {
       try {
         const q = new URLSearchParams({ unit: uid }).toString();
         const res = await axiosInstance.get(endpoints.nameCategory.locate(q));
-        if (res?.data?.found) handleFlyTo(res.data);
+        if (!res?.data?.found) return;
+        // Самбар нээгдэж, зургийн хэмжээ тогтсоны ДАРАА нисэх ёстой —
+        // хэмжээгүй (size undefined) үед OL‑ийн fit() чимээгүй ажиллахгүй.
+        const fly = () => {
+          const map = mapObjRef.current;
+          if (!map) return;
+          map.updateSize();
+          handleFlyTo(res.data);
+        };
+        const map = mapObjRef.current;
+        if (map?.getSize()?.[0]) setTimeout(fly, 350);
+        else map?.once("postrender", () => setTimeout(fly, 350));
       } catch (e) {
         /* байршил олдохгүй бол зүгээр шүүлт нь ажиллана */
       }

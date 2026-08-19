@@ -855,6 +855,7 @@ function GeoserverDialog({
                         onToggle={handleNameToggle}
                         checkedSet={nameChecked}
                         filters={treeFilters}
+                        autoCheck={geonameSeedUnit?.n}
                       />
                     )}
                   </Box>
