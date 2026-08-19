@@ -361,7 +361,12 @@ _GEONAME_SEARCH_SQL = """SELECT g.id, g.name, g.number, g.is_approved, g.geoloc,
     g.type_id,
     t.parent_id AS type_l2, t2.parent_id AS type_l1,
     json_build_array(t.parent_id, g.type_id) AS type,
-    COALESCE(' '||(SELECT string_agg(gu.adminunit_id::text,' ') FROM core_geoname_unit gu WHERE gu.geoname_id=g.id)||' ','') AS unit_ids,
+    COALESCE(' '||(SELECT string_agg(DISTINCT x.uid::text,' ') FROM (
+        SELECT gu.adminunit_id AS uid FROM core_geoname_unit gu WHERE gu.geoname_id=g.id
+        UNION
+        SELECT au.id FROM core_adminunit au
+        WHERE au.geom IS NOT NULL AND ST_Intersects(au.geom, g.geoloc)
+    ) x)||' ','') AS unit_ids,
     COALESCE((SELECT string_agg(n.nomek,' ') FROM core_geoname_nomek gn JOIN core_nomek n ON n.id=gn.nomek_id WHERE gn.geoname_id=g.id),'') AS nomek_codes,
     COALESCE((SELECT json_agg(gn.nomek_id) FROM core_geoname_nomek gn WHERE gn.geoname_id=g.id),'[]'::json) AS nomek,
     COALESCE((SELECT json_agg(ln.legalorder_id) FROM core_legalorder_names ln WHERE ln.geoname_id=g.id),'[]'::json) AS orders
@@ -380,6 +385,15 @@ def ensure_geoname_search_view():
             if not c.fetchone()[0]:
                 c.execute('CREATE VIEW public."%s" AS %s' % (GEONAME_SEARCH_VIEW, _GEONAME_SEARCH_SQL))
                 created = True
+            else:
+                # ХУУЧИН тодорхойлолт (unit_ids нь зөвхөн M2M холбоос) байвал
+                # шинэчилнэ — байршилтай нэрсийн ихэнх нь M2M холбоосгүй тул
+                # нэгжээр шүүхэд газрын зураг ХООСОН гардаг байсан.
+                c.execute("SELECT pg_get_viewdef('public.%s'::regclass, true)"
+                          % GEONAME_SEARCH_VIEW)
+                if 'st_intersects' not in (c.fetchone()[0] or '').lower():
+                    c.execute('CREATE OR REPLACE VIEW public."%s" AS %s'
+                              % (GEONAME_SEARCH_VIEW, _GEONAME_SEARCH_SQL))
         if created:
             _ensure_geoname_store()
             _publish_or_recalc(GEONAME_SEARCH_VIEW, 'Газар зүйн нэр (хайлт)')
