@@ -15,8 +15,8 @@
     ]
   },
   "scripts": {
-    "dev": "next dev -p 3006",
-    "start": "next start -p 3019",
+    "dev": "set -a; [ -f ./.env.ports ] && . ./.env.ports; set +a; next dev -p ${PORT:-${DEV_PORT:-3000}}",
+    "start": "set -a; [ -f ./.env.ports ] && . ./.env.ports; set +a; next start -p ${PORT:-${START_PORT:-3000}}",
     "build": "next build",
     "analyze": "next build --analyze",
     "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\"",
