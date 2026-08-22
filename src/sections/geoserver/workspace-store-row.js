@@ -34,7 +34,7 @@ function LayerActions({ canEditSql, onEditSql, onDelete }) {
   const popover = usePopover();
   return (
     <>
-      <IconButton size="small" onClick={popover.onOpen}>
+      <IconButton onClick={popover.onOpen}>
         <Icon icon="mdi:dots-vertical" />
       </IconButton>
       <CustomPopover
@@ -134,7 +134,7 @@ export default function WorkspaceStoreRow({
         alignItems="center"
         sx={{ px: 1, py: 0.75, bgcolor: open.value ? "action.hover" : "transparent" }}
       >
-        <IconButton size="small" onClick={open.onToggle}>
+        <IconButton onClick={open.onToggle}>
           <Icon icon={open.value ? "mdi:chevron-down" : "mdi:chevron-right"} />
         </IconButton>
         <Icon icon="mdi:database" width={20} />
@@ -144,7 +144,7 @@ export default function WorkspaceStoreRow({
 
         {canUpdate && (
           <>
-            <IconButton size="small" onClick={storePopover.onOpen}>
+            <IconButton onClick={storePopover.onOpen}>
               <Icon icon="mdi:dots-vertical" />
             </IconButton>
             <CustomPopover
@@ -220,9 +220,9 @@ export default function WorkspaceStoreRow({
                     {ly.name}
                   </Typography>
                   {ly.is_view ? (
-                    <Chip size="small" variant="soft" color="info" label="view" />
+                    <Chip variant="soft" color="info" label="view" />
                   ) : (
-                    <Chip size="small" variant="outlined" label="table" />
+                    <Chip variant="outlined" label="table" />
                   )}
                   {canUpdate && (
                     <LayerActions

@@ -87,7 +87,6 @@ export default function FilterBuilder({ fields, disabled }) {
           Ангилал (cql_filter)
         </Typography>
         <Button
-          size="small"
           variant="primary"
           onClick={addRow}
           disabled={disabled || (Array.isArray(fields) && fields.length === 0)}

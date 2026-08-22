@@ -338,19 +338,18 @@ export default function GeoStylerEditor({
         >
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
             <ToggleButtonGroup
-              size="small"
               exclusive
               value={display}
               onChange={(_, v) => v && setDisplay(v)}
             >
-              <ToggleButton size="small" value="split">
+              <ToggleButton value="split">
                 Split View
               </ToggleButton>
 
-              <ToggleButton size="small" value="preview">
+              <ToggleButton value="preview">
                 Preview Map
               </ToggleButton>
-              <ToggleButton size="small" value="legend">
+              <ToggleButton value="legend">
                 Legend
               </ToggleButton>
             </ToggleButtonGroup>

@@ -43,7 +43,6 @@ export default function FilterRow({
       <RHFSelect
         name={`filters.${index}.field`}
         label="Талбар"
-        size="small"
         variant="filled"
       >
         {fieldsOptions.map((f) => (
@@ -57,7 +56,6 @@ export default function FilterRow({
       <RHFSelect
         name={`filters.${index}.operator`}
         label="Нөхцөл"
-        size="small"
         variant="filled"
         sx={{ minWidth: 160 }}
       >
@@ -74,7 +72,6 @@ export default function FilterRow({
           <RHFSelect
             name={`filters.${index}.value`}
             label="Утга"
-            size="small"
             variant="filled"
             disabled={isLoading}
             sx={{ minWidth: 220, flex: 1 }}
@@ -105,7 +102,6 @@ export default function FilterRow({
           <RHFTextField
             name={`filters.${index}.value`}
             label="Утга"
-            size="small"
             variant="filled"
             sx={{ minWidth: 220, flex: 1 }}
             placeholder="ж: 123 | abc | 10..20 | A,B,C"
@@ -114,7 +110,6 @@ export default function FilterRow({
 
       <IconButton
         color="error"
-        size="small"
         onClick={onRemove}
         disabled={!canRemove}
         aria-label="remove-filter"

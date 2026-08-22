@@ -7,18 +7,21 @@ import Box from "@mui/material/Box";
 
 import CollapseCard from "src/components/collapse-card";
 
-import { TeamListView } from "src/sections/team/view";
-import { RecountListView } from "src/sections/recount/view";
+import { TeamListView } from "src/sections/champaign/team/view";
+import { RecountListView } from "src/sections/champaign/recount/view";
+import { AttachListView } from "src/sections/champaign/attach/view";
 
 // ----------------------------------------------------------------------
 // СУУРИН СУДАЛГАА — төслийн дэлгэрэнгүйн таб (хуудас).
-// Дотроо 2 задардаг хэсэгт 2 бие даасан жагсаалтыг дуудна:
-//   • Дахин тооллого (тодруулалт) — sections/recount
-//   • Багийн бүрэлдэхүүн          — sections/team
+// Дотроо 3 задардаг хэсэгт 3 бие даасан жагсаалтыг дуудна:
+//   • Дахин тооллого (тодруулалт)  — sections/recount
+//   • Эрх зүйн баримт бичиг        — sections/attach (нэмэх + нэр холбох)
+//   • Багийн бүрэлдэхүүн           — sections/team
 // ----------------------------------------------------------------------
 
 export default function SuurinView({ projectId }) {
   const [recountCount, setRecountCount] = useState(0);
+  const [orderCount, setOrderCount] = useState(0);
   const [teamCount, setTeamCount] = useState(0);
 
   if (!projectId) return null;
@@ -31,6 +34,18 @@ export default function SuurinView({ projectId }) {
         count={recountCount}
       >
         <RecountListView projectId={projectId} onCount={setRecountCount} />
+      </CollapseCard>
+
+      {/* Төслийн эрх зүйн баримт бичгүүд — нэмэх / сангаас холбох / засах /
+          хасах, мөрийг дарахад тодруулалтын нэр холбох хэсэг задарна.
+          (Өмнө нь «Бэлтгэл ажил» табд давхардаж байсныг энд нэгтгэв.) */}
+      <CollapseCard
+        icon="solar:document-text-bold"
+        title="Эрх зүйн баримт бичиг"
+        count={orderCount}
+        defaultOpen={false}
+      >
+        <AttachListView projectId={projectId} onCount={setOrderCount} />
       </CollapseCard>
 
       <CollapseCard

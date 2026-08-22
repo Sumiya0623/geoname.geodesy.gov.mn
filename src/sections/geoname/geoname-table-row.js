@@ -62,7 +62,6 @@ export default function GeonameTableRow({
         </TableCell>
         <TableCell align="center">
           <Chip
-            size="small"
             variant="soft"
             color={is_approved ? "success" : "warning"}
             label={is_approved ? "Батлагдсан" : "Түр"}

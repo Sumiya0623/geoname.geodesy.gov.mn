@@ -35,7 +35,7 @@ export default function ProjectDetailsContent({ project }) {
         justifyContent="space-between"
       >
         <Stack direction="row" alignItems="center" spacing={1}>
-          <ProfileAvatar user={project?.org} size="small" />
+          <ProfileAvatar user={project?.org} />
           <Typography variant="body2">{project?.org?.full_name}</Typography>
         </Stack>
         <Stack direction="row" alignItems="center" spacing={1}>
@@ -90,7 +90,6 @@ export default function ProjectDetailsContent({ project }) {
             {units.map((u) => (
               <Chip
                 key={u.id}
-                size="small"
                 variant="soft"
                 color="primary"
                 label={u.parent_unit ? `${u.parent_unit}, ${u.unit}` : u.unit}
@@ -120,8 +119,8 @@ export default function ProjectDetailsContent({ project }) {
           {project?.name || "—"}
         </Typography>
         <Stack direction="row" alignItems="center" spacing={1}>
-          <Chip label={`№ ${project?.dugaar || "—"}`} size="small" />
-          <IconButton size="small" onClick={() => setOpen((v) => !v)}>
+          <Chip label={`№ ${project?.dugaar || "—"}`} />
+          <IconButton onClick={() => setOpen((v) => !v)}>
             <Iconify
               icon={open ? "eva:chevron-up-fill" : "eva:chevron-down-fill"}
               width={20}

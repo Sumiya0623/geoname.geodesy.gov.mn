@@ -75,7 +75,7 @@ export default function ChampaignTableRow({
 
         <TableCell>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <ProfileAvatar user={org} size="small" />
+            <ProfileAvatar user={org} />
             <Typography variant="body2">{org?.full_name}</Typography>
           </Stack>
         </TableCell>

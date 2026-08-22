@@ -120,7 +120,6 @@ export default function SubLevelInlineForm({
       <Stack direction="row" spacing={1} justifyContent="flex-start">
         <LoadingButton
           type="submit"
-          size="small"
           color="primary"
           variant="contained"
           loading={isSubmitting}
@@ -129,7 +128,6 @@ export default function SubLevelInlineForm({
           {currentConstant ? "Өөрчлөх" : "Нэмэх"}
         </LoadingButton>
         <Button
-          size="small"
           variant="outlined"
           color="inherit"
           onClick={onCancel}

@@ -1,4 +1,4 @@
-import { NameClassListView } from "src/sections/nameclass/view";
+import { NameClassListView } from "src/sections/geoname/nameclass/view";
 
 // ----------------------------------------------------------------------
 

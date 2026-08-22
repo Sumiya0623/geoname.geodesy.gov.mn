@@ -1,4 +1,4 @@
-import { OverviewAppView } from "src/sections/overview/app/view";
+import { OverviewAppView } from "src/sections/dashboard/overview/app/view";
 
 // ----------------------------------------------------------------------
 

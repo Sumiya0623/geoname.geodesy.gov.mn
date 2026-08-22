@@ -60,7 +60,6 @@ export default function WorkspaceLayerForm({
       <Stack spacing={1.5}>
         <TextField
           label="Layer / view нэр"
-          size="small"
           value={name}
           disabled={editing}
           onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
@@ -69,7 +68,6 @@ export default function WorkspaceLayerForm({
         />
         <TextField
           label="SQL (SELECT ...)"
-          size="small"
           value={sql}
           onChange={(e) => setSql(e.target.value)}
           multiline
@@ -79,7 +77,6 @@ export default function WorkspaceLayerForm({
         />
         <Stack direction="row" spacing={1}>
           <LoadingButton
-            size="small"
             variant="contained"
             loading={saving}
             disabled={!name || !sql}
@@ -88,7 +85,6 @@ export default function WorkspaceLayerForm({
             {editing ? "Шинэчлэх" : "Нийтлэх"}
           </LoadingButton>
           <Button
-            size="small"
             variant="outlined"
             color="inherit"
             onClick={onCancel}

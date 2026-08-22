@@ -158,7 +158,6 @@ export default function WorkspaceLayersTable({ workspaceId, workspaceName }) {
         </Typography>
         <TextField
           fullWidth
-          size="small"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -204,7 +203,6 @@ export default function WorkspaceLayersTable({ workspaceId, workspaceName }) {
                       </TableCell>
                       <TableCell align="center">
                         <Chip
-                          size="small"
                           variant="soft"
                           color={TYPE_COLOR[row.type] || "default"}
                           icon={

@@ -24,7 +24,7 @@ import { useGetConstantsFordropdown } from "src/api/constant";
 import Iconify from "src/components/iconify";
 import { useSnackbar } from "src/components/snackbar";
 
-import RequestChangeForm from "src/sections/request/request-change-form";
+import RequestChangeForm from "src/sections/dashboard/request/request-change-form";
 import PhotoDirectionPicker from "src/components/photo-direction-picker";
 
 // ----------------------------------------------------------------------
@@ -59,8 +59,11 @@ export default function GeonameAddDialog({
   const [photoIdx, setPhotoIdx] = useState(0);
 
   // Constant dropdown‑ууд (зөвхөн тухайн kind‑д шаардлагатайг л татна)
-  const { constants: legalTypes } = useGetConstantsFordropdown(
-    kind === "order" ? "LEGAL_TYPES" : null,
+  const { constants: legalLevels } = useGetConstantsFordropdown(
+    kind === "order" ? "LEGAL_LEVELS" : null,
+  );
+  const { constants: legalOrgs } = useGetConstantsFordropdown(
+    kind === "order" ? "LEGAL_ORGS" : null,
   );
   const { constants: orderTypes } = useGetConstantsFordropdown(
     kind === "order" ? "ORDER_TYPES" : null,
@@ -139,6 +142,7 @@ export default function GeonameAddDialog({
           "name",
           "order_number",
           "order_date",
+          "govlevel",
           "org",
           "type",
           "signer",
@@ -201,13 +205,27 @@ export default function GeonameAddDialog({
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField
               select
+              label="Дээд тогтоол"
+              value={form.govlevel || ""}
+              onChange={set("govlevel")}
+              fullWidth
+            >
+              <MenuItem value="">—</MenuItem>
+              {legalLevels.map((c) => (
+                <MenuItem key={c.id} value={c.id}>
+                  {c.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
               label="Байгууллага"
               value={form.org || ""}
               onChange={set("org")}
               fullWidth
             >
               <MenuItem value="">—</MenuItem>
-              {legalTypes.map((c) => (
+              {legalOrgs.map((c) => (
                 <MenuItem key={c.id} value={c.id}>
                   {c.name}
                 </MenuItem>

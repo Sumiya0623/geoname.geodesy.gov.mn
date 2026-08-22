@@ -207,7 +207,6 @@ export default function NomekProgressive({
         value={manualInput}
         onChange={handleManualInputChange}
         placeholder="Жишээ: М-46-125-А-а-1"
-        size="small"
         disabled={disabled}
         error={!validation.isValid}
         helperText={validation.error || "Жишээ формат: L-48-125-А-а-1"}
@@ -252,13 +251,11 @@ export default function NomekProgressive({
             label="KLM"
             value={klm}
             onChange={(e) => setK(e.target.value)}
-            size="small"
             disabled={disabled}
             InputProps={{
               endAdornment: klm && (
                 <InputAdornment position="end">
                   <IconButton
-                    size="small"
                     onClick={() => setK("")}
                     disabled={disabled}
                     edge="end"
@@ -286,13 +283,11 @@ export default function NomekProgressive({
               onChange={(e) =>
                 setM1m(e.target.value === "" ? null : Number(e.target.value))
               }
-              size="small"
               disabled={disabled}
               InputProps={{
                 endAdornment: m1m != null && (
                   <InputAdornment position="end">
                     <IconButton
-                      size="small"
                       onClick={() => setM1m(null)}
                       disabled={disabled}
                       edge="end"
@@ -328,7 +323,6 @@ export default function NomekProgressive({
                 min: RANGE_100K[0],
                 max: RANGE_100K[1],
               }}
-              size="small"
               disabled={disabled}
             />
           )}
@@ -340,7 +334,6 @@ export default function NomekProgressive({
               label="1:50 000 (АБВГ)"
               value={upper}
               onChange={(e) => setUpper(e.target.value)}
-              size="small"
               disabled={disabled}
             >
               <MenuItem value="">Сонго</MenuItem>
@@ -359,7 +352,6 @@ export default function NomekProgressive({
               label="1:25 000 (абвг)"
               value={lower}
               onChange={(e) => setLower(e.target.value)}
-              size="small"
               disabled={disabled}
             >
               <MenuItem value="">Сонго</MenuItem>
@@ -378,7 +370,6 @@ export default function NomekProgressive({
               label="1:10 000 (1–4)"
               value={m10k ?? ""}
               onChange={(e) => setM10k(Number(e.target.value))}
-              size="small"
               disabled={disabled}
             >
               <MenuItem value="">Сонго</MenuItem>

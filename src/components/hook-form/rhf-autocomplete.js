@@ -108,7 +108,6 @@ export default function RHFAutocomplete({
                       key={country.label}
                       label={country.label}
                       icon={<Iconify icon={`circle-flags:${country.code?.toLowerCase()}`} />}
-                      size="small"
                       variant="soft"
                     />
                   );

@@ -18,23 +18,23 @@ import { useGetConstantsFordropdown } from "src/api/constant";
 
 // ----------------------------------------------------------------------
 // Эрх зүйн баримт бичиг — мөр бүр гурван шатлалт dependent dropdown:
-//   1) Төрөл           — LEGAL_TYPES (LegalOrder.org)
-//   2) Баримтын төрөл  — ORDER_TYPES (LegalOrder.type), тухайн LEGAL_TYPE‑ээр
+//   1) Дээд тогтоол    — LEGAL_LEVELS (LegalOrder.govlevel)
+//   2) Баримтын төрөл  — ORDER_TYPES (LegalOrder.type), тухайн түвшингээр
 //                        бүртгэгдсэн баримтуудаас илэрсэн төрлүүдээр л дүүргэнэ
 //   3) Баримт бичиг    — дээрх хоёр шүүлтээр шүүгдсэн баримтууд
 // "Нэмэх" товчоор мөр нэмж олон баримт холбоно. form.orders‑д хадгална.
 // ----------------------------------------------------------------------
 
 function OrderRow({ row, onChange, onRemove }) {
-  const { constants: legalTypes } = useGetConstantsFordropdown("LEGAL_TYPES");
+  const { constants: legalLevels } = useGetConstantsFordropdown("LEGAL_LEVELS");
 
-  // Сонгосон LEGAL_TYPE (org)‑оор баримтуудыг татна — эндээс ORDER_TYPES болон
+  // Сонгосон түвшин (govlevel)‑ээр баримтуудыг татна — эндээс ORDER_TYPES болон
   // баримтын жагсаалт хоёуланг гаргана (нэг л fetch).
   const { legalOrders } = useGetLegalOrders(
-    row.legalTypeId ? { org: row.legalTypeId, page_size: 100 } : null
+    row.legalTypeId ? { govlevel: row.legalTypeId, page_size: 100 } : null
   );
 
-  // Тухайн төрлөөр бүртгэгдсэн баримтуудаас илэрсэн ORDER_TYPES (давхцалгүй)
+  // Тухайн түвшинд бүртгэгдсэн баримтуудаас илэрсэн ORDER_TYPES (давхцалгүй)
   const orderTypes = useMemo(() => {
     const map = new Map();
     legalOrders.forEach((o) => {
@@ -54,11 +54,10 @@ function OrderRow({ row, onChange, onRemove }) {
 
   return (
     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 1 }}>
-      {/* 1. Төрөл (LEGAL_TYPES) */}
+      {/* 1. Дээд тогтоол (LEGAL_LEVELS) */}
       <TextField
         select
-        size="small"
-        label="Төрөл"
+        label="Дээд тогтоол"
         value={row.legalTypeId ? String(row.legalTypeId) : ""}
         onChange={(e) =>
           onChange({
@@ -70,17 +69,16 @@ function OrderRow({ row, onChange, onRemove }) {
         sx={{ minWidth: 200 }}
       >
         <MenuItem value="">— Сонгох —</MenuItem>
-        {legalTypes.map((t) => (
+        {legalLevels.map((t) => (
           <MenuItem key={t.id} value={String(t.id)}>
             {t.name}
           </MenuItem>
         ))}
       </TextField>
 
-      {/* 2. Баримтын төрөл (ORDER_TYPES) — LEGAL_TYPE‑ээр шүүгдсэн */}
+      {/* 2. Баримтын төрөл (ORDER_TYPES) — түвшингээр шүүгдсэн */}
       <TextField
         select
-        size="small"
         label="Баримтын төрөл"
         value={row.orderTypeId ? String(row.orderTypeId) : ""}
         disabled={!row.legalTypeId}
@@ -103,7 +101,6 @@ function OrderRow({ row, onChange, onRemove }) {
       {/* 3. Баримт бичиг — дээрх 2 шүүлтээр */}
       <TextField
         select
-        size="small"
         label="Баримт бичиг"
         value={row.order?.id ? String(row.order.id) : ""}
         disabled={!row.legalTypeId}
@@ -143,12 +140,12 @@ export default function GeonameOrders({ initialOrders = [], currentId = null }) 
   const { setValue } = useFormContext();
   const uid = useRef(1);
 
-  // Засах үед: o.org (LEGAL_TYPES) / o.type (ORDER_TYPES) id‑аар dropdown‑уудыг сэргээнэ
+  // Засах үед: o.govlevel (LEGAL_LEVELS) / o.type (ORDER_TYPES) id‑аар dropdown сэргээнэ
   const build = (orders) =>
     orders?.length
       ? orders.map((o) => ({
           uid: uid.current++,
-          legalTypeId: o.org || "",
+          legalTypeId: o.govlevel || "",
           orderTypeId: o.type || "",
           order: { id: o.id, name: o.name, order_number: o.order_number },
         }))
@@ -201,7 +198,7 @@ export default function GeonameOrders({ initialOrders = [], currentId = null }) 
         />
       ))}
 
-      <Button size="small" color="primary" variant="outlined" onClick={addRow}>
+      <Button color="primary" variant="outlined" onClick={addRow}>
         нэмэх
       </Button>
     </Box>

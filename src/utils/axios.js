@@ -177,6 +177,13 @@ export const endpoints = {
     delPhoto: (id) => `/api/n/geoname/${id}/del-photo/`,
     addAttach: (id) => `/api/n/geoname/${id}/add-attach/`,
     addOrder: (id) => `/api/n/geoname/${id}/add-order/`,
+    // Баримт ↔ нэр холбох (маягтын toolbar): баримт хайх, холбоотой нэрс,
+    // бөөнөөр холбох/салгах
+    orderSearch: (request_body) => `/api/n/geoname/order-search/?${request_body}`,
+    orderNames: (id) => `/api/n/geoname/order-names/?order=${id}`,
+    orderLinked: `/api/n/geoname/order-linked/`,
+    attachOrder: `/api/n/geoname/attach-order/`,
+    detachOrder: `/api/n/geoname/detach-order/`,
     addRequest: (id) => `/api/n/geoname/${id}/add-request/`,
     inquire: (id) => `/api/n/geoname/${id}/inquire/`,
     inquireVerify: (code) => `/api/n/geoname/inquire-verify/?code=${code}`,
@@ -204,7 +211,9 @@ export const endpoints = {
   },
 
   legal: {
-    types: (request_body) => `/api/r/legal-type/?${request_body}`,
+    // LEGAL_LEVELS — шийдвэрийн ТҮВШИН (LegalOrder.govlevel «Дээд тогтоол»).
+    // URL нь хуучин /legal-type/ хэвээр (viewset нь LEGAL_LEVELS‑ийг буцаана).
+    levels: (request_body) => `/api/r/legal-type/?${request_body}`,
     list: (request_body) => `/api/r/legal/?${request_body}`,
     create: `/api/r/legal/`,
     edit: (id) => `/api/r/legal/${id}/`,

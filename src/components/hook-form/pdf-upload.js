@@ -2,8 +2,16 @@ import { Box, IconButton, Paper, Typography } from "@mui/material";
 import { Controller, useFormContext } from "react-hook-form";
 import { Icon } from "@iconify/react";
 import { PDFDocument } from "pdf-lib";
-export default function UploadPDFField({ name, label = "Файл", onPageCount }) {
+// size="small" — MUI‑ийн жижиг талбартай (40px) ижил өндөртэй нягт хувилбар.
+// Бусад тохиолдолд хэвийн (56px) хэмжээ — өмнөх дүр төрх хэвээр.
+export default function UploadPDFField({
+  name,
+  label = "Файл",
+  onPageCount,
+  size = "medium",
+}) {
   const { control, setValue } = useFormContext();
+  const small = size === "small";
 
   return (
     <Controller
@@ -36,18 +44,20 @@ export default function UploadPDFField({ name, label = "Файл", onPageCount }
                 variant="outlined"
                 sx={{
                   position: "relative",
-                  p: 1.5,
+                  px: small ? 1 : 1.5,
+                  py: small ? 0.5 : 1.5,
                   display: "flex",
                   alignItems: "center",
-                  minHeight: 56,
+                  minHeight: small ? 40 : 56,
                 }}
               >
                 <Typography
-                  variant="body2"
+                  variant={small ? "caption" : "body2"}
+                  noWrap
                   sx={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 1,
+                    gap: small ? 0.5 : 1,
                     flexGrow: 1,
                     fontWeight: 500,
                   }}
@@ -55,14 +65,14 @@ export default function UploadPDFField({ name, label = "Файл", onPageCount }
                   {label}
                   <Icon
                     icon="mdi:file-pdf-box"
-                    width={20}
-                    height={20}
+                    width={small ? 18 : 20}
+                    height={small ? 18 : 20}
                     color="red"
                   />
                 </Typography>
 
                 <IconButton
-                  size="small"
+                  size={small ? "small" : "medium"}
                   onClick={() =>
                     setValue(name, null, {
                       shouldValidate: true,
@@ -71,8 +81,8 @@ export default function UploadPDFField({ name, label = "Файл", onPageCount }
                   }
                   sx={{
                     position: "absolute",
-                    top: 4,
-                    right: 4,
+                    top: small ? 2 : 4,
+                    right: small ? 2 : 4,
                     backgroundColor: "white",
                     boxShadow: 1,
                     "&:hover": { backgroundColor: "#fefefe" },
@@ -87,9 +97,9 @@ export default function UploadPDFField({ name, label = "Файл", onPageCount }
                 sx={{
                   display: "flex",
                   alignItems: "center",
-                  px: 1.5,
-                  py: 0.75,
-                  minHeight: 56,
+                  px: small ? 1 : 1.5,
+                  py: small ? 0.25 : 0.75,
+                  minHeight: small ? 40 : 56,
                   cursor: "pointer",
                 }}
               >
@@ -97,18 +107,22 @@ export default function UploadPDFField({ name, label = "Файл", onPageCount }
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 8,
+                    gap: small ? 6 : 8,
                     width: "100%",
                     cursor: "pointer",
                   }}
                 >
                   <Icon
                     icon="mdi:file-pdf-box"
-                    width={22}
-                    height={22}
+                    width={small ? 18 : 22}
+                    height={small ? 18 : 22}
                     color="red"
                   />
-                  <Typography variant="body2" fontWeight={500}>
+                  <Typography
+                    variant={small ? "caption" : "body2"}
+                    noWrap
+                    fontWeight={500}
+                  >
                     {label} сонгох
                   </Typography>
                   <input

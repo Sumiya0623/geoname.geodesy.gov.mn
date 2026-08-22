@@ -63,7 +63,6 @@ export default function ChampaignTableToolbar({
         fullWidth
         placeholder="Нэрээр"
         value={filters.name}
-        size="small"
         onChange={handleFilterField("name")}
         InputProps={{
           startAdornment: (

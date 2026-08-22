@@ -241,7 +241,6 @@ export default function NotificationsPopover() {
         <Stack direction="row" alignItems="center" sx={{ px: 1 }}>
           <Tooltip title={isAllSelected ? "Бүгдийг Буцах" : "Бүгдийг сонгох"}>
             <Checkbox
-              size="small"
               checked={isAllSelected}
               indeterminate={isIndeterminate}
               onChange={handleSelectAll}

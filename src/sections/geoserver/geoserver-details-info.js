@@ -55,7 +55,6 @@ export default function GeoServerDetailsInfo({
           </Box>
 
           <Button
-            size="small"
             color="error"
             startIcon={<Iconify icon="mingcute:add-line" />}
             sx={{ mt: 1 }}

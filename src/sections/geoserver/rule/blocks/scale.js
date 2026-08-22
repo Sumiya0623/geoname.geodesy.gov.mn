@@ -89,7 +89,6 @@ export default function ScaleBlock() {
                           {...params}
                           label="Min"
                           variant="filled"
-                          size="small"
                           inputProps={{
                             ...params.inputProps,
                             inputMode: "numeric",
@@ -145,7 +144,6 @@ export default function ScaleBlock() {
                           {...params}
                           label="Max"
                           variant="filled"
-                          size="small"
                           inputProps={{
                             ...params.inputProps,
                             inputMode: "numeric",

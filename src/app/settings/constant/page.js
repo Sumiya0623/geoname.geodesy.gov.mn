@@ -1,4 +1,4 @@
-import { ConstantListView } from "src/sections/constant/view";
+import { ConstantListView } from "src/sections/settings/constant/view";
 
 // ----------------------------------------------------------------------
 

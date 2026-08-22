@@ -95,13 +95,12 @@ export default function WorkspaceInlineForm({
         }}
         sx={{ mb: 1 }}
       >
-        <RHFTextField name="name" label="Нэр" size="small" variant="filled" />
-        <RHFTextField name="code" label="Код" size="small" variant="filled" />
+        <RHFTextField name="name" label="Нэр" variant="filled" />
+        <RHFTextField name="code" label="Код" variant="filled" />
       </Box>
       <Stack direction="row" spacing={1} justifyContent="flex-start">
         <LoadingButton
           type="submit"
-          size="small"
           color="primary"
           variant="contained"
           loading={isSubmitting}
@@ -110,7 +109,6 @@ export default function WorkspaceInlineForm({
           {currentItem ? "Өөрчлөх" : "Нэмэх"}
         </LoadingButton>
         <Button
-          size="small"
           variant="outlined"
           color="inherit"
           onClick={onCancel}

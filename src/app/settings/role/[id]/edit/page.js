@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 
-import { RoleEditView } from 'src/sections/role/view';
+import { RoleEditView } from 'src/sections/settings/role/view';
 
 // ----------------------------------------------------------------------
 

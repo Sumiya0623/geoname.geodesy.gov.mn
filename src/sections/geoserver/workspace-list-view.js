@@ -114,7 +114,6 @@ export default function WorkspaceListView({ embedded = false }) {
                           sx={{ mt: 0.5 }}
                         >
                           <Chip
-                            size="small"
                             variant="soft"
                             color={ws.gs_exists ? "success" : "warning"}
                             label={ws.gs_exists ? "Холбогдсон" : "Холбогдоогүй"}

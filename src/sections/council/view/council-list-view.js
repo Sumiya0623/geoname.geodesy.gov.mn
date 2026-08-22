@@ -42,7 +42,7 @@ import { useGetConstantsFordropdown } from "src/api/constant";
 import { useGetCouncils, useGetCouncilMembers } from "src/api/council";
 
 import Iconify from "src/components/iconify";
-import LegalNewEditForm from "src/sections/legal/legal-new-edit-form";
+import LegalNewEditForm from "src/sections/council/legal/legal-new-edit-form";
 import {
   useTable,
   TableNoData,
@@ -50,6 +50,7 @@ import {
   TablePaginationCustom,
 } from "src/components/table";
 import Scrollbar from "src/components/scrollbar";
+import { toApiDate } from "src/utils/format-time";
 import { useSnackbar } from "src/components/snackbar";
 import CustomBreadcrumbs from "src/components/custom-breadcrumbs";
 import CustomPopover, { usePopover } from "src/components/custom-popover";
@@ -60,7 +61,6 @@ function CouncilRowMenu({ onEdit }) {
   return (
     <>
       <IconButton
-        size="small"
         onClick={(e) => {
           e.stopPropagation();
           popover.onOpen(e);
@@ -160,7 +160,6 @@ function LegalDocPicker({
       {/* Сангаас олдохгүй бол — ЭНД ШУУД шинээр бүртгэнэ */}
       <Stack direction="row" alignItems="center" sx={{ mt: 0.5 }}>
         <Button
-          size="small"
           color="primary"
           startIcon={
             <Iconify
@@ -456,9 +455,9 @@ export default function CouncilListView() {
                   role: kindName, // нэмэлт роль — Үндэсний/Салбар зөвлөл
                   ...(unitId ? { person_unit: unitId } : {}),
                   ...(r.type_id ? { position_id: r.type_id } : {}),
-                  start_date:
-                    cf.established_date ||
-                    new Date().toISOString().slice(0, 10),
+                  // Өнөөдрийг ОРОН НУТГИЙН огноогоор (toISOString нь UTC руу
+                  // хөрвүүлдэг тул орой/өглөө нэг хоног зөрдөг)
+                  start_date: cf.established_date || toApiDate(new Date()),
                   appoint_doc_id: cf.established_doc.id,
                 }),
               ),
@@ -680,7 +679,6 @@ export default function CouncilListView() {
           >
             <Typography variant="subtitle2">Гишүүд</Typography>
             <Button
-              size="small"
               variant="outlined"
               color="primary"
               startIcon={<Iconify icon="mingcute:add-line" />}
@@ -699,7 +697,6 @@ export default function CouncilListView() {
             >
               <TextField
                 select
-                size="small"
                 label="Оролцоо"
                 sx={{ minWidth: 150 }}
                 value={r.type_id}
@@ -713,7 +710,6 @@ export default function CouncilListView() {
               </TextField>
 
               <TextField
-                size="small"
                 label="Регистр"
                 sx={{ minWidth: 140 }}
                 value={r.register}
@@ -738,7 +734,6 @@ export default function CouncilListView() {
               {/* Олдсон бол зөвхөн харуулна, олдоогүй бол гараар бөглөнө */}
               {r.found === true ? (
                 <TextField
-                  size="small"
                   label="Овог, нэр"
                   fullWidth
                   value={`${r.last_name} ${r.first_name}`.trim()}
@@ -748,7 +743,6 @@ export default function CouncilListView() {
                 r.found === false && (
                   <>
                     <TextField
-                      size="small"
                       label="Овог"
                       fullWidth
                       value={r.last_name}
@@ -757,7 +751,6 @@ export default function CouncilListView() {
                       }
                     />
                     <TextField
-                      size="small"
                       label="Нэр"
                       fullWidth
                       value={r.first_name}
@@ -766,7 +759,6 @@ export default function CouncilListView() {
                       }
                     />
                     <TextField
-                      size="small"
                       label="Имэйл"
                       fullWidth
                       value={r.email}
@@ -775,7 +767,6 @@ export default function CouncilListView() {
                       }
                     />
                     <TextField
-                      size="small"
                       label="Утас"
                       fullWidth
                       value={r.phone}
@@ -788,7 +779,6 @@ export default function CouncilListView() {
               )}
 
               <IconButton
-                size="small"
                 color="error"
                 onClick={() => delMrow(r.key)}
                 sx={{ mt: 0.5 }}
@@ -953,7 +943,6 @@ export default function CouncilListView() {
                     <TableCell>
                       {!c.unit ? (
                         <Chip
-                          size="small"
                           variant="soft"
                           color="error"
                           label="Үндэсний"
@@ -962,7 +951,6 @@ export default function CouncilListView() {
                       ) : (
                         <Stack direction="row" flexWrap="wrap" gap={0.5}>
                           <Chip
-                            size="small"
                             variant="soft"
                             color="primary"
                             label={c.unit.parent_unit || c.unit.unit}
@@ -970,7 +958,6 @@ export default function CouncilListView() {
                           />
                           {c.unit.parent_unit && (
                             <Chip
-                              size="small"
                               variant="outlined"
                               label={c.unit.unit}
                               sx={{ height: 22 }}
@@ -982,7 +969,6 @@ export default function CouncilListView() {
                     <TableCell>
                       {c.status?.name ? (
                         <Chip
-                          size="small"
                           label={c.status.name}
                           variant="outlined"
                         />
@@ -1082,7 +1068,6 @@ export default function CouncilListView() {
               />
               <Button
                 variant="contained"
-                size="small"
                 startIcon={<Iconify icon="mingcute:add-line" />}
                 onClick={() => setMDlg(emptyMember)}
               >
@@ -1093,7 +1078,7 @@ export default function CouncilListView() {
           <Divider sx={{ mb: 1 }} />
           <TableContainer>
             <Scrollbar>
-              <Table size="small" sx={{ minWidth: 900 }}>
+              <Table sx={{ minWidth: 900 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Нэр</TableCell>
@@ -1131,7 +1116,6 @@ export default function CouncilListView() {
                       <TableCell>
                         {m.is_active ? (
                           <Chip
-                            size="small"
                             color="success"
                             label="идэвхтэй"
                             variant="outlined"
@@ -1146,7 +1130,6 @@ export default function CouncilListView() {
                         {m.is_active && (
                           <Tooltip title="Баримтаар чөлөөлөх">
                             <IconButton
-                              size="small"
                               color="warning"
                               onClick={() =>
                                 setRDlg({
@@ -1162,7 +1145,6 @@ export default function CouncilListView() {
                         )}
                         <Tooltip title="Устгах">
                           <IconButton
-                            size="small"
                             color="error"
                             onClick={() => setDelMember(m)}
                           >

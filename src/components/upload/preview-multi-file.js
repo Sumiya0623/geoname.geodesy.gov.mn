@@ -52,7 +52,6 @@ export default function MultiFilePreview({ thumbnail, files, onRemove, sx }) {
 
               {onRemove && (
                 <IconButton
-                  size="small"
                   onClick={() => onRemove(file)}
                   sx={{
                     p: 0.5,
@@ -102,7 +101,7 @@ export default function MultiFilePreview({ thumbnail, files, onRemove, sx }) {
             />
 
             {onRemove && (
-              <IconButton size="small" onClick={() => onRemove(file)}>
+              <IconButton onClick={() => onRemove(file)}>
                 <Iconify icon="mingcute:close-line" width={16} />
               </IconButton>
             )}

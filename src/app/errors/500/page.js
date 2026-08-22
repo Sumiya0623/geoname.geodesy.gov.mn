@@ -1,4 +1,4 @@
-import { View500 } from 'src/sections/error';
+import { View500 } from 'src/sections/settings/error';
 
 // ----------------------------------------------------------------------
 

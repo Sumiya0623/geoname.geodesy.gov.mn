@@ -32,7 +32,6 @@ function TablePaginationActions({ count, page, rowsPerPage, onPageChange }) {
         sx={{ display: "flex", alignItems: "center", mr: 0.5 }}
       >
         <TextField
-          size="small"
           placeholder={`${page + 1}/${totalPages}`}
           value={pageInput}
           onChange={(e) => setPageInput(e.target.value)}
@@ -43,7 +42,6 @@ function TablePaginationActions({ count, page, rowsPerPage, onPageChange }) {
       </Box>
 
       <IconButton
-        size="small"
         disabled={page === 0}
         onClick={(e) => onPageChange(e, 0)}
       >
@@ -51,7 +49,6 @@ function TablePaginationActions({ count, page, rowsPerPage, onPageChange }) {
       </IconButton>
 
       <IconButton
-        size="small"
         disabled={page === 0}
         onClick={(e) => onPageChange(e, page - 1)}
       >
@@ -59,7 +56,6 @@ function TablePaginationActions({ count, page, rowsPerPage, onPageChange }) {
       </IconButton>
 
       <IconButton
-        size="small"
         disabled={page >= totalPages - 1}
         onClick={(e) => onPageChange(e, page + 1)}
       >
@@ -67,7 +63,6 @@ function TablePaginationActions({ count, page, rowsPerPage, onPageChange }) {
       </IconButton>
 
       <IconButton
-        size="small"
         disabled={page >= totalPages - 1}
         onClick={(e) => onPageChange(e, totalPages - 1)}
       >

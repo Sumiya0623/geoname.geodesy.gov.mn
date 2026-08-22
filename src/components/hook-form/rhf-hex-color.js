@@ -48,7 +48,7 @@ export default function RHFHexColorPicker({ name, label, helperText, sx, ...othe
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton aria-describedby={id} onClick={handleOpen} size="small">
+                    <IconButton aria-describedby={id} onClick={handleOpen}>
                       <Box sx={{ width: 20, height: 20, borderRadius: 0.5, bgcolor: value, border: '1px solid', borderColor: 'divider' }} />
                     </IconButton>
                   </InputAdornment>

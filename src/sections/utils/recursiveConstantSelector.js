@@ -120,7 +120,7 @@ export default function RecursiveConstantSelector({ name = 'task', label, childL
           />
         ))}
         {path.length > 0 && (
-          <IconButton size="small" onClick={resetAll} title="Эхнээс нь сонгох">
+          <IconButton onClick={resetAll} title="Эхнээс нь сонгох">
             <Icon icon="mdi:backup-restore" />
           </IconButton>
         )}
@@ -128,7 +128,7 @@ export default function RecursiveConstantSelector({ name = 'task', label, childL
 
       <Box sx={{ position: 'relative' }}>
         {!isLeaf && (
-          <FormControl fullWidth size="small" error={!!errors?.[name]}>
+          <FormControl fullWidth error={!!errors?.[name]}>
             <InputLabel shrink>{path.length === 0 ? childLabel || 'Ажил' : 'Дараагийн түвшин'}</InputLabel>
             <Select
               key={selectKey}

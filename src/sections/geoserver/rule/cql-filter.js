@@ -43,7 +43,6 @@ function FilterRow({ index, fieldsOptions, onRemove, canRemove }) {
         name={`filters.${index}.field`}
         label="Талбар"
         variant="filled"
-        size="small"
         sx={{ minWidth: 160 }}
       >
         {fieldsOptions.map((o) => (
@@ -57,7 +56,6 @@ function FilterRow({ index, fieldsOptions, onRemove, canRemove }) {
         name={`filters.${index}.operator`}
         label="Нөхцөл"
         variant="filled"
-        size="small"
         sx={{ minWidth: 160 }}
       >
         {OPERATORS.map((o) => (
@@ -71,7 +69,6 @@ function FilterRow({ index, fieldsOptions, onRemove, canRemove }) {
         name={`filters.${index}.value`}
         label="Утга"
         variant="filled"
-        size="small"
         sx={{ flex: 1 }}
         placeholder="Ж: 123  |  abc  |  10..20  |  a,b,c"
       />
@@ -81,7 +78,6 @@ function FilterRow({ index, fieldsOptions, onRemove, canRemove }) {
         onClick={onRemove}
         disabled={!canRemove}
         aria-label="remove-row"
-        size="small"
         sx={{ alignSelf: { xs: "flex-end", sm: "center" } }}
       >
         <DeleteIcon fontSize="small" />
@@ -143,7 +139,6 @@ export default function FilterList({ fields }) {
           color="primary"
           startIcon={<AddIcon />}
           onClick={addRow}
-          size="small"
         >
           Мөр нэмэх
         </Button>

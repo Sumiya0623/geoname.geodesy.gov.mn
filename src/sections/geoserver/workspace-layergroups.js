@@ -173,7 +173,6 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
           Layer group (давхаргын дараалал)
         </Typography>
         <Button
-          size="small"
           variant="outlined"
           startIcon={<Iconify icon="mingcute:add-line" />}
           onClick={() => setSelected(NEW)}
@@ -208,7 +207,6 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
             sx={{ mb: 2 }}
           >
             <TextField
-              size="small"
               label="Group нэр"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -218,7 +216,7 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
                 selected !== NEW ? "Байгаа group‑ийн нэр өөрчлөгдөхгүй" : " "
               }
             />
-            <FormControl size="small" sx={{ minWidth: 260 }}>
+            <FormControl sx={{ minWidth: 260 }}>
               <InputLabel>Layer нэмэх</InputLabel>
               <Select
                 label="Layer нэмэх"
@@ -257,7 +255,7 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
             мөрөөс дээр зөөнө.
           </Typography>
 
-          <Table size="small">
+          <Table>
             <TableHead>
               <TableRow>
                 <TableCell width={64}>Эрэмбэ</TableCell>
@@ -277,7 +275,6 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
                     <Tooltip title="Дээш">
                       <span>
                         <IconButton
-                          size="small"
                           disabled={i === 0}
                           onClick={() => move(i, -1)}
                         >
@@ -288,7 +285,6 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
                     <Tooltip title="Доош">
                       <span>
                         <IconButton
-                          size="small"
                           disabled={i === rows.length - 1}
                           onClick={() => move(i, 1)}
                         >
@@ -298,7 +294,6 @@ export default function WorkspaceLayerGroups({ workspaceId, workspaceName }) {
                     </Tooltip>
                     <Tooltip title="Хасах">
                       <IconButton
-                        size="small"
                         color="error"
                         onClick={() => removeRow(i)}
                       >

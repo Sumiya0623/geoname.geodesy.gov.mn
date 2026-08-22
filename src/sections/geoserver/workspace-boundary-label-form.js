@@ -175,7 +175,7 @@ export default function WorkspaceBoundaryLabelForm({
               gap: 2,
             }}
           >
-            <FormControl size="small" fullWidth>
+            <FormControl fullWidth>
               <InputLabel>Нэрийн талбар</InputLabel>
               <Select
                 label="Нэрийн талбар"
@@ -191,7 +191,6 @@ export default function WorkspaceBoundaryLabelForm({
             </FormControl>
 
             <TextField
-              size="small"
               type="number"
               label="Шилжилт (offset)"
               value={offset}
@@ -199,7 +198,7 @@ export default function WorkspaceBoundaryLabelForm({
               helperText="+ дотогш, − гадагш"
             />
 
-            <FormControl size="small" fullWidth>
+            <FormControl fullWidth>
               <InputLabel>Фонт</InputLabel>
               <Select
                 label="Фонт"
@@ -215,7 +214,6 @@ export default function WorkspaceBoundaryLabelForm({
             </FormControl>
 
             <TextField
-              size="small"
               type="number"
               label="Үсгийн хэмжээ"
               value={fontSize}
@@ -223,7 +221,6 @@ export default function WorkspaceBoundaryLabelForm({
             />
 
             <TextField
-              size="small"
               type="color"
               label="Текстийн өнгө"
               value={fill}
@@ -232,7 +229,6 @@ export default function WorkspaceBoundaryLabelForm({
             />
 
             <TextField
-              size="small"
               type="color"
               label="Шугамын (stroke) өнгө"
               value={stroke}
@@ -241,7 +237,6 @@ export default function WorkspaceBoundaryLabelForm({
             />
 
             <TextField
-              size="small"
               type="number"
               label="Том масштаб (их зумд алга)"
               value={scaleMin}
@@ -255,7 +250,6 @@ export default function WorkspaceBoundaryLabelForm({
             />
 
             <TextField
-              size="small"
               type="number"
               label="Жижиг масштаб (жижиг зумд алга)"
               value={scaleMax}

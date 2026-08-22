@@ -178,7 +178,6 @@ export default function PhotoDirectionPicker({ value = [], onChange, label }) {
               )}°)`}
             />
             <Button
-              size="small"
               color="error"
               startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}
               onClick={removeCurrent}

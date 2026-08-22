@@ -52,11 +52,11 @@ const CustomCard = ({
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             {currentStep > 0 && (
-              <Button variant="outlined" onClick={prevStep} size="small">
+              <Button variant="outlined" onClick={prevStep}>
                 Өмнөх
               </Button>
             )}
-            <Button variant="contained" onClick={nextStep} size="small">
+            <Button variant="contained" onClick={nextStep}>
               {currentStep === totalSteps - 1 ? 'Дуусгах' : 'Дараагийх'}
             </Button>
           </Stack>

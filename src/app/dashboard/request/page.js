@@ -1,4 +1,4 @@
-import { RequestListView } from "src/sections/request/view";
+import { RequestListView } from "src/sections/dashboard/request/view";
 
 // ----------------------------------------------------------------------
 

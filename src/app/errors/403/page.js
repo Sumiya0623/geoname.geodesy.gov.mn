@@ -1,4 +1,4 @@
-import { View403 } from 'src/sections/error';
+import { View403 } from 'src/sections/settings/error';
 
 // ----------------------------------------------------------------------
 

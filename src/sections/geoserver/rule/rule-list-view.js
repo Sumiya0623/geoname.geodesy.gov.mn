@@ -184,7 +184,6 @@ function RuleCard({ rule, index, onEdit, onDelete, menuPermissions }) {
                   <Chip
                     key={idx}
                     label={`${filter.field} ${OP_LABELS[filter.operator] || filter.operator} ${filter.value}`}
-                    size="small"
                     variant="outlined"
                     sx={{
                       backgroundColor: alpha(theme.palette.info.main, 0.1),
@@ -607,7 +606,6 @@ export default function RuleListView({ selectedLayerId, onClose }) {
                   : "Шинэ дүрэм — масштабын муж + style"}
               </Typography>
               <IconButton
-                size="small"
                 onClick={() => {
                   setAdding(false);
                   handleCloseEdit();

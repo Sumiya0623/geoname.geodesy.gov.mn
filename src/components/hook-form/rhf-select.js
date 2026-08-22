@@ -95,7 +95,7 @@ export function RHFMultiSelect({
       return (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
           {selectedItems.map((item) => (
-            <Chip key={item.value} size="small" label={item.label} />
+            <Chip key={item.value} label={item.label} />
           ))}
         </Box>
       );
@@ -127,7 +127,7 @@ export function RHFMultiSelect({
               return (
                 <MenuItem key={option.value} value={option.value}>
                   {checkbox && (
-                    <Checkbox size="small" disableRipple checked={selected} />
+                    <Checkbox disableRipple checked={selected} />
                   )}
 
                   {option.label}

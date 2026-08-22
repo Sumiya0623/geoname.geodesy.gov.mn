@@ -152,7 +152,6 @@ export default function ChampaignUnitsDialog({
             {units.map((u) => (
               <Chip
                 key={u.id}
-                size="small"
                 variant="outlined"
                 disabled={saving}
                 onDelete={canRemove ? () => askRemove(u) : undefined}
@@ -186,7 +185,6 @@ export default function ChampaignUnitsDialog({
       >
         <TextField
           select
-          size="small"
           label="Аймаг/Нийслэл"
           value={aimag}
           onChange={(e) => {
@@ -204,7 +202,6 @@ export default function ChampaignUnitsDialog({
 
         <TextField
           select
-          size="small"
           label="Сум/Дүүрэг"
           value={sum}
           disabled={!aimag}
@@ -270,7 +267,6 @@ export default function ChampaignUnitsDialog({
                 дахин нэмсэн ч өмнөх ажлын үр дүн сэргэхгүй.
               </Alert>
               <TextField
-                size="small"
                 autoFocus
                 fullWidth
                 label={`Баталгаажуулахын тулд "${CONFIRM_WORD}" гэж бичнэ үү`}

@@ -1,4 +1,4 @@
-import Map2 from "src/sections/map2/index";
+import Map2 from "src/sections/map/index";
 
 // ----------------------------------------------------------------------
 

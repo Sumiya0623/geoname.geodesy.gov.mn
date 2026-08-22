@@ -35,7 +35,6 @@ export default function PhotoSlider({
   const addBtn = onAdd && (
     <Tooltip title="Зураг нэмэх">
       <IconButton
-        size="small"
         onClick={onAdd}
         sx={{
           position: "absolute",
@@ -132,7 +131,6 @@ export default function PhotoSlider({
         {photos.length > 1 && (
           <>
             <IconButton
-              size="small"
               onClick={nav(-1)}
               sx={{
                 position: "absolute",
@@ -147,7 +145,6 @@ export default function PhotoSlider({
               <Icon icon="eva:arrow-ios-back-fill" width={22} />
             </IconButton>
             <IconButton
-              size="small"
               onClick={nav(1)}
               sx={{
                 position: "absolute",

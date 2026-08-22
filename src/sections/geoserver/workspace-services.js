@@ -88,15 +88,14 @@ export default function WorkspaceServices({ workspaceId, workspaceName, canUpdat
           {gsLoading ? (
             <CircularProgress size={14} />
           ) : gsExists ? (
-            <Chip size="small" color="success" variant="soft" label="Холбогдсон" />
+            <Chip color="success" variant="soft" label="Холбогдсон" />
           ) : (
-            <Chip size="small" color="warning" variant="soft" label="GeoServer дээр алга" />
+            <Chip color="warning" variant="soft" label="GeoServer дээр алга" />
           )}
         </Stack>
 
         {!gsLoading && !gsExists && canUpdate && (
           <Button
-            size="small"
             variant="contained"
             color="warning"
             startIcon={<Icon icon="mdi:cloud-upload-outline" />}
@@ -139,7 +138,7 @@ export default function WorkspaceServices({ workspaceId, workspaceName, canUpdat
                   <Typography variant="subtitle2">{s.label}</Typography>
                   {state.scope === "global" && (
                     <Tooltip title="Глобал тохиргоогоор">
-                      <Chip size="small" variant="outlined" label="global" />
+                      <Chip variant="outlined" label="global" />
                     </Tooltip>
                   )}
                 </Stack>

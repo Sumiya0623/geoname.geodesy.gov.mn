@@ -129,7 +129,6 @@ export default function RequestTableRow({
           </Typography>
           <Tooltip title="Дэлгэрэнгүй харах">
             <IconButton
-              size="small"
               onClick={(e) => {
                 e.stopPropagation();
                 onViewDetails && onViewDetails(row);

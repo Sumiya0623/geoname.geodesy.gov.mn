@@ -99,7 +99,6 @@ export default function AccountPopover() {
                 <Chip
                   key={role.id || role.name}
                   label={role.name}
-                  size="small"
                   variant="filled"
                   color="primary"
                   sx={{

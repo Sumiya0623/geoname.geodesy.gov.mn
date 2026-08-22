@@ -42,14 +42,14 @@ function Section({ icon, title, count, onAdd, children }) {
           <Icon icon={icon} width={22} />
           <Typography variant="h6">{title}</Typography>
           {typeof count === "number" && (
-            <Chip size="small" label={count} variant="soft" color="primary" />
+            <Chip label={count} variant="soft" color="primary" />
           )}
           {onAdd && (
             <Box
               sx={{ flexGrow: 1, display: "flex", justifyContent: "flex-end" }}
             >
               <Tooltip title="Нэмэх">
-                <IconButton size="small" color="primary" onClick={onAdd}>
+                <IconButton color="primary" onClick={onAdd}>
                   <Icon icon="mingcute:add-line" width={20} />
                 </IconButton>
               </Tooltip>
@@ -185,7 +185,6 @@ export default function GeonameDetailView({ id }) {
                         </Typography>
                       )}
                       <Chip
-                        size="small"
                         label={t.name}
                         variant={i === path.length - 1 ? "filled" : "outlined"}
                         color={i === path.length - 1 ? "primary" : "default"}
@@ -226,7 +225,6 @@ export default function GeonameDetailView({ id }) {
                     {data.units.map((u) => (
                       <Chip
                         key={u.id}
-                        size="small"
                         label={u.name}
                         variant="soft"
                       />
@@ -279,7 +277,6 @@ export default function GeonameDetailView({ id }) {
                           {g.nomeks.map((n) => (
                             <Chip
                               key={n.id}
-                              size="small"
                               label={n.code}
                               variant="soft"
                               color="info"
@@ -353,7 +350,6 @@ export default function GeonameDetailView({ id }) {
                           </Typography>
                           {r.status && (
                             <Chip
-                              size="small"
                               label={r.status}
                               variant="soft"
                             />

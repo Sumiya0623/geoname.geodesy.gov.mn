@@ -23,7 +23,7 @@ import FormProvider, {
   RHFTextField,
 } from "src/components/hook-form";
 
-import RequestLocate from "src/sections/request/request-locate";
+import RequestLocate from "src/sections/dashboard/request/request-locate";
 
 import GeonameMap from "./geoname-map";
 import GeonameOrders from "./geoname-orders";
@@ -185,7 +185,6 @@ export default function GeonameNewEditForm({
               >
                 <Typography variant="subtitle2">Байршил</Typography>
                 <Chip
-                  size="small"
                   variant="soft"
                   color="success"
                   label={geomType}
@@ -200,13 +199,11 @@ export default function GeonameNewEditForm({
                       name="lat"
                       label="Өргөрөг"
                       type="number"
-                      size="small"
                     />
                     <RHFTextField
                       name="lon"
                       label="Уртраг"
                       type="number"
-                      size="small"
                     />
                   </Stack>
                   <RequestLocate />

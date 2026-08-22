@@ -180,7 +180,6 @@ function TreeRow({
             {level === 0 ? (
               menuPermissions?.create &&
               <IconButton
-                size="small"
                 color={childFormOpen ? "primary" : "default"}
                 onClick={() => {
                   if (editMode) return;
@@ -205,7 +204,6 @@ function TreeRow({
             ) : (
               menuPermissions?.detail &&
               <IconButton
-                size="small"
                 // onClick={popover.onOpen}
                 href={paths.dashboard.geoserver.layers(item?.id)}
                 sx={{
@@ -221,7 +219,6 @@ function TreeRow({
               </IconButton>
             )}
             <IconButton
-              size="small"
               onClick={popover.onOpen}
               sx={{
                 "&:hover": {

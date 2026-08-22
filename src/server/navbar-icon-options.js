@@ -6,7 +6,7 @@ import path from "node:path";
 import {
   createNavbarIconOption,
   normalizeNavbarIconFilename,
-} from "../sections/usermenu/icons";
+} from "../sections/settings/menu/icons";
 
 const NAVBAR_ICON_DIR = path.join(process.cwd(), "public/assets/icons/navbar");
 

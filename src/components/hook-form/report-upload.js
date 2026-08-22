@@ -68,7 +68,6 @@ export default function ReportPDFField({ name, label = 'Файл', onPageCount, 
                   <Icon icon="mdi:file-pdf-box" width={20} height={20} color="red" />
                 </Typography>
                 <IconButton
-                  size="small"
                   onClick={() =>
                     setValue(name, null, {
                       shouldValidate: true,

@@ -126,7 +126,7 @@ export default function RequestChart({ selectedMethod, onMethodChange }) {
   const renderFilters = (
     <Grid container spacing={2} sx={{ mb: 3 }}>
       <Grid item xs={12} sm={6}>
-        <FormControl fullWidth size="small">
+        <FormControl fullWidth>
           <InputLabel>Интервал</InputLabel>
           <Select
             value={filters.interval}
@@ -143,7 +143,7 @@ export default function RequestChart({ selectedMethod, onMethodChange }) {
       </Grid>
 
       <Grid item xs={12} sm={6}>
-        <FormControl fullWidth size="small">
+        <FormControl fullWidth>
           <InputLabel>Үйлдэл</InputLabel>
           <Select
             // Dropdown дээр үргэлж uppercase утга харуулах

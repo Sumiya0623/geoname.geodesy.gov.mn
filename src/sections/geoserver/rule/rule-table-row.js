@@ -61,7 +61,6 @@ export default function RuleTableRow({
               {filters.map((f, i) => (
                 <Chip
                   key={f.id ?? i}
-                  size="small"
                   label={`${f.field ?? "?"} ${OP_LABELS[f.operator] ?? f.operator} ${f.value ?? ""}`}
                   variant="outlined"
                 />

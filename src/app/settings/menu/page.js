@@ -1,4 +1,4 @@
-import { MenuListView } from "src/sections/usermenu/view";
+import { MenuListView } from "src/sections/settings/menu/view";
 
 import getNavbarIconOptions from "src/server/navbar-icon-options";
 

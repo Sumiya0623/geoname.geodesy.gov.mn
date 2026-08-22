@@ -68,7 +68,6 @@ export default function WorkspaceStores({ workspaceId, canUpdate }) {
         </Stack>
         {canUpdate && (
           <Button
-            size="small"
             variant="outlined"
             startIcon={
               <Icon icon={addStore.value ? "mdi:minus" : "mingcute:add-line"} />
@@ -95,7 +94,6 @@ export default function WorkspaceStores({ workspaceId, canUpdate }) {
           }}
         >
           <TextField
-            size="small"
             label="Store нэр"
             value={storeName}
             onChange={(e) =>

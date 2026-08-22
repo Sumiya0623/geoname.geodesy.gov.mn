@@ -1,11 +1,11 @@
-import MaintenanceView from 'src/sections/maintenance/view';
+import { View403 } from 'src/sections/settings/error';
 
 // ----------------------------------------------------------------------
 
 export const metadata = {
-  title: 'Хандах эрх байхгүй байна',
+  title: '403 Хандах эрх байхгүй байна',
 };
 
 export default function MaintenancePage() {
-  return <MaintenanceView />;
+  return <View403 />;
 }

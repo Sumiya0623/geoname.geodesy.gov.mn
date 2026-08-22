@@ -61,7 +61,6 @@ export default function NotificationItem({ notification, selected, onSelect, onC
         }}
       >
         <Checkbox
-          size="small"
           checked={!!selected}
           onClick={handleCheckbox}
           sx={{ mt: 0.25, mr: 1 }}
@@ -118,7 +117,6 @@ export default function NotificationItem({ notification, selected, onSelect, onC
         )}
 
         <IconButton
-          size="small"
           color={open ? "inherit" : "default"}
           onClick={handleOpenPopover}
           sx={{ ml: 0.5, mt: -0.25 }}

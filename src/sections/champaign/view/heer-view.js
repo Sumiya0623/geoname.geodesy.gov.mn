@@ -7,8 +7,8 @@ import Box from "@mui/material/Box";
 
 import CollapseCard from "src/components/collapse-card";
 
-import { TeamListView } from "src/sections/team/view";
-import { WorkMapListView } from "src/sections/workmap/view";
+import { TeamListView } from "src/sections/champaign/team/view";
+import { WorkMapListView } from "src/sections/champaign/workmap/view";
 
 // ----------------------------------------------------------------------
 // ХЭЭРИЙН СУДАЛГАА — төслийн дэлгэрэнгүйн таб (хуудас).

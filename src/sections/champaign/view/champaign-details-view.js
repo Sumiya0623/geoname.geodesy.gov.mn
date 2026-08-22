@@ -12,7 +12,7 @@ import { useGetChampaign } from "src/api/champaign";
 import BeltgelView from "./beltgel-view";
 import SuurinView from "./suurin-view";
 import HeerView from "./heer-view";
-import { MayagtView } from "src/sections/mayagt/view";
+import { MayagtView } from "src/sections/champaign/mayagt/view";
 import ProjectDetailsContent from "../champaign-details-content";
 
 import { useNextStep } from "nextstepjs";

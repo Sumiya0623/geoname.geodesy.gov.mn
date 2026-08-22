@@ -83,6 +83,16 @@ export function defaultProps(theme) {
         useFlexGap: true,
       },
     },
+    // Бүх системд хэмжээ = small (компонент бүр дээр size='small' бичихгүй).
+    // Том/дунд хэрэгтэй газартаа л size="medium|large" гэж дарж бичнэ.
+    MuiIconButton: { defaultProps: { size: 'small' } },
+    MuiTextField: { defaultProps: { size: 'small' } },
+    MuiFormControl: { defaultProps: { size: 'small' } },
+    MuiLoadingButton: { defaultProps: { size: 'small' } },
+    MuiToggleButton: { defaultProps: { size: 'small' } },
+    MuiToggleButtonGroup: { defaultProps: { size: 'small' } },
+    MuiSwitch: { defaultProps: { size: 'small' } },
+    MuiTable: { defaultProps: { size: 'small' } },
     MuiAppBar: {
       defaultProps: {
         color: 'transparent',
@@ -100,6 +110,7 @@ export function defaultProps(theme) {
     },
     MuiButton: {
       defaultProps: {
+        size: 'small',
         color: 'inherit',
         disableElevation: true,
       },
@@ -115,6 +126,7 @@ export function defaultProps(theme) {
     },
     MuiChip: {
       defaultProps: {
+        size: 'small',
         deleteIcon: <Iconify icon="solar:close-circle-bold" />,
       },
     },
@@ -125,6 +137,7 @@ export function defaultProps(theme) {
     },
     MuiFab: {
       defaultProps: {
+        size: 'small',
         color: 'primary',
       },
     },
@@ -194,11 +207,13 @@ export function defaultProps(theme) {
     },
     MuiAutocomplete: {
       defaultProps: {
+        size: 'small',
         popupIcon: <ArrowDownIcon />,
       },
     },
     MuiSelect: {
       defaultProps: {
+        size: 'small',
         IconComponent: ArrowDownIcon,
       },
     },

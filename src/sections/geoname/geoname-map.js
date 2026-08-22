@@ -136,7 +136,7 @@ export default function GeonameMap({ geomType, value, onChange }) {
             ? "Газрын зураг дээр дарж цэг тэмдэглэнэ"
             : `Газрын зураг дээр ${geomType?.toLowerCase()} зурна`}
         </Typography>
-        <Button size="small" color="inherit" onClick={clear}>
+        <Button color="inherit" onClick={clear}>
           Арилгах
         </Button>
       </Stack>

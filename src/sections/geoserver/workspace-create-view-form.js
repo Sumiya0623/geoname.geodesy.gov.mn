@@ -131,7 +131,6 @@ export default function WorkspaceCreateViewForm({
 
             <TextField
               fullWidth
-              size="small"
               label="View нэрийн угтвар"
               value={prefix}
               onChange={(e) => setPrefix(e.target.value)}
@@ -158,7 +157,7 @@ export default function WorkspaceCreateViewForm({
                     <FormControlLabel
                       key={f.name}
                       value={f.name}
-                      control={<Radio size="small" />}
+                      control={<Radio />}
                       label={
                         <span>
                           {f.name}{" "}

@@ -91,7 +91,7 @@ export default function WorkspaceTreeRow({
           bgcolor: open.value ? "action.hover" : "transparent",
         }}
       >
-        <IconButton size="small" onClick={toggleOpen}>
+        <IconButton onClick={toggleOpen}>
           <Icon icon={open.value ? "mdi:chevron-down" : "mdi:chevron-right"} />
         </IconButton>
 
@@ -101,7 +101,6 @@ export default function WorkspaceTreeRow({
           </Typography>
           <Typography variant="subtitle2">{item.name}</Typography>
           <Chip
-            size="small"
             variant="soft"
             color={childCount > 0 ? "primary" : "default"}
             label={`${childCount} дэд`}
@@ -117,7 +116,7 @@ export default function WorkspaceTreeRow({
         {(menuPermissions?.create ||
           menuPermissions?.update ||
           menuPermissions?.delete) && (
-          <IconButton size="small" onClick={popover.onOpen}>
+          <IconButton onClick={popover.onOpen}>
             <Icon icon="mdi:dots-vertical" />
           </IconButton>
         )}

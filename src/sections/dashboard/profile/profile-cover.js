@@ -154,7 +154,6 @@ export default function ProfileCover({ user }) {
               }}
             >
               <Button
-                size="small"
                 variant="contained"
                 startIcon={<Iconify icon="solar:pen-bold" />}
               ></Button>
@@ -192,7 +191,6 @@ export default function ProfileCover({ user }) {
             <LoadingButton
               variant="contained"
               color="primary"
-              size="small"
               sx={{ mt: 1 }}
               onClick={handleSave}
               loading={uploading}

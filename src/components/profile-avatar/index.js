@@ -128,7 +128,6 @@ function ProfileAvatar({ user, size = 40, avatarSx = {} }) {
                         <Chip
                           key={role.id || role.name}
                           label={role.name}
-                          size="small"
                           variant="filled"
                           color="primary"
                           sx={{
@@ -187,7 +186,6 @@ function ProfileAvatar({ user, size = 40, avatarSx = {} }) {
                     >
                       <IconButton
                         className="copy-icon"
-                        size="small"
                         sx={{
                           opacity: 0,
                           transition: "opacity 0.2s",
@@ -236,7 +234,6 @@ function ProfileAvatar({ user, size = 40, avatarSx = {} }) {
                     >
                       <IconButton
                         className="copy-icon"
-                        size="small"
                         sx={{
                           opacity: 0,
                           transition: "opacity 0.2s",
@@ -285,7 +282,6 @@ function ProfileAvatar({ user, size = 40, avatarSx = {} }) {
                     >
                       <IconButton
                         className="copy-icon"
-                        size="small"
                         sx={{
                           opacity: 0,
                           transition: "opacity 0.2s",

@@ -1,4 +1,4 @@
-import { RoleCreateView } from 'src/sections/role/view';
+import { RoleCreateView } from 'src/sections/settings/role/view';
 
 // ----------------------------------------------------------------------
 

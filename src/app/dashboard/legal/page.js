@@ -1,4 +1,4 @@
-import { LegalListView } from "src/sections/legal/view";
+import { LegalListView } from "src/sections/council/legal/view";
 
 // ----------------------------------------------------------------------
 

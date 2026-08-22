@@ -8,10 +8,10 @@ import { Container, Tabs, Tab, tabsClasses, Card } from "@mui/material";
 import Iconify from "src/components/iconify";
 import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 
-import { UserListView } from "src/sections/user/view";
-import { RoleListView } from "src/sections/role/view";
-import { MenuListView } from "src/sections/usermenu/view";
-import { ConstantListView } from "src/sections/constant/view";
+import { UserListView } from "src/sections/settings/user/view";
+import { RoleListView } from "src/sections/settings/role/view";
+import { MenuListView } from "src/sections/settings/menu/view";
+import { ConstantListView } from "src/sections/settings/constant/view";
 
 // ----------------------------------------------------------------------
 // Тав бүр нь өөрийн SubMenu-ийн `content` түлхүүрээр харах (`list`) эрхээ шалгана.

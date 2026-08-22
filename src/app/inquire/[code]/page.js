@@ -123,7 +123,7 @@ export default function InquireVerifyPage({ params }) {
                 {data.valid ? "Хүчинтэй лавлагаа" : "Хүчингүй / хугацаа дууссан"}
               </Stack>
 
-              <Table size="small">
+              <Table>
                 <TableBody>
                   <Row label="Лавлагааны дугаар" value={<b>{data.code}</b>} />
                   <Row

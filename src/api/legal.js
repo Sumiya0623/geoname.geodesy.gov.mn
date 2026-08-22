@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import axiosInstance, { fetcher, endpoints } from "src/utils/axios";
 
 // ----------------------------------------------------------------------
-// Тогтоол, шийдвэрийн сан (LegalOrder) + төрөл (LEGAL_TYPES) карт
+// Тогтоол, шийдвэрийн сан (LegalOrder) + түвшин (LEGAL_LEVELS) карт
 // ----------------------------------------------------------------------
 
 // AdminUnit dropdown — level='aimag' (Аймаг/Нийслэл) эсвэл level='sum' (Сум/Дүүрэг, parent=аймаг)
@@ -20,8 +20,10 @@ export function useGetLegalUnits(level, parentId, enabled = true) {
   return { units: data?.results || [], unitsLoading: isLoading };
 }
 
-export function useGetLegalTypes() {
-  const URL = endpoints.legal.types("");
+// LEGAL_LEVELS — шийдвэрийн түвшин (LegalOrder.govlevel «Дээд тогтоол»).
+// Хуучин нэр: useGetLegalTypes / LEGAL_TYPES.
+export function useGetLegalLevels() {
+  const URL = endpoints.legal.levels("");
 
   const { data, isLoading, error, isValidating, mutate } = useSWR(
     [URL, axiosInstance, "get"],
@@ -31,11 +33,11 @@ export function useGetLegalTypes() {
 
   return useMemo(
     () => ({
-      legalTypes: data?.results || [],
-      legalTypesLoading: isLoading,
-      legalTypesError: error,
-      legalTypesMutation: mutate,
-      legalTypesValidating: isValidating,
+      legalLevels: data?.results || [],
+      legalLevelsLoading: isLoading,
+      legalLevelsError: error,
+      legalLevelsMutation: mutate,
+      legalLevelsValidating: isValidating,
     }),
     [data, error, isLoading, isValidating, mutate]
   );

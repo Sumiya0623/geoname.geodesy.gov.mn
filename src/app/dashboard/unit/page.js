@@ -1,4 +1,4 @@
-import { AdminUnitListView } from "src/sections/adminunit/view";
+import { AdminUnitListView } from "src/sections/settings/adminunit/view";
 
 // ----------------------------------------------------------------------
 

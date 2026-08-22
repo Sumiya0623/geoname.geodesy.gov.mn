@@ -57,7 +57,6 @@ export default function WorkspaceViewsRow({ row, no, busy, onService }) {
                 {s.toUpperCase()}
               </Typography>
               <Switch
-                size="small"
                 checked={!!row[s]}
                 disabled={!row.published || busy === `${row.view}:${s}`}
                 onChange={(e) => onService(row, s, e.target.checked)}
