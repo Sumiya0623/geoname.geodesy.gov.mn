@@ -4,7 +4,8 @@ from rest_framework import serializers
 from django.contrib.gis.geos import Point, GEOSGeometry
 from django.contrib.contenttypes.models import ContentType
 
-from django.db.models import Count, Q
+from django.db.models import Count, Q, F, Value, IntegerField
+from django.db.models.functions import Cast, NullIf
 
 from core.serializers import (ProfileDropDownSerializer, PersonSerializerMixin,
                               AdminUnitDropDownSerializer)
@@ -160,14 +161,17 @@ class GeoNameDetailSerializer(serializers.ModelSerializer):
 class LegalOrderMiniSerializer(serializers.ModelSerializer):
 	"""Эрх зүйн баримт бичиг (LegalOrder) — товч.
 
-	org = LEGAL_TYPES, type = ORDER_TYPES — засах үед dropdown‑уудыг сэргээхэд id‑аар ирнэ.
+	govlevel = LEGAL_LEVELS, org = LEGAL_ORGS, type = ORDER_TYPES — засах үед
+	dropdown‑уудыг сэргээхэд id‑аар ирнэ.
 	"""
 	type_name = serializers.CharField(source='type.name', read_only=True, default=None)
+	govlevel_name = serializers.CharField(source='govlevel.name', read_only=True, default=None)
 	org_name = serializers.CharField(source='org.name', read_only=True, default=None)
 
 	class Meta:
 		model = LegalOrder
-		fields = ['id', 'name', 'order_number', 'order_date', 'org', 'org_name', 'type', 'type_name']
+		fields = ['id', 'name', 'order_number', 'order_date', 'govlevel',
+		          'govlevel_name', 'org', 'org_name', 'type', 'type_name']
 
 
 class ConstantMiniSerializer(serializers.ModelSerializer):
@@ -360,7 +364,7 @@ class ProjectMemberSerializer(PersonSerializerMixin, serializers.ModelSerializer
 class ProjectSerializer(serializers.ModelSerializer):
 	org=ProfileDropDownSerializer(read_only=True)
 	# Бэлтгэл табын chip‑үүд: ЗӨВХӨН энэ төсөлд бүртгэгдсэн (≥1 legal орд бүхий)
-	# LEGAL_TYPES төрлүүд + орд тоо. Зөвхөн detail (retrieve) дээр (жагсаалтад null).
+	# LEGAL_LEVELS түвшнүүд + орд тоо. Зөвхөн detail (retrieve) дээр (жагсаалтад null).
 	registered_types = serializers.SerializerMethodField()
 	# Хамрах ЗЗ нэгж — уншихад дэлгэрэнгүй, бичихэд id‑гийн жагсаалт
 	units = ProjectUnitSerializer(many=True, read_only=True)
@@ -378,10 +382,14 @@ class ProjectSerializer(serializers.ModelSerializer):
 		if not view or getattr(view, 'action', None) != 'retrieve':
 			return None
 		types = (
-			Constant.objects.filter(key='LEGAL_TYPES')
-			.annotate(order_count=Count('legalorgs', filter=Q(legalorgs__projects=obj), distinct=True))
+			Constant.objects.filter(key='LEGAL_LEVELS')
+			.annotate(order_count=Count('orgs', filter=Q(orgs__projects=obj), distinct=True))
 			.filter(order_count__gt=0)
-			.order_by('id')
+			# Эрэмбэ нь LegalTypeViewSet‑тэй ИЖИЛ: code (текст) → color → id
+			.annotate(code_txt=NullIf('code', Value('')),
+			          color_num=Cast(NullIf('color', Value('')), IntegerField()))
+			.order_by(F('code_txt').asc(nulls_last=True),
+			          F('color_num').asc(nulls_last=True), 'id')
 		)
 		return [
 			{

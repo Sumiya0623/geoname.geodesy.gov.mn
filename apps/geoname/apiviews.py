@@ -517,6 +517,154 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		Attach.objects.create(attach=f, content_type=self._ct(), object_id=obj.id)
 		return Response({'detail': 'ok'}, status=201)
 
+	# ============ Баримт ↔ нэр холбох (маягтын toolbar) ============
+	# LegalOrder.names (M2M) дээр БӨӨНӨӨР нэмэх/хасах. Маягтын хүснэгтээс
+	# сонгосон мөрүүд болон нэрийн хайлтаас сонгосон нэрсийг нэг дор холбоно.
+
+	def _order_or_400(self, request):
+		"""POST/GET‑ээс order id‑г уншиж LegalOrder буцаана.
+
+		project ирсэн бол баримт ТУХАЙН ТӨСӨЛД холбогдсон эсэхийг шалгана —
+		маягтаас өөр төслийн баримт руу санамсаргүй нэр нэмэхээс сэргийлнэ.
+		"""
+		src = request.data if request.method == 'POST' else request.query_params
+		oid = src.get('order')
+		if not oid:
+			return None, Response({'detail': 'Баримт сонгоно уу'}, status=400)
+		order = LegalOrder.objects.filter(id=oid).first()
+		if not order:
+			return None, Response({'detail': 'Баримт олдсонгүй'}, status=404)
+		project = src.get('project')
+		if project and not order.projects.filter(id=project).exists():
+			return None, Response(
+				{'detail': 'Энэ баримт тухайн төсөлд холбогдоогүй байна'},
+				status=400)
+		return order, None
+
+	@staticmethod
+	def _order_brief(order):
+		return {
+			'id': order.id,
+			'name': order.name,
+			'order_number': order.order_number,
+			'order_date': order.order_date,
+			'type_name': order.type.name if order.type_id else None,
+			'govlevel_name': order.govlevel.name if order.govlevel_id else None,
+			'org_name': order.org.name if order.org_id else None,
+			'names_count': order.names.count(),
+		}
+
+	@action(detail=False, methods=['get'], url_path='order-search',
+			permission_classes=[IsAuthenticated])
+	def order_search(self, request):
+		"""Баримт (LegalOrder) хайх — маягтын «баримт холбох» талбарын dropdown.
+
+		?project=<id> → ЗӨВХӨН тухайн төсөлд холбогдсон баримтууд (projects M2M).
+		?search=...   → нэр, дугаар, гарын үсэг; ?unit=<id> → тухайн нэгж/харьяа.
+		Хамгийн сүүлд гарсан 20‑г буцаана.
+		"""
+		qs = LegalOrder.objects.select_related('type', 'govlevel', 'org')
+		project = request.query_params.get('project')
+		if project:
+			qs = qs.filter(projects__id=project)
+		q = (request.query_params.get('search') or '').strip()
+		if q:
+			qs = qs.filter(Q(name__icontains=q) | Q(order_number__icontains=q)
+			               | Q(signer__icontains=q))
+		unit = request.query_params.get('unit')
+		if unit:
+			qs = qs.filter(Q(unit_id=unit) | Q(unit__parent_id=unit))
+		qs = qs.annotate(n_cnt=Count('names', distinct=True))
+		out = []
+		for o in qs.order_by('-order_date', '-id')[:20]:
+			d = self._order_brief(o)
+			d['names_count'] = o.n_cnt
+			out.append(d)
+		return Response({'results': out}, status=200)
+
+	@action(detail=False, methods=['get'], url_path='order-names',
+			permission_classes=[IsAuthenticated])
+	def order_names(self, request):
+		"""Тухайн баримтад ХОЛБОГДСОН нэрс — давхардлыг шалгах, chip‑ээр харуулах."""
+		order, err = self._order_or_400(request)
+		if err:
+			return err
+		qs = order.names.select_related('type').order_by('name')
+		return Response({
+			'order': self._order_brief(order),
+			'count': qs.count(),
+			'results': [{'id': g.id, 'name': g.name, 'number': g.number,
+			             'type_name': g.type.name if g.type_id else None}
+			            for g in qs[:500]],
+		}, status=200)
+
+	@action(detail=False, methods=['post'], url_path='order-linked',
+			permission_classes=[IsAuthenticated])
+	def order_linked(self, request):
+		"""Өгсөн нэрсээс АЛЬ нь тухайн баримтад холбоотойг буцаана.
+
+		Нэг баримтад 200 мянга гаруй нэр холбогдсон байж болох тул бүтэн
+		жагсаалт татах нь утгагүй — маягтад харагдаж буй нэрсийн ЗӨВХӨН
+		огтлолцлыг шалгана.  POST {order, names: [...]} → {linked: [...], count}
+		"""
+		order, err = self._order_or_400(request)
+		if err:
+			return err
+		ids = [int(i) for i in (request.data.get('names') or [])
+		       if str(i).isdigit()]
+		linked = list(order.names.filter(id__in=ids)
+		              .values_list('id', flat=True)) if ids else []
+		return Response({'linked': linked, 'count': order.names.count()},
+		                status=200)
+
+	@action(detail=False, methods=['post'], url_path='attach-order',
+			permission_classes=[IsAuthenticated])
+	def attach_order(self, request):
+		"""Сонгосон нэрсийг баримтад холбоно.  POST {order, names: [id, ...]}
+
+		Давхардсаныг чимээгүй алгасаад (M2M idempotent) хэдийг нь ШИНЭЭР
+		нэмснийг тоолж буцаана → форм дээр «N холбогдлоо, M аль хэдийн байсан».
+		"""
+		order, err = self._order_or_400(request)
+		if err:
+			return err
+		ids = request.data.get('names') or []
+		if not isinstance(ids, (list, tuple)):
+			ids = [ids]
+		ids = [int(i) for i in ids if str(i).isdigit()]
+		if not ids:
+			return Response({'detail': 'Нэр сонгоно уу'}, status=400)
+		valid = list(GeoName.objects.filter(id__in=ids).values_list('id', flat=True))
+		exists = set(order.names.filter(id__in=valid).values_list('id', flat=True))
+		fresh = [i for i in valid if i not in exists]
+		if fresh:
+			order.names.add(*fresh)
+		return Response({
+			'added': len(fresh),
+			'skipped': len(exists),
+			'missing': len(ids) - len(valid),
+			'count': order.names.count(),
+		}, status=200)
+
+	@action(detail=False, methods=['post'], url_path='detach-order',
+			permission_classes=[IsAuthenticated])
+	def detach_order(self, request):
+		"""Баримтаас нэр(с)‑ийг салгана.  POST {order, names: [id, ...]}"""
+		order, err = self._order_or_400(request)
+		if err:
+			return err
+		ids = request.data.get('names') or []
+		if not isinstance(ids, (list, tuple)):
+			ids = [ids]
+		ids = [int(i) for i in ids if str(i).isdigit()]
+		if not ids:
+			return Response({'detail': 'Нэр сонгоно уу'}, status=400)
+		removed = order.names.filter(id__in=ids).count()
+		if removed:
+			order.names.remove(*ids)
+		return Response({'removed': removed, 'count': order.names.count()},
+		                status=200)
+
 	@action(detail=True, methods=['post'], url_path='add-order',
 			parser_classes=[MultiPartParser, FormParser])
 	def add_order(self, request, pk=None):
@@ -531,6 +679,7 @@ class GeoNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 			name=name,
 			order_number=(d.get('order_number') or None),
 			order_date=(d.get('order_date') or None),
+			govlevel_id=(d.get('govlevel') or None),
 			org_id=(d.get('org') or None),
 			type_id=(d.get('type') or None),
 			description=(d.get('description') or None),

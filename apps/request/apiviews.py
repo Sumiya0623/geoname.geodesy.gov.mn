@@ -25,32 +25,30 @@ from .serializers import (
 )
 
 class LegalTypeViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
-	"""Тогтоол, шийдвэрийн төрлүүд (LEGAL_TYPES) — картууд.
-
-	Мөр бүрт order_count‑оор тухайн төрөлд хичнээн тогтоол байгааг харуулна.
-	"""
 	serializer_class = LegalTypeSerializer
 	permission_classes = function_permission('legal')
-
 	def get_queryset(self):
-		# color талбарт хадгалсан тоогоор эрэмбэлнэ (хоосон бол сүүлд).
-		# color нь CharField тул бүхэл тоо руу cast хийнэ; хоосныг NULL болгоно.
+		# Эрэмбэ: code‑г БИЧСЭН ХЭВЭЭР нь (текстээр) — «01, 02, 03…» гэж
+		# бичихэд яг тэр дараалалдаа орно. Хоосон code хамгийн сүүлд, тэнцвэл
+		# color (гараар өгсөн дугаар) → id.  ЗӨВХӨН LEGAL_LEVELS‑д хамаарна.
 		return (
-			Constant.objects.filter(key='LEGAL_TYPES')
-			.annotate(order_count=Count('legalorgs', distinct=True))
-			.annotate(color_num=Cast(NullIf('color', Value('')), IntegerField()))
-			.order_by('color_num', 'id')
+			Constant.objects.filter(key='LEGAL_LEVELS')
+			.annotate(order_count=Count('orgs', distinct=True))
+			.annotate(code_txt=NullIf('code', Value('')),
+			          color_num=Cast(NullIf('color', Value('')), IntegerField()))
+			.order_by(F('code_txt').asc(nulls_last=True),
+			          F('color_num').asc(nulls_last=True), 'id')
 		)
 
 
 class MappedOrderingFilter(filters.OrderingFilter):
 	"""`?ordering=unit` гэх мэт FK талбарыг id‑ээр бус НЭРЭЭР нь эрэмбэлнэ.
 
-	unit → unit_name (AdminUnit.unit), org/type → тухайн Constant.name.
+	unit → unit_name (AdminUnit.unit), govlevel/org/type → тухайн Constant.name.
 	Эдгээр нь queryset дээр annotate‑лагдсан байх ёстой."""
 	field_map = {'unit': 'unit_name', 'sum': 'unit_name',
-	             'aimag': 'parent_unit_name', 'org': 'org_name',
-	             'type': 'type_name'}
+	             'aimag': 'parent_unit_name', 'govlevel': 'govlevel_name',
+	             'org': 'org_name', 'type': 'type_name'}
 
 	def remove_invalid_fields(self, queryset, fields, view, request):
 		mapped = []
@@ -86,7 +84,7 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 
 	ordering_fields = ([f.name for f in LegalOrder._meta.fields]
 	                   + ['names_count', 'unit_name', 'parent_unit_name',
-	                      'org_name', 'type_name'])
+	                      'govlevel_name', 'org_name', 'type_name'])
 	ordering = ['-created_date']
 
 	# PublicListMixin нь filter_backends атрибутыг биш ЭНЭ функцийг ашигладаг тул
@@ -97,12 +95,13 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 	def get_queryset(self):
 		p = self.request.query_params
 		qs = (LegalOrder.objects
-		      .select_related('org', 'type', 'unit', 'user')
+		      .select_related('govlevel', 'org', 'type', 'unit', 'user')
 		      # Тухайн шийдвэрт холбогдсон газар зүйн нэрийн тоо (sort‑той) +
 		      # FK талбаруудыг id‑ээр бус НЭРЭЭР нь эрэмбэлэх боломж
 		      .annotate(names_count=Count('names', distinct=True),
 		                unit_name=F('unit__unit'),
 	                parent_unit_name=F('unit__parent__unit'),
+		                govlevel_name=F('govlevel__name'),
 		                org_name=F('org__name'),
 		                type_name=F('type__name'),
 		                # Огноог текстээр хайх боломжтой болгов ("2003-09")
@@ -112,7 +111,17 @@ class LegalOrderViewSet(PublicListMixin, viewsets.ModelViewSet):
 		project_id = p.get('projects', None)
 		if project_id:
 			qs = qs.filter(projects__id=project_id)
-		# Карт = org (LEGAL_TYPES ангилал)
+			# Тухайн ТӨСЛИЙН тодруулалтад (ReCount) хамаарах нэрсээс хэд нь энэ
+			# баримтад холбогдсоныг тоолно. names_count нь САНГИЙН нийт тоо
+			# (нэг тогтоолд 200мянга+ нэр байж болно) тул төслийн дотор утгагүй.
+			qs = qs.annotate(project_names_count=Count(
+				'names', filter=Q(names__recounts__project_id=project_id),
+				distinct=True))
+		# Карт = govlevel (LEGAL_LEVELS түвшин, хуучин org)
+		govlevel_id = p.get('govlevel', None)
+		if govlevel_id:
+			qs = qs.filter(govlevel_id=govlevel_id)
+		# Байгууллага (LEGAL_ORGS)
 		org_id = p.get('org', None)
 		if org_id:
 			qs = qs.filter(org_id=org_id)
@@ -1087,6 +1096,9 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			return {
 				'i': i,
 				'id': r.id,
+				# Холбоотой GeoName‑ий id — маягтаас шууд «баримт холбох»‑д хэрэгтэй
+				# (мөрийн id нь ReCount‑ийнх тул нэрийг заахгүй).
+				'name_id': r.name_id,
 				'name': (r.name.name if r.name_id else '') or '',
 				'draft': r.draft or (r.name.name if r.name_id else '') or '',
 				'lat': lat, 'lon': lon,

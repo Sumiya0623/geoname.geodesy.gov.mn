@@ -61,10 +61,10 @@ class GeoNameRefSerializer(serializers.ModelSerializer):
 # ----------------------------------------------------------------------
 
 class LegalTypeSerializer(serializers.ModelSerializer):
-	"""LEGAL_TYPES төрөл (карт).
+	"""LEGAL_LEVELS түвшин (карт) — LegalOrder.govlevel «Дээд тогтоол».
 
 	code: 0 = нэгж сонгохгүй, 1 = зөвхөн аймаг, 2 = аймаг + сум.
-	order_count — тухайн төрөлд бүртгэгдсэн тогтоолын тоо.
+	order_count — тухайн түвшинд бүртгэгдсэн тогтоолын тоо.
 	"""
 	order_count = serializers.IntegerField(read_only=True, default=0)
 
@@ -90,10 +90,16 @@ class ConstantDropSerializer(serializers.ModelSerializer):
 
 
 class LegalOrderSerializer(serializers.ModelSerializer):
-	# org = LEGAL_TYPES (карт/ангилал, нэгж кодтой)
-	org = LegalTypeSerializer(read_only=True)
+	# govlevel = LEGAL_LEVELS (карт/түвшин, нэгж кодтой) — «Дээд тогтоол»
+	govlevel = LegalTypeSerializer(read_only=True)
+	govlevel_id = serializers.PrimaryKeyRelatedField(
+		queryset=Constant.objects.filter(key='LEGAL_LEVELS'),
+		source='govlevel', write_only=True, required=False, allow_null=True,
+	)
+	# org = LEGAL_ORGS (баримтыг гаргасан байгууллага)
+	org = ConstantDropSerializer(read_only=True)
 	org_id = serializers.PrimaryKeyRelatedField(
-		queryset=Constant.objects.filter(key='LEGAL_TYPES'),
+		queryset=Constant.objects.filter(key='LEGAL_ORGS'),
 		source='org', write_only=True, required=False, allow_null=True,
 	)
 	# type = ORDER_TYPES (баримтын төрөл — Тогтоол/Захирамж/Зөвлөмж/Акт)
@@ -110,15 +116,21 @@ class LegalOrderSerializer(serializers.ModelSerializer):
 	user_name = serializers.CharField(source='user.full_name', read_only=True)
 	# Тухайн шийдвэрт холбогдсон газар зүйн нэрийн тоо (queryset дээр annotate)
 	names_count = serializers.IntegerField(read_only=True, default=0)
+	# ?projects=<id> үед — тухайн ТӨСЛИЙН тодруулалтад (ReCount) хамаарах
+	# нэрсээс хэд нь энэ баримтад холбогдсон бэ (төслийн хуудсанд харуулна)
+	project_names_count = serializers.IntegerField(read_only=True, default=0)
 
 	class Meta:
 		model = LegalOrder
 		fields = [
-			'id', 'name', 'org', 'org_id', 'type', 'type_id', 'unit', 'unit_id',
+			'id', 'name', 'govlevel', 'govlevel_id', 'org', 'org_id',
+			'type', 'type_id', 'unit', 'unit_id',
 			'description', 'order_date', 'order_number', 'document', 'signer',
 			'user_name', 'created_date', 'views', 'names_count',
+			'project_names_count',
 		]
-		read_only_fields = ['user_name', 'created_date', 'views', 'names_count']
+		read_only_fields = ['user_name', 'created_date', 'views', 'names_count',
+		                    'project_names_count']
 
 
 # ----------------------------------------------------------------------

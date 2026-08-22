@@ -1577,7 +1577,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				f"{base}/workspaces/{ws.name}/datastores/{GEONAME_STORE}/featuretypes.json",
 				auth=auth, timeout=10)
 			if r.status_code == 200:
-				published = {f['name'] for f in
+				published = {str(f.get('name') or '') for f in
 							 (r.json().get('featureTypes') or {}).get('featureType') or []}
 		except requests.RequestException:
 			pass
@@ -1726,7 +1726,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				if isinstance(stores, dict):
 					stores = [stores]
 				for st in stores:
-					sname = st.get('name')
+					sname = str(st.get('name') or '').strip()
 					if not sname:
 						continue
 					lr = requests.get(
@@ -1787,7 +1787,7 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 				if isinstance(stores, dict):
 					stores = [stores]
 				for st in stores:
-					sname = st.get('name')
+					sname = str(st.get('name') or '').strip()
 					if not sname:
 						continue
 					lr = requests.get(
@@ -1800,11 +1800,11 @@ class WorkSpaceViewSet(PublicListMixin, viewsets.ModelViewSet):
 					if isinstance(items, dict):
 						items = [items]
 					for it in items:
-						out.append({'name': it.get('name'), 'store': sname,
+						out.append({'name': str(it.get('name') or ''), 'store': sname,
 									'store_kind': skind, 'type': gtype})
 		except requests.RequestException as e:
 			return Response({'detail': f'GeoServer холбогдсонгүй: {e}'}, status=502)
-		out.sort(key=lambda x: (x['type'], x['store'], x['name'] or ''))
+		out.sort(key=lambda x: (str(x['type']), str(x['store']), str(x['name'] or '')))
 		return Response({'workspace': ws.name, 'results': out}, status=200)
 
 	@action(detail=True, methods=['post'], url_path='gs-create-store')
@@ -3737,7 +3737,10 @@ class BaseMapLayerViewSet(viewsets.ModelViewSet):
 						continue
 					items = (r.json().get(root) or {}).get(node) or []
 					for it in items:
-						nm = it.get('name')
+						# GeoServer цэвэр тоон нэрийг (ж: "2024") JSON‑д ТОО
+						# болгож буцаадаг тул str болгоно — эс бөгөөс sort нь
+						# str/int харьцуулж TypeError өгнө.
+						nm = str(it.get('name') or '').strip()
 						if not nm:
 							continue
 						out.append({
@@ -3758,7 +3761,7 @@ class BaseMapLayerViewSet(viewsets.ModelViewSet):
 					if isinstance(gitems, dict):
 						gitems = [gitems]
 					for it in gitems:
-						nm = it.get('name')
+						nm = str(it.get('name') or '').strip()
 						if not nm:
 							continue
 						out.append({
@@ -3776,7 +3779,7 @@ class BaseMapLayerViewSet(viewsets.ModelViewSet):
 				continue
 			seen.add(x['gs_layer'])
 			deduped.append(x)
-		deduped.sort(key=lambda x: (x['workspace'], x['name']))
+		deduped.sort(key=lambda x: (str(x['workspace']), str(x['name'])))
 		return Response({'results': deduped}, status=200)
 
 	@action(detail=False, methods=['get'], url_path='layer-extent')

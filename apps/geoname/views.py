@@ -118,10 +118,10 @@ def _inquire_context(request, inq):
     # Эрх зүйн баримт (батлагдсан) — LegalOrder
     orders = [{'name': o.name,
                'type': (o.type.name if o.type_id else ''),
-               'org': (o.org.name if o.org_id else ''),
+               'org': (o.govlevel.name if o.govlevel_id else ''),
                'number': (f'№ {o.order_number}' if o.order_number else ''),
                'date': _mn_date(o.order_date)}
-              for o in (g.legalorders.select_related('type', 'org').all() if g else [])]
+              for o in (g.legalorders.select_related('type', 'govlevel').all() if g else [])]
     # Зураг (generic FK) — desc‑тэй
     from django.contrib.contenttypes.models import ContentType
     from core.models import Photo, GeoName
