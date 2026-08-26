@@ -910,7 +910,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		төслийн тооллого руу НЭГ хүсэлтээр оруулна.
 
 		  POST {
-		    project: <id>, step: <id|null>, type: <id|null>,
+		    project: <id>, step: <id> (ЗААВАЛ), type: <id|null>,
 		    status_ids: [<id>, ...],            # ЗААВАЛ — дор хаяж нэг төлөв
 		    skip_existing: true|false,          # анхдагч: true
 		    items: [{draft, is_border, loc: <GeoJSON geometry>}, ...]
@@ -948,7 +948,14 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				{'detail': f'Нэг удаад дээд тал нь {MAX_ITEMS} мөр импортлоно '
 				           f'({len(items)} ирлээ).'}, status=400)
 
+		# ⚠ АЛХАМ ЗААВАЛ. Вэбийн үе шатны таб бүр `?step=<id>`-ээр шүүдэг тул
+		# step=NULL-тэй импортолсон мөр ХААНА Ч ХАРАГДАХГҮЙ болдог.
 		step_id = request.data.get('step') or None
+		if not step_id:
+			return Response(
+				{'detail': 'Үе шат (step) заавал сонгоно уу. Эс бөгөөс '
+				           'импортолсон мөр үе шатны табуудад харагдахгүй.'},
+				status=400)
 		type_id = request.data.get('type') or None
 		skip_existing = request.data.get('skip_existing', True)
 		# «Алдаагүй» төлөвтэй ирсэн нэрсийг БАТЛАГДСАН нэр гэж үзэж, байршлаар
