@@ -578,6 +578,124 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 # GeoServer WMS (ReCount.loc геометрийг газрын зураг болгож харуулах).
 # ----------------------------------------------------------------------
 
+
+# ----------------------------------------------------------------------
+# Импортолсон нэрийг БАТЛАГДСАН нэртэй тааруулах.
+#
+# Дүрэм (хэрэглэгчтэй тохирсон):
+#   • Байршлаар нь СУМ/ДҮҮРГИЙГ тодорхойлно (ST_Intersects).
+#   • Тэр сумын БАТЛАГДСАН нэрсээс ижил нэрийг хайна (том/жижиг үсэг,
+#     захын хоосон зайг үл тооно).
+#   • 0 таарвал  → батлагдаагүй, draft хэвээр, тайланд орно.
+#   • 1 таарвал  → холбоно.
+#   • Олон таарвал → geoloc‑той нь дундаас ХАМГИЙН ОЙРыг холбоно; аль нь ч
+#     geoloc‑гүй бол сонгох боломжгүй тул тайланд «олон таарсан» гэж гарна.
+#   • Холбогдсон нэр нь ӨМНӨ НЬ geoloc‑той бөгөөд шинэ байршил босго (500 м)
+#     хэтэрвэл «байршил зөрүүтэй» тайланд орно. Зөрүүг ГЕОМЕТРИЙН ТӨРЛӨӨР:
+#     цэг → зай (м), шугам → уртын зөрүү, талбай → талбайн зөрүү.
+#   Бүх хэмжилт geography (сфероид) дээр — 4326 градусын утга биш.
+# ----------------------------------------------------------------------
+
+def _match_approved(items, dist_limit=500.0):
+	"""items: [{'i': индекс, 'draft': нэр, 'geom': GEOSGeometry(4326)}, ...]
+
+	→ {индекс: {'name_id':…, 'sum_id':…, 'sum':…}}, unmatched[], ambiguous[], moved[]
+	"""
+	from django.db import connection
+	if not items:
+		return {}, [], [], []
+	with connection.cursor() as c:
+		# 1) Байршил → сум (нэг асуулгаар бүгдийг)
+		vals, params = [], []
+		for it in items:
+			vals.append('(%s, ST_GeomFromEWKB(%s))')
+			params += [it['i'], it['geom'].centroid.ewkb]
+		c.execute(
+			'SELECT v.i, au.id, au.unit FROM (VALUES ' + ','.join(vals) + ') v(i, pt) '
+			'JOIN core_adminunit au ON au.geom IS NOT NULL '
+			'     AND ST_Intersects(au.geom, v.pt) '
+			'JOIN core_constant lvl ON lvl.id = au.level_id '
+			"WHERE lvl.name = 'Сум/Дүүрэг'", params)
+		unit_of = {}
+		for i, uid, uname in c.fetchall():
+			unit_of.setdefault(i, (uid, uname))
+
+		# 2) Тэдгээр сум × нэрсийн БАТЛАГДСАН нэр дэвшигчид
+		sum_ids = sorted({u[0] for u in unit_of.values()})
+		names = sorted({(it['draft'] or '').strip().lower()
+		                for it in items if (it['draft'] or '').strip()})
+		cand = {}
+		if sum_ids and names:
+			c.execute(
+				'SELECT gu.adminunit_id, lower(btrim(g.name)), g.id, g.geoloc '
+				'FROM core_geoname g '
+				'JOIN core_geoname_unit gu ON gu.geoname_id = g.id '
+				'WHERE g.is_approved AND gu.adminunit_id = ANY(%s) '
+				'  AND lower(btrim(g.name)) = ANY(%s)', [sum_ids, names])
+			from django.contrib.gis.geos import GEOSGeometry
+			for uid, nm, gid, loc in c.fetchall():
+				cand.setdefault((uid, nm), []).append(
+					(gid, GEOSGeometry(loc) if loc else None))
+
+	matched, unmatched, ambiguous = {}, [], []
+	for it in items:
+		nm = (it['draft'] or '').strip().lower()
+		u = unit_of.get(it['i'])
+		hits = cand.get((u[0], nm), []) if (u and nm) else []
+		if not hits:
+			unmatched.append({'index': it['i'], 'draft': it['draft'],
+			                  'unit': (u[1] if u else None)})
+			continue
+		if len(hits) == 1:
+			gid = hits[0][0]
+		else:
+			# geoloc‑той нь дундаас хамгийн ойр — эс бөгөөс сонгох боломжгүй
+			cen = it['geom'].centroid
+			withloc = [(g, l) for g, l in hits if l is not None]
+			if not withloc:
+				ambiguous.append({'index': it['i'], 'draft': it['draft'],
+				                  'unit': (u[1] if u else None),
+				                  'count': len(hits)})
+				continue
+			gid = min(withloc, key=lambda t: cen.distance(t[1]))[0]
+		matched[it['i']] = {'name_id': gid, 'sum_id': u[0], 'sum': u[1]}
+
+	# 3) Байршлын зөрүү — ЗӨВХӨН өмнө нь geoloc‑той нэртэй холбогдсонд
+	moved = []
+	pairs = [(it, matched[it['i']]) for it in items if it['i'] in matched]
+	if pairs:
+		vals, params = [], []
+		for it, m in pairs:
+			vals.append('(%s, ST_GeomFromEWKB(%s), %s)')
+			params += [it['i'], it['geom'].ewkb, m['name_id']]
+		with connection.cursor() as c:
+			c.execute(
+				'SELECT v.i, GeometryType(v.g), '
+				'  ST_Distance(ST_Centroid(v.g)::geography, '
+				'              ST_Centroid(g.geoloc)::geography), '
+				'  ST_Length(v.g::geography), ST_Length(g.geoloc::geography), '
+				'  ST_Area(v.g::geography),   ST_Area(g.geoloc::geography) '
+				'FROM (VALUES ' + ','.join(vals) + ') v(i, g, gid) '
+				'JOIN core_geoname g ON g.id = v.gid '
+				'WHERE g.geoloc IS NOT NULL', params)
+			by_i = {it['i']: it for it, _ in pairs}
+			for i, gt, dist, ln, lo, an, ao in c.fetchall():
+				if dist is None or dist <= dist_limit:
+					continue
+				gt = (gt or '').upper()
+				if 'POLYGON' in gt:
+					unit, delta = 'га', abs((an or 0) - (ao or 0)) / 10000.0
+				elif 'LINE' in gt:
+					unit, delta = 'м', abs((ln or 0) - (lo or 0))
+				else:
+					unit, delta = 'м', dist
+				moved.append({'index': i, 'draft': by_i[i]['draft'],
+				              'name_id': matched[i]['name_id'],
+				              'dist': round(dist, 1), 'geom_type': gt,
+				              'delta': round(delta, 1), 'unit': unit})
+	return matched, unmatched, ambiguous, moved
+
+
 class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 	serializer_class = ReCountSerializer
 	queryset = ReCount.objects.all()
@@ -833,6 +951,18 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		step_id = request.data.get('step') or None
 		type_id = request.data.get('type') or None
 		skip_existing = request.data.get('skip_existing', True)
+		# «Алдаагүй» төлөвтэй ирсэн нэрсийг БАТЛАГДСАН нэр гэж үзэж, байршлаар
+		# нь сум тодорхойлон холбоно. Хүсэлтэд илэрхий заагаагүй бол сонгосон
+		# төлөвүүдээс автоматаар тогтооно.
+		match_approved = request.data.get('match_approved')
+		if match_approved is None:
+			match_approved = Constant.objects.filter(
+				id__in=status_ids, key='RECOUNT_STATUS',
+				name__icontains='Алдаагүй').exists()
+		try:
+			dist_limit = float(request.data.get('dist_limit') or 500.0)
+		except (TypeError, ValueError):
+			dist_limit = 500.0
 
 		def key(draft, geom):
 			"""Давхардлын түлхүүр — нэр + байршлын төв (5 орон ≈ 1 м)."""
@@ -850,7 +980,7 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				seen.setdefault(key(d, loc), rid)
 
 		user = request.user if request.user.is_authenticated else None
-		rows, errors, skipped_items = [], [], []
+		rows, errors, skipped_items, parsed = [], [], [], []
 		for i, it in enumerate(items):
 			if not isinstance(it, dict):
 				errors.append({'index': i, 'detail': 'мөр нь объект байх ёстой'})
@@ -871,6 +1001,50 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 					continue
 			if not draft and geom is None:
 				errors.append({'index': i, 'detail': 'нэр ч, байршил ч алга'})
+				continue
+			parsed.append({'i': i, 'draft': draft, 'geom': geom,
+			               'is_border': bool(it.get('is_border'))})
+			continue
+
+		# --- Батлагдсан нэртэй тааруулах (сонголттой) ---
+		matched, unmatched, ambiguous, moved = {}, [], [], []
+		if match_approved:
+			try:
+				matched, unmatched, ambiguous, moved = _match_approved(
+					[p for p in parsed if p['draft'] and p['geom'] is not None],
+					dist_limit)
+			except Exception as exc:
+				import logging
+				logging.getLogger(__name__).exception('match_approved failed')
+				errors.append({'index': -1,
+				               'detail': 'Тааруулалт амжилтгүй: %s' % exc})
+
+		# Аль хэдийн тухайн төсөлд бүртгэгдсэн БАТЛАГДСАН нэрсийг давхардуулахгүй
+		linked_seen = set()
+		if skip_existing and matched:
+			linked_seen = set(
+				ReCount.objects.filter(project=project,
+				                       name_id__in=[m['name_id'] for m
+				                                    in matched.values()])
+				.values_list('name_id', flat=True))
+
+		for it in parsed:
+			i, draft, geom = it['i'], it['draft'], it['geom']
+			m = matched.get(i)
+			if m:
+				if skip_existing and m['name_id'] in linked_seen:
+					skipped_items.append({
+						'index': i, 'draft': draft,
+						'lon': round(geom.centroid.x, 6) if geom else None,
+						'lat': round(geom.centroid.y, 6) if geom else None,
+						'reason': 'exists', 'recount_id': None,
+						'name_id': m['name_id']})
+					continue
+				linked_seen.add(m['name_id'])
+				rows.append(ReCount(
+					project=project, step_id=step_id, type_id=type_id,
+					name_id=m['name_id'], draft=draft, loc=geom, user=user,
+					is_border=bool(it.get('is_border'))))
 				continue
 			k = key(draft, geom)
 			if skip_existing and k in seen:
@@ -905,6 +1079,13 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 					batch_size=1000, ignore_conflicts=True)
 		return Response({
 			'added': added, 'skipped': len(skipped_items),
+			# ── Тайлан (plugin .txt болгож татуулна) ──
+			'total': len(items),
+			'matched': len(matched),          # батлагдсан нэртэй холбогдсон
+			'unmatched': unmatched,           # сумандаа батлагдсан нэр олдоогүй
+			'ambiguous': ambiguous,           # олон таарсан, сонгох боломжгүй
+			'moved': moved,                   # байршил босгоос их зөрсөн
+			'dist_limit': dist_limit,
 			# Алгассан бүр — plugin дээр жагсааж, дээр нь дарахад зурагт очно.
 			# reason: exists = төсөлд аль хэдийн бүртгэлтэй,
 			#         batch  = импортын ЭНЭ багц дотроо давхардсан
@@ -1591,44 +1772,19 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if name_q:
 			conds.append('COALESCE(g.name, r.draft) ILIKE %s')
 			params.append('%' + name_q + '%')
-		# ⚠ Өмнө нь `JOIN core_geoname` (INNER) байсан тул батлагдсан нэртэй
-		# ХОЛБОГДООГҮЙ бүх тодруулалт (draft — ж: QGIS‑ээс импортолсон) модноос
-		# бүрмөсөн унадаг байв. Түүнчлэн ЗЗ нэгжийг зөвхөн нэрийн M2M‑ээс авдаг
-		# байсан нь draft‑д огт байхгүй. `recount_view`‑тэй ИЖИЛ дүрэм рүү
-		# шилжүүлэв: нэртэй бол нэрийн нэгж, draft бол БАЙРШЛААР нь орон зайгаар.
-		conds_rc = [c for c in conds if not c.startswith("lvl.name")]
-		where_rc = ' AND '.join(conds_rc)
+		where = ' AND '.join(conds)
 		sql = (
-			'WITH rc AS ('
-			'  SELECT r.id AS rid, COALESCE(g.name, r.draft) AS rname, '
-			'         r.loc AS loc, g.id AS gid '
-			'  FROM core_recount r '
-			'  LEFT JOIN core_geoname g ON g.id = r.name_id '
-			'  WHERE ' + where_rc + ''
-			'), pairs AS ('
-			# (a) батлагдсан нэртэй — нэрийн ЗЗ нэгжийн M2M‑ээр
-			'  SELECT rc.rid, rc.rname, s.id AS sum_id, s.unit AS sum_name, '
-			'         s.parent_id '
-			'  FROM rc '
-			'  JOIN core_geoname_unit gu ON gu.geoname_id = rc.gid '
-			'  JOIN core_adminunit s ON s.id = gu.adminunit_id '
-			'  JOIN core_constant lvl ON lvl.id = s.level_id '
-			"  WHERE lvl.name = 'Сум/Дүүрэг' "
-			'  UNION '
-			# (b) нэргүй (draft) — зурсан/импортолсон БАЙРШЛААР нь
-			'  SELECT rc.rid, rc.rname, s.id, s.unit, s.parent_id '
-			'  FROM rc '
-			'  JOIN core_adminunit s ON s.geom IS NOT NULL '
-			'       AND ST_Intersects(s.geom, rc.loc) '
-			'  JOIN core_constant lvl ON lvl.id = s.level_id '
-			"  WHERE lvl.name = 'Сум/Дүүрэг' "
-			'    AND rc.gid IS NULL AND rc.loc IS NOT NULL '
-			') '
-			'SELECT p.rid, p.rname, p.sum_id, p.sum_name, '
-			'       a.id AS aimag_id, a.unit AS aimag_name '
-			'FROM pairs p '
-			'LEFT JOIN core_adminunit a ON a.id = p.parent_id '
-			'ORDER BY a.unit, p.sum_name, p.rname'
+			'SELECT r.id AS rid, COALESCE(g.name, r.draft) AS rname, '
+			's.id AS sum_id, s.unit AS sum_name, '
+			'a.id AS aimag_id, a.unit AS aimag_name '
+			'FROM core_recount r '
+			'JOIN core_geoname g ON g.id = r.name_id '
+			'JOIN core_geoname_unit gu ON gu.geoname_id = g.id '
+			'JOIN core_adminunit s ON s.id = gu.adminunit_id '
+			'JOIN core_constant lvl ON lvl.id = s.level_id '
+			'LEFT JOIN core_adminunit a ON a.id = s.parent_id '
+			'WHERE ' + where + ' '
+			'ORDER BY a.unit, s.unit, rname'
 		)
 		with connection.cursor() as c:
 			c.execute(sql, params)
