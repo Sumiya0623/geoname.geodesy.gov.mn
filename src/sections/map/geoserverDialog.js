@@ -142,6 +142,8 @@ function GeoserverDialog({
   onTabChange,
   // Шийдвэрийн модны хүснэгтийн дүрс дарахад доод жагсаалтыг нээнэ
   onLegalOpenList,
+  // «Шинээр» хүсэлтийн формыг газрын зураг дээр нээх (эцэг нь харуулна)
+  onAddRequest,
 }) {
   const theme = useTheme();
   const isSmall = useMediaQuery(theme.breakpoints.down("sm"));
@@ -987,7 +989,10 @@ function GeoserverDialog({
                     </Typography>
                   </Box>
                   <Box sx={{ flex: 1, minHeight: 0 }}>
-                    <RequestPanel onFlyTo={onFlyTo} />
+                    <RequestPanel
+                      onFlyTo={onFlyTo}
+                      onAddRequest={onAddRequest}
+                    />
                   </Box>
                 </Box>
               )}

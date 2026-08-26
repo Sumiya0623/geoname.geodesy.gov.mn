@@ -10,9 +10,11 @@ import {
   Box,
   Chip,
   Stack,
+  Radio,
   Switch,
   Button,
   Divider,
+  Tooltip,
   Collapse,
   Typography,
 } from "@mui/material";
@@ -32,6 +34,7 @@ export default function BaseMapTableRow({
   refetch,
   onDeleteRow,
   onToggleEnabled,
+  onSetDefault,
   roles,
   available,
   layers,
@@ -46,6 +49,7 @@ export default function BaseMapTableRow({
     url,
     color,
     is_enabled: isEnabled,
+    is_default: isDefault,
     sort_order: sortOrder,
     roles: rowRoles,
   } = row;
@@ -165,6 +169,27 @@ export default function BaseMapTableRow({
             onChange={() => onToggleEnabled(row)}
           />
         </TableCell>
+        {/* Анхдагч — зөвхөн НЭГ суурь давхарга. Нэмэлт давхаргад утгагүй. */}
+        <TableCell align="center">
+          {layerType === "base" ? (
+            <Tooltip
+              title={
+                isDefault
+                  ? "Газрын зураг ачаалахад сонгогдоно"
+                  : "Анхдагч болгох"
+              }
+            >
+              <Radio
+                checked={!!isDefault}
+                onClick={() => onSetDefault?.(row)}
+              />
+            </Tooltip>
+          ) : (
+            <Typography variant="caption" color="text.disabled">
+              —
+            </Typography>
+          )}
+        </TableCell>
         <TableCell align="right" sx={{ px: 1 }}>
           <IconButton
             color={popover.open ? "inherit" : "default"}
@@ -176,7 +201,7 @@ export default function BaseMapTableRow({
       </TableRow>
 
       <TableRow>
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
           <Collapse in={form.value} timeout="auto" unmountOnExit>
             <Box sx={{ py: 2 }}>
               <BaseMapNewEditForm

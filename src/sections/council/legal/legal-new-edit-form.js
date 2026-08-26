@@ -65,6 +65,13 @@ export default function LegalNewEditForm({
   // Ингэснээр үлдсэн оронг нь эрэмбэлэхэд чөлөөтэй ашиглана («01…06, 10, 20»).
   // Хуучин ганц оронтой ('1','2') код мөн адил ажиллана. Code огт байхгүй бол
   // Constant.desc‑ээс (0/1/2) уншина.
+  // FK утгыг id болгож (объект эсвэл дан id аль нь ч ирж болно) мөр болгоно —
+  // MUI Select нь value‑г ЯГ таарсан төрлөөр харьцуулдаг тул String‑дэнэ.
+  const idOf = (v) => {
+    const id = v && typeof v === "object" ? v.id : v;
+    return id === null || id === undefined || id === "" ? "" : String(id);
+  };
+
   const unitCode = (c) => {
     const first = String(c?.code ?? "").trim().charAt(0);
     if (["0", "1", "2"].includes(first)) return first;
@@ -98,7 +105,8 @@ export default function LegalNewEditForm({
     () => ({
       name: currentItem?.name || "",
       govlevel: currentItem?.govlevel?.id || selectedLevel?.id || "",
-      org: currentItem?.org?.id || "",
+      // Хадгалагдсан байгууллага (LEGAL_ORGS) — засах үед сонгогдсон байна.
+      org: idOf(currentItem?.org),
       type: currentItem?.type?.id || "",
       order_number: currentItem?.order_number || "",
       // «YYYY‑MM‑DD»‑ийг ОРОН НУТГИЙН шөнө дунд болгож уншина (UTC биш) —
@@ -215,7 +223,9 @@ export default function LegalNewEditForm({
       const fd = new FormData();
       fd.append("name", data.name || "");
       fd.append("govlevel_id", levelObj.id);
-      if (needOrg && data.org) fd.append("org_id", data.org);
+      // Байгууллага — сонгосон бол id, «—» сонгосон бол ХООСОН утга илгээж
+      // хуучин холбоосыг цэвэрлэнэ (0x түвшинд огт илгээхгүй).
+      if (needOrg) fd.append("org_id", data.org || "");
       if (data.type) fd.append("type_id", data.type);
       if (unitId) fd.append("unit_id", unitId);
       fd.append("order_number", data.order_number || "");
@@ -368,7 +378,7 @@ export default function LegalNewEditForm({
                 <RHFSelect name="org" label="Байгууллага" sx={{ flex: 1 }}>
                   <MenuItem value="">—</MenuItem>
                   {legalOrgs.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
+                    <MenuItem key={c.id} value={String(c.id)}>
                       {c.label || c.name}
                     </MenuItem>
                   ))}

@@ -60,7 +60,10 @@ export function initMap(opts) {
 
   if (!mapRef.current) return;
 
-  const baseLayer = baseMapLayers[baseMap] || baseMapLayers.CRV;
+  const baseLayer =
+    baseMapLayers[baseMap] ||
+    baseMapLayers.CRV ||
+    Object.values(baseMapLayers)[0];
 
   clusterSourceRef.current = new Cluster({
     distance: 40,

@@ -35,6 +35,18 @@ module.exports = withBundleAnalyzer({
       use: ["@svgr/webpack"],
     });
 
+    // Cesium (3D харагдац) — статик файлууд public/cesium/ дороос үйлчилнэ
+    // (CESIUM_BASE_URL). Сан нь Node‑ийн модулиудыг заримдаа шалгадаг тул
+    // browser build дээр тэдгээрийг хоосон болгоно.
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        url: false,
+      };
+    }
+
     return config;
   },
   // webpack(config, { isServer }) {

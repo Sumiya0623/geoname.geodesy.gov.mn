@@ -5,7 +5,9 @@ import React, {
   useMemo,
   useEffect,
   useCallback,
+  forwardRef,
 } from "react";
+import dynamic from "next/dynamic";
 import {
   Box,
   Fab,
@@ -36,6 +38,7 @@ import {
 } from "@mui/material";
 import {
   Fullscreen as FullscreenIcon,
+  ThreeDRotation as ThreeDIcon,
   Close as CloseIcon,
   Layers as LayersIcon,
   Straighten as RulerIcon,
@@ -114,6 +117,7 @@ import FieldCalcDialog from "src/sections/map/FieldCalcDialog";
 import RecountLegend from "src/sections/map/RecountLegend";
 import TabInfoCard from "src/sections/map/TabInfoCard";
 import MapAddName from "src/sections/map/MapAddName";
+import MapAddRequest from "src/sections/map/MapAddRequest";
 import { statusColor } from "src/sections/map/recountStatus";
 import MapHeader from "src/sections/map/MapHeader";
 import axiosInstance, { endpoints } from "src/utils/axios";
@@ -141,6 +145,18 @@ const ADMIN_WMS_PARAMS = {
   CQL_FILTER: "parent_id IS NULL",
 };
 const WMS_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/point/wms`;
+
+// 3D бөмбөрцөг (Cesium) — сан нь ~4 МБ тул ЗӨВХӨН 3D горим асаах үед
+// динамикаар ачаална. SSR дээр ажиллахгүй (window/WebGL хэрэгтэй).
+const Terrain3DViewInner = dynamic(() => import("./terrain-3d-view"), {
+  ssr: false,
+  loading: () => null,
+});
+const Terrain3DView = forwardRef((props, ref) => (
+  <Terrain3DViewInner {...props} forwardedRef={ref} />
+));
+Terrain3DView.displayName = "Terrain3DView";
+
 // Газар зүйн нэр (geoname_view) WMS суурь URL — толгойн хайлтад
 const GEONAME_WMS_URL = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms?service=WMS&version=1.1.0&request=GetMap&bbox=87,41,120,52&layers=geoname:geoname_view&srs=EPSG:4326&width=768&height=330&format=image/png`;
 // Шийдвэрийн панелийн хүснэгт — бусад жагсаалттай ижил бүтэц (TableHeadCustom)
@@ -478,6 +494,12 @@ function Map2() {
   const mapObjRef = useRef(null);
   const baseLayerRef = useRef(null); // currently mounted basemap layer (TileLayer or LayerGroup)
 
+  // 3D горим (Cesium). OL газрын зураг устгагдахгүй, зөвхөн нуугдана —
+  // буцахад төлөв/давхарга хэвээрээ үлдэнэ.
+  const [is3DMode, setIs3DMode] = useState(false);
+  const [overlays3D, setOverlays3D] = useState([]);
+  const terrain3dRef = useRef(null);
+
   const measureSourceRef = useRef(new VectorSource());
   const vectorSourceRef = useRef(new VectorSource());
   const measurementSearchSourceRef = useRef(new VectorSource());
@@ -502,7 +524,11 @@ function Map2() {
   const activeGnssLayersRef = useRef(new Set());
   const lastClickCoordinateRef = useRef(null);
 
+  // Анхдагч суурь давхарга нь /settings/gis?tab=basemap дээрх is_default-аар
+  // тодорхойлогдоно (доорх effect). Тохиргоо ачаалж дуустал түр CRV.
   const [baseMap, setBaseMap] = useState("CRV");
+  // Хэрэглэгч өөрөө сольсны дараа анхдагчаар дарж бичихгүй
+  const baseDefaultAppliedRef = useRef(false);
   const [baseMapOpacity, setBaseMapOpacity] = useState({});
 
   // Төслийн газрын зураг (champaign/<id>/map) — тухайн төслийн recount (тодруулалт) WMS
@@ -521,35 +547,45 @@ function Map2() {
   // Доод attribute хүснэгтийн toolbar‑аас нээгдсэн нэрийн форм.
   // {mode:"new"|"link", type:{id,name,desc}, geom, top, left}
   const [tabNameForm, setTabNameForm] = useState(null);
-  // Формыг толгойн мөрөөс нь чирэх (drag) — курсорын шилжилтээр top/left
-  const tabFormDragRef = useRef(null);
-  const startTabFormDrag = useCallback((e) => {
-    e.preventDefault();
-    tabFormDragRef.current = { x: e.clientX, y: e.clientY };
-    const onMove = (ev) => {
-      const d = tabFormDragRef.current;
-      if (!d) return;
-      const dx = ev.clientX - d.x;
-      const dy = ev.clientY - d.y;
-      tabFormDragRef.current = { x: ev.clientX, y: ev.clientY };
-      setTabNameForm((prev) =>
-        prev
-          ? {
-              ...prev,
-              top: Math.max(0, prev.top + dy),
-              left: Math.max(0, prev.left + dx),
-            }
-          : prev,
-      );
-    };
-    const onUp = () => {
-      tabFormDragRef.current = null;
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, []);
+  // «Шинээр» хүсэлтийн хөвөгч форм — {top,left,status,onCreated}
+  const [reqForm, setReqForm] = useState(null);
+  // Хөвөгч формыг толгойн мөрөөс нь чирэх (drag) — курсорын шилжилтээр top/left.
+  // Форм бүрд өөрийн setState‑ийг өгнө (нэрийн форм ба хүсэлтийн форм хоёул).
+  const makeFormDrag = useCallback(
+    (setForm) => (e) => {
+      e.preventDefault();
+      let last = { x: e.clientX, y: e.clientY };
+      const onMove = (ev) => {
+        const dx = ev.clientX - last.x;
+        const dy = ev.clientY - last.y;
+        last = { x: ev.clientX, y: ev.clientY };
+        setForm((prev) =>
+          prev
+            ? {
+                ...prev,
+                top: Math.max(0, prev.top + dy),
+                left: Math.max(0, prev.left + dx),
+              }
+            : prev,
+        );
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [],
+  );
+  const startTabFormDrag = useMemo(
+    () => makeFormDrag(setTabNameForm),
+    [makeFormDrag],
+  );
+  const startReqFormDrag = useMemo(
+    () => makeFormDrag(setReqForm),
+    [makeFormDrag],
+  );
   const projectAreaLayerRef = useRef(null);
   // Доод status bar — курсорын солбицол (DMS) ба масштаб
   const [cursorCoords, setCursorCoords] = useState({ lon: null, lat: null });
@@ -942,6 +978,15 @@ function Map2() {
       }),
       OSM: new TileLayer({ source: new OSM() }),
     };
+  }, [baseConfigs]);
+
+  // Тохиргоо ачаалагдмагц АНХДАГЧ суурь давхаргыг сонгоно (нэг л удаа).
+  useEffect(() => {
+    if (baseDefaultAppliedRef.current) return;
+    if (!baseConfigs || !baseConfigs.length) return;
+    baseDefaultAppliedRef.current = true;
+    const def = baseConfigs.find((c) => c.is_default) || baseConfigs[0];
+    if (def?.key) setBaseMap(def.key);
   }, [baseConfigs]);
 
   const measureStyle = useMemo(
@@ -1932,7 +1977,10 @@ function Map2() {
     const map = mapObjRef.current;
     if (!map) return;
 
-    const nextBase = baseMapLayers[baseMap] || baseMapLayers.CRV;
+    const nextBase =
+      baseMapLayers[baseMap] ||
+      baseMapLayers.CRV ||
+      Object.values(baseMapLayers)[0];
     const layers = map.getLayers();
 
     if (baseLayerRef.current) {
@@ -2023,6 +2071,91 @@ function Map2() {
       if (document.exitFullscreen) document.exitFullscreen();
     }
   };
+
+  // ── 3D горим ────────────────────────────────────────────────────────────
+  // Cesium‑д ямар давхарга үзүүлэхийг ГАЗРЫН ЗУРГААС ӨӨРӨӨС нь уншина: OL‑ийн
+  // харагдаж буй WMS эх сурвалж бүрийн URL ба LAYERS‑ийг шууд авна. Ингэснээр
+  // нэр, захиргааны хил, DB‑ээс ирсэн нэмэлт давхаргууд — бүгд өөрөө хамрагдаж,
+  // цаашид шинэ давхарга нэмэгдэхэд энд юу ч засах шаардлагагүй.
+  const collect3DOverlays = useCallback(() => {
+    const map = mapObjRef.current;
+    if (!map) return [];
+    const out = [];
+    const walk = (coll) => {
+      coll.forEach((lyr) => {
+        if (lyr.getLayers) {
+          if (lyr.getVisible?.()) walk(lyr.getLayers());
+          return;
+        }
+        if (!lyr.getVisible?.()) return;
+        const src = lyr.getSource?.();
+        if (!src) return;
+        const params = src.getParams?.();
+        let url;
+        let layerFullName;
+        let styles;
+        let cqlFilter;
+        if (params) {
+          // WMS (TileWMS / ImageWMS)
+          url = src.getUrl?.() || src.getUrls?.()?.[0];
+          // 3D нь нэг давхаргаар ажиллана — LAYERS дотор олон нэр байвал эхнийх.
+          layerFullName = String(params.LAYERS || "").split(",")[0];
+          styles = params.STYLES || undefined;
+          cqlFilter = params.CQL_FILTER || undefined;
+        } else if (src.getLayer) {
+          // WMTS (GWC кэш). Газар зүйн НЭР яг ийм давхаргаар зурагддаг тул
+          // үүнийг алгасвал 3D дээр нэр огт гарахгүй. Cesium‑д кэшийн gridset
+          // тааруулахын оронд тухайн workspace‑ийн ЖИРИЙН WMS рүү хөрвүүлнэ —
+          // 3D дээр tile кэшийн ашиг бага, харин тохиргоо олон дахин хялбар.
+          layerFullName = src.getLayer();
+          const ws = String(layerFullName).split(":")[0];
+          url = `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/${ws}/wms`;
+        }
+        if (!url || !layerFullName) return;
+        out.push({
+          id: `ov${out.length}`,
+          url,
+          layerFullName,
+          styles,
+          cqlFilter,
+          visible: true,
+          opacity: lyr.getOpacity?.() ?? 1,
+        });
+      });
+    };
+    walk(map.getLayers());
+    return out;
+  }, []);
+
+  const handleToggle3D = useCallback(() => {
+    const map = mapObjRef.current;
+    if (!map) return;
+    if (!is3DMode) {
+      const view = map.getView();
+      const center = toLonLat(view.getCenter());
+      const zoom = view.getZoom();
+      const rotation = view.getRotation();
+      setOverlays3D(collect3DOverlays());
+      setIs3DMode(true);
+      // Cesium динамикаар ачаалагдах хугацаа өгнө
+      setTimeout(
+        () => terrain3dRef.current?.syncFromOL(center, zoom, rotation),
+        300,
+      );
+    } else {
+      const pos = terrain3dRef.current?.getPosition();
+      setIs3DMode(false);
+      if (pos) {
+        setTimeout(() => {
+          const view = map.getView();
+          view.setCenter(fromLonLat(pos.center));
+          view.setZoom(pos.zoom);
+          view.setRotation(pos.rotation);
+          map.updateSize();
+        }, 100);
+      }
+    }
+  }, [is3DMode, collect3DOverlays]);
 
   const handleLayerControlOpen = (event) => {
     setLayerControlAnchor(event.currentTarget);
@@ -4507,7 +4640,18 @@ function Map2() {
             "& .ol-custom-overviewmap.ol-collapsed button:hover": {
               background: "#f2f4f7",
             },
+            // 3D горимд 2D зургийг нуухгүй — OL‑ийн хэмжээ/төлөв хадгалагдаж,
+            // буцахад дахин үүсгэх шаардлагагүй болно.
+            visibility: is3DMode ? "hidden" : "visible",
           }}
+        />
+
+        {/* 3D бөмбөрцөг (Cesium) — зөвхөн 3D горимд ачаалагдана */}
+        <Terrain3DView
+          ref={terrain3dRef}
+          visible={is3DMode}
+          overlays={overlays3D}
+          wmsUrl={WMS_URL}
         />
 
         {/* Field Calculator — талбарыг бөөнөөр шинэчлэх */}
@@ -4664,6 +4808,13 @@ function Map2() {
         </Dialog>
 
         <GeoserverDialog
+          onAddRequest={(cfg) =>
+            setReqForm({
+              top: 96,
+              left: Math.max(managePanelW + 24, 470),
+              ...cfg,
+            })
+          }
           onNodeAction={handleRecountNodeAction}
           onWidthChange={setManagePanelW}
           enabledFilters={enabledGeoserverFilters}
@@ -4738,7 +4889,10 @@ function Map2() {
             display: "flex",
             flexDirection: "column",
             gap: 1,
-            zIndex: 0,
+            // 3D горимд Cesium‑ийн зураг (zIndex 1) бүх зүйлийг бүрхдэг тул
+            // удирдлагын товчнуудыг түүнээс дээш гаргана — эс бөгөөс 2D руу
+            // буцах товч ч харагдахгүй болно.
+            zIndex: is3DMode ? 2 : 0,
           }}
         >
           <Tooltip title="Давхарга" placement="right">
@@ -4811,6 +4965,28 @@ function Map2() {
                 }}
               >
                 <FullscreenIcon />
+              </Fab>
+            </Tooltip>
+          )}
+
+          {mdUp && (
+            <Tooltip
+              title={is3DMode ? "2D зураг руу буцах" : "3D харагдац"}
+              placement="right"
+            >
+              <Fab
+                onClick={handleToggle3D}
+                id="map-3d-toolbar"
+                sx={{
+                  backgroundColor: is3DMode ? "#0288d1" : "white",
+                  color: is3DMode ? "white" : "#0288d1",
+                  "&:hover": {
+                    backgroundColor: is3DMode ? "#0277bd" : "#e1f5fe",
+                    transform: "scale(1.05)",
+                  },
+                }}
+              >
+                <ThreeDIcon />
               </Fab>
             </Tooltip>
           )}
@@ -4890,6 +5066,62 @@ function Map2() {
                 setTabNameForm(null);
               }}
             />
+          </Paper>
+        )}
+
+        {/* «Шинээр» хүсэлт илгээх форм — зүүн панель нарийн тул газрын зураг
+            дээр хөвөгч цонхоор (чирж болно, дотроо гүйнэ). */}
+        {reqForm && (
+          <Paper
+            elevation={8}
+            sx={{
+              position: "fixed",
+              top: reqForm.top,
+              left: reqForm.left,
+              zIndex: 1400,
+              width: 400,
+              maxHeight: "80vh",
+              display: "flex",
+              flexDirection: "column",
+              borderRadius: 1,
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              onMouseDown={startReqFormDrag}
+              sx={{
+                px: 1.5,
+                py: 0.75,
+                bgcolor: "primary.main",
+                color: "#fff",
+                cursor: "move",
+                userSelect: "none",
+                flexShrink: 0,
+              }}
+            >
+              <Typography variant="subtitle2">Шинэ нэрийн хүсэлт</Typography>
+              <IconButton
+                sx={{ color: "#fff" }}
+                onClick={() => {
+                  clearDrawnGeom();
+                  setReqForm(null);
+                }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+            <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <MapAddRequest
+                status={reqForm.status}
+                onCreated={reqForm.onCreated}
+                onClose={() => {
+                  clearDrawnGeom();
+                  setReqForm(null);
+                }}
+              />
+            </Box>
           </Paper>
         )}
 

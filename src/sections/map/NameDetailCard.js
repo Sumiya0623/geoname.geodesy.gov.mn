@@ -26,6 +26,7 @@ import {
   FormControlLabel,
 } from "@mui/material";
 import {
+  BlockOutlined,
   CheckOutlined,
   DescriptionRounded,
   OpenInNewRounded as OpenInNewIcon,
@@ -83,6 +84,11 @@ export default function NameDetailCard({
   const { statuses } = useGetRequestStatuses();
   const changeStatus =
     statuses.find((s) => (s?.name || "").includes("Өөрчл")) || null;
+  const invalidStatus =
+    statuses.find((s) => (s?.name || "").includes("Хүчингүй")) || null;
+  // Аль төлвөөр хүсэлт үүсгэхээр форм нээснийг хадгална (Өөрчлөх / Хүчингүй).
+  // Маягтын бүтэц, PDF-ийн гарчиг энэ төлвөөс хамаарна.
+  const [reqStatus, setReqStatus] = useState(null);
 
   // Төслийн газрын зураг (champaign/<id>/map) дээр бол — рекаунт бүртгэх горим
   const pathname = usePathname();
@@ -641,7 +647,7 @@ export default function NameDetailCard({
           {/* Буцах товч толгой (header) дээр — parent NameSidebar/FeatureSelector дотор */}
           <RequestChangeForm
             onClose={() => setRequestModalOpen(false)}
-            selectedStatus={changeStatus}
+            selectedStatus={reqStatus || changeStatus}
             geonameId={name?.id || null}
           />
         </Box>
@@ -1279,11 +1285,29 @@ export default function NameDetailCard({
                 fullWidth
                 color="warning"
                 startIcon={<CheckOutlined fontSize="small" />}
-                onClick={() => setRequestModalOpen(true)}
+                onClick={() => {
+                  setReqStatus(changeStatus);
+                  setRequestModalOpen(true);
+                }}
                 sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
               >
                 Өөрчлөх хүсэлт
               </Button>
+              {!!invalidStatus && (
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  color="error"
+                  startIcon={<BlockOutlined fontSize="small" />}
+                  onClick={() => {
+                    setReqStatus(invalidStatus);
+                    setRequestModalOpen(true);
+                  }}
+                  sx={{ textTransform: "none", fontWeight: 600, fontSize: 12 }}
+                >
+                  Хүчингүй болгох
+                </Button>
+              )}
             </Stack>
           )}
         </Box>

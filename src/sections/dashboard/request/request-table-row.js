@@ -19,7 +19,7 @@ import { Icon } from "@iconify/react";
 
 import { fDate } from "src/utils/format-time";
 import { useBoolean } from "src/hooks/use-boolean";
-import axiosInstance, { endpoints } from "src/utils/axios";
+import { downloadRequestForm } from "src/utils/download-request-form";
 
 import Iconify from "src/components/iconify";
 import { useSnackbar } from "src/components/snackbar";
@@ -55,25 +55,15 @@ export default function RequestTableRow({
   const { enqueueSnackbar } = useSnackbar();
   const [downloading, setDownloading] = useState(false);
 
-  // Өргөдлийн А4 маягтыг PDF болгон татах
+  // Өргөдлийн А4 маягтыг PDF болгон татах (кэш тойрох + алдааны шалтгаан)
   const handleDownload = async () => {
     try {
       setDownloading(true);
-      const res = await axiosInstance.get(endpoints.request.form(row.id), {
-        responseType: "blob",
-      });
-      const url = window.URL.createObjectURL(
-        new Blob([res.data], { type: "application/pdf" }),
-      );
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `өргөдөл_${row.id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadRequestForm(row.id, `өргөдөл_${row.id}.pdf`);
     } catch (e) {
-      enqueueSnackbar("Маягт татахад алдаа гарлаа", { variant: "error" });
+      enqueueSnackbar(`Маягт татахад алдаа гарлаа: ${e.message}`, {
+        variant: "error",
+      });
     } finally {
       setDownloading(false);
     }

@@ -30,7 +30,16 @@ export default function LegalTableRow({
   // Төслийн горим — устгахгүй, ЗӨВХӨН тухайн төслөөс салгана
   detachMode = false,
 }) {
-  const { name, unit, org, order_number, order_date, signer, document } = row;
+  const {
+    name,
+    unit,
+    org,
+    org_display: orgDisplay,
+    order_number,
+    order_date,
+    signer,
+    document,
+  } = row;
 
   const edit = useBoolean();
   const confirm = useBoolean();
@@ -48,8 +57,9 @@ export default function LegalTableRow({
         <TableCell>{page * rowsPerPage + index + 1}</TableCell>
         <TableCell>{name}</TableCell>
         <TableCell>{unit?.unit || "-"}</TableCell>
-        {/* Байгууллага — аймаг/сум түвшний шийдвэрт (LEGAL_ORGS) */}
-        <TableCell>{org?.name || "-"}</TableCell>
+        {/* Байгууллага — аймаг/сум түвшинд LEGAL_ORGS, дээд түвшинд (УИХ,
+            ЗГ г.м.) org хоосон тул backend нь түвшний нэрийг өгнө. */}
+        <TableCell>{orgDisplay || org?.name || "-"}</TableCell>
         <TableCell>
           {order_date ? fDate(order_date, "yyyy-MM-dd") : "-"}
         </TableCell>

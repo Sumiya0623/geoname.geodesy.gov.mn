@@ -15,7 +15,7 @@ import {
 import { Icon } from "@iconify/react";
 
 import { fDate } from "src/utils/format-time";
-import axiosInstance, { endpoints } from "src/utils/axios";
+import { downloadRequestForm } from "src/utils/download-request-form";
 import { useGetRequests } from "src/api/request";
 import { useAuthContext } from "src/auth/hooks";
 
@@ -61,21 +61,11 @@ export default function ProfileReferences() {
   const handleDownload = async (id) => {
     try {
       setDownloadingId(id);
-      const res = await axiosInstance.get(endpoints.request.form(id), {
-        responseType: "blob",
-      });
-      const url = window.URL.createObjectURL(
-        new Blob([res.data], { type: "application/pdf" }),
-      );
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `лавлагаа_${id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadRequestForm(id, `лавлагаа_${id}.pdf`);
     } catch (e) {
-      enqueueSnackbar("Лавлагаа татахад алдаа гарлаа", { variant: "error" });
+      enqueueSnackbar(`Лавлагаа татахад алдаа гарлаа: ${e.message}`, {
+        variant: "error",
+      });
     } finally {
       setDownloadingId(null);
     }

@@ -21,7 +21,7 @@ import { useNextStep } from "nextstepjs";
 const STEPS = [
   {
     value: "beltgel",
-    label: "Бэлтгэл ажил",
+    label: "Төслийн мэдээлэл",
     icon: "solar:clipboard-list-bold",
   },
   {

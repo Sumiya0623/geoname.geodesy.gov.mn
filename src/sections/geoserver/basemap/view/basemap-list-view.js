@@ -53,6 +53,8 @@ const TABLE_HEAD = [
   { id: "", label: "GeoServer / URL" },
   { id: "", label: "Харах эрх" },
   { id: "", label: "Идэвхтэй", width: 90, align: "center" },
+  // Газрын зураг ачаалахад сонгогдох СУУРЬ давхарга — зөвхөн нэг байна
+  { id: "", label: "Анхдагч", width: 90, align: "center" },
   { id: "", width: 60 },
 ];
 
@@ -165,6 +167,30 @@ export default function BaseMapLayerListView() {
     [enqueueSnackbar, layersMutation],
   );
 
+  // Анхдагчийг тэмдэглэх — backend нь бусад суурь давхаргынхыг автоматаар
+  // цэвэрлэдэг (BaseMapLayer.save), тул зөвхөн PATCH хийхэд хангалттай.
+  const handleSetDefault = useCallback(
+    async (row) => {
+      if (row.layer_type !== "base") {
+        enqueueSnackbar("Зөвхөн суурь давхарга анхдагч байж болно", {
+          variant: "info",
+        });
+        return;
+      }
+      try {
+        await axiosInstance.patch(endpoints.basemap.edit(row.id), {
+          is_default: !row.is_default,
+        });
+        layersMutation();
+      } catch (error) {
+        enqueueSnackbar("Анхдагчийг тохируулахад алдаа гарлаа", {
+          variant: "warning",
+        });
+      }
+    },
+    [enqueueSnackbar, layersMutation],
+  );
+
   const createAction = (
     <Tooltip title="Давхарга нэмэх">
       <IconButton color="primary" onClick={form.onToggle}>
@@ -231,6 +257,7 @@ export default function BaseMapLayerListView() {
                           refetch={layersMutation}
                           onDeleteRow={() => handleDeleteRow(row.id)}
                           onToggleEnabled={handleToggleEnabled}
+                          onSetDefault={handleSetDefault}
                           roles={roles}
                           available={available}
                           layers={rows}

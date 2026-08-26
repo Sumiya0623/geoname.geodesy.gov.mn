@@ -7,10 +7,12 @@ import {
   Box,
   Chip,
   Stack,
+  Button,
   Divider,
   Typography,
   CircularProgress,
 } from "@mui/material";
+import { Icon } from "@iconify/react";
 
 import { useGetRequests, useGetRequestStatuses } from "src/api/request";
 
@@ -21,10 +23,19 @@ import { useGetRequests, useGetRequestStatuses } from "src/api/request";
 // Зөвхөн ерөнхий газрын зураг дээр — төслийн зурагт харагдахгүй.
 // ----------------------------------------------------------------------
 
-export default function RequestPanel({ onFlyTo }) {
+export default function RequestPanel({ onFlyTo, onAddRequest }) {
   const [status, setStatus] = useState(null); // сонгосон төлөв (id)
 
-  const { statuses, statusesLoading } = useGetRequestStatuses();
+  const { statuses, statusesLoading, statusesMutation } =
+    useGetRequestStatuses();
+
+  // «Шинээр» төлөв — DB дээрх нэрээр (REQUEST_STATUS: Өөрчлөх/Шинээр/Хүчингүй)
+  const newStatus = useMemo(
+    () => (statuses || []).find((s) => (s.name || "").startsWith("Шинээр")),
+    [statuses],
+  );
+  // Товч нь ЗӨВХӨН «Шинээр» таб идэвхтэй үед харагдана
+  const onNewTab = !!newStatus && status === newStatus.id;
 
   const body = useMemo(
     () => ({
@@ -35,7 +46,22 @@ export default function RequestPanel({ onFlyTo }) {
     }),
     [status],
   );
-  const { requests, requestsLoading } = useGetRequests(body);
+  const { requests, requestsLoading, requestsMutation } = useGetRequests(body);
+
+  const handleStatus = (id) => {
+    setStatus((prev) => (prev === id ? null : id));
+  };
+
+  // Форм нь ЭНЭ нарийн панелд биш, газрын зураг дээр хөвөгч цонхоор нээгдэнэ
+  // (панель дотор багтахгүй, доош гүйдэггүй байсан).
+  const openForm = () =>
+    onAddRequest?.({
+      status: newStatus,
+      onCreated: () => {
+        requestsMutation();
+        statusesMutation();
+      },
+    });
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -50,7 +76,7 @@ export default function RequestPanel({ onFlyTo }) {
                 key={s.id ?? s.name}
                 label={`${s.name} ${s.count ?? s.request_count ?? 0}`}
                 variant={status === s.id ? "filled" : "soft"}
-                onClick={() => setStatus(status === s.id ? null : s.id)}
+                onClick={() => handleStatus(s.id)}
                 sx={{
                   cursor: "pointer",
                   ...(s.color
@@ -63,6 +89,23 @@ export default function RequestPanel({ onFlyTo }) {
           </Stack>
         )}
       </Box>
+
+      {/* «Шинээр» таб — хүсэлт илгээх (шинэ нэр бүртгэхтэй ижил урсгал).
+          Форм нь газрын зураг дээр хөвөгч цонхоор нээгдэнэ. */}
+      {onNewTab && (
+        <Box sx={{ px: 1.5, pb: 1, flexShrink: 0 }}>
+          <Button
+            fullWidth
+            size="small"
+            variant="contained"
+            color="primary"
+            startIcon={<Icon icon="solar:add-circle-bold" />}
+            onClick={openForm}
+          >
+            Хүсэлт илгээх
+          </Button>
+        </Box>
+      )}
 
       <Divider />
 
@@ -91,8 +134,14 @@ export default function RequestPanel({ onFlyTo }) {
           return (
             <Box
               key={r.id}
+              // onFlyTo нь {center,zoom} эсвэл {bbox} хэлбэрийг хүлээдэг —
+              // энгийн массив дамжуулж байсан тул дарахад юу ч болдоггүй байв.
               onClick={() =>
-                hasLoc && onFlyTo?.([Number(r.lon), Number(r.lat)])
+                hasLoc &&
+                onFlyTo?.({
+                  center: [Number(r.lon), Number(r.lat)],
+                  zoom: 14,
+                })
               }
               sx={{
                 px: 1.5,
@@ -143,4 +192,5 @@ export default function RequestPanel({ onFlyTo }) {
 
 RequestPanel.propTypes = {
   onFlyTo: PropTypes.func,
+  onAddRequest: PropTypes.func,
 };

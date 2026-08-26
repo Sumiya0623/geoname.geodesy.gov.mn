@@ -10,9 +10,13 @@ import {
   Alert,
   Button,
   Divider,
+  Tooltip,
+  Collapse,
   TextField,
+  IconButton,
   Typography,
   Autocomplete,
+  InputAdornment,
   LinearProgress,
   CircularProgress,
 } from "@mui/material";
@@ -20,6 +24,7 @@ import {
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { fold } from "src/utils/fold-search";
 import { useGetConstantsFordropdown } from "src/api/constant";
+import { useGetLegalUnits } from "src/api/legal";
 import { useGetRecountForms } from "src/api/recount";
 
 import Iconify from "src/components/iconify";
@@ -34,8 +39,10 @@ import { useSnackbar } from "src/components/snackbar";
 //
 //  1) Нэрийн сан = тухайн төслийн (алхмын) тодруулалтын мөрүүд — маягтаар
 //     нарийсгаж болно (Бүгд / Маягт 1..9).
-//  2) Хайхад нэр, зураг дээрх нэр, 1:25000/1:100000 нэрлэвэр гурвуулан
-//     ажиллана (латин/кирилл хольцыг fold() жигдрүүлнэ).
+//  2) Шүүлтүүр (toggle) — аймаг/сум (орон зайгаар, backend), нэрийн ангилал
+//     буюу дэвсгэр нэр (3 түвшний dependent, backend) ба нэрлэвэр (client).
+//     Шүүлтээр нарийссан сангаас Autocomplete нь нэр, зураг дээрх нэр,
+//     нэрлэвэр гурвуулангаар хайна (латин/кирилл хольцыг fold() жигдрүүлнэ).
 //  3) «Холбох» → LegalOrder.names (M2M) дээр нэмэгдэнэ. Аль хэдийн
 //     холбоотойг тэмдэглээд давхардуулахгүй; chip дээрх ✕‑ээр салгана.
 // ----------------------------------------------------------------------
@@ -66,31 +73,128 @@ export default function AttachNamePanel({
   );
 
   const [tab, setTab] = useState("all"); // нэрийн санг маягтаар нарийсгах
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [aimag, setAimag] = useState(null);
+  const [sum, setSum] = useState(null);
+  const [qNomek, setQNomek] = useState(""); // нэрлэвэр — client талд
+  // Нэрийн ангилал (дэвсгэр нэр) — Үндсэн → Анхдагч → Дэд, dependent 3 түвшин
+  const [cat1, setCat1] = useState(null);
+  const [cat2, setCat2] = useState(null);
+  const [cat3, setCat3] = useState(null);
+  const [cat1Opts, setCat1Opts] = useState([]);
+  const [cat2Opts, setCat2Opts] = useState([]);
+  const [cat3Opts, setCat3Opts] = useState([]);
+  const typeFilterId = cat3?.id || cat2?.id || cat1?.id || null;
   const [picked, setPicked] = useState([]);
   const [busy, setBusy] = useState(false);
   const [linked, setLinked] = useState({ count: 0, results: [] });
   const [linkedHere, setLinkedHere] = useState(new Set());
 
+  const { units: aimagOpts } = useGetLegalUnits("Аймаг/Нийслэл", null, true);
+  const { units: sumOpts } = useGetLegalUnits(
+    "Сум/Дүүрэг",
+    aimag?.id,
+    !!aimag?.id,
+  );
+
+  // Нэрийн ангиллын түвшин бүрийг эцгээр нь татна (parent=null → Үндсэн)
+  const fetchCats = useCallback(async (parent) => {
+    try {
+      const qp = parent ? new URLSearchParams({ parent }).toString() : "";
+      const res = await axiosInstance.get(endpoints.nameCategory.list(qp));
+      return res?.data?.results || res?.data || [];
+    } catch (e) {
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    fetchCats(null).then((v) => {
+      if (alive) setCat1Opts(v);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [fetchCats]);
+
+  const handleCat = useCallback(
+    async (level, value) => {
+      if (level === 1) {
+        setCat1(value);
+        setCat2(null);
+        setCat3(null);
+        setCat3Opts([]);
+        setCat2Opts(value?.id ? await fetchCats(value.id) : []);
+      } else if (level === 2) {
+        setCat2(value);
+        setCat3(null);
+        setCat3Opts(value?.id ? await fetchCats(value.id) : []);
+      } else {
+        setCat3(value);
+      }
+    },
+    [fetchCats],
+  );
+
+  const hasFilter = !!(aimag?.id || sum?.id || typeFilterId || qNomek);
+
+  const clearFilters = useCallback(() => {
+    setAimag(null);
+    setSum(null);
+    setQNomek("");
+    setCat1(null);
+    setCat2(null);
+    setCat3(null);
+    setCat2Opts([]);
+    setCat3Opts([]);
+  }, []);
+
   // Тухайн төслийн тодруулалтын мөрүүд (маягтаар бүлэглэгдсэн).
-  // URL нь «Маягтууд» табынхтай ижил тул SWR кэш дундаа ашиглагдана.
+  // Аймаг/сум/ангилал нь backend талд шүүгдэнэ (аймаг/сум — орон зайгаар).
+  // `tab` дамжуулахгүй тул шүүлт БҮХ маягтад үйлчилнэ (эндээс нэрийг маягт
+  // харгалзахгүй сонгодог).
   const { forms, formsLoading } = useGetRecountForms({
     projectId,
     step: stepObj?.id,
+    sum: sum?.id,
+    aimag: aimag?.id,
+    type: typeFilterId,
   });
+
+  // Нэрлэвэрийн шүүлт — мөр бүрд nomek_25k/100k аль хэдийн ирсэн тул client
+  // талд шүүнэ (сервер рүү дахин явахгүй, шууд хариу үзүүлнэ).
+  const formsN = useMemo(() => {
+    const sn = fold(qNomek);
+    if (!sn) return forms || {};
+    const out = {};
+    Object.keys(forms || {}).forEach((k) => {
+      out[k] = (forms[k] || []).filter(
+        (r) =>
+          fold(r.nomek_25k).includes(sn) || fold(r.nomek_100k).includes(sn),
+      );
+    });
+    return out;
+  }, [forms, qNomek]);
 
   // Маягтын шүүлт (chip) — зөвхөн мөр БАЙГАА маягтуудыг харуулна
   const formKeys = useMemo(
     () =>
-      Object.keys(forms || {})
-        .filter((k) => (forms?.[k] || []).length)
+      Object.keys(formsN || {})
+        .filter((k) => (formsN?.[k] || []).length)
         .sort((a, b) => Number(a) - Number(b)),
-    [forms],
+    [formsN],
   );
+
+  // Сонгосон маягт шүүлтээр хоосорвол «Бүгд» рүү буцаана (мухар табд гацахгүй)
+  useEffect(() => {
+    if (tab !== "all" && !formKeys.includes(tab)) setTab("all");
+  }, [tab, formKeys]);
 
   const rows = useMemo(() => {
     const keys = tab === "all" ? formKeys : [tab];
-    return keys.flatMap((k) => forms?.[k] || []);
-  }, [forms, formKeys, tab]);
+    return keys.flatMap((k) => formsN?.[k] || []);
+  }, [formsN, formKeys, tab]);
 
   // Мөрүүд → нэрийн сонголт (name_id‑гээр давхардлыг арилгана)
   const options = useMemo(() => {
@@ -261,11 +365,141 @@ export default function AttachNamePanel({
         <Typography variant="overline" color="text.secondary">
           Нэр холбох
         </Typography>
+        <Tooltip title="Шүүлтүүр (аймаг/сум/ангилал/нэрлэвэр)">
+          <IconButton
+            size="small"
+            color={filterOpen || hasFilter ? "primary" : "default"}
+            onClick={() => setFilterOpen((v) => !v)}
+          >
+            <Iconify icon="mdi:filter-variant" width={20} />
+          </IconButton>
+        </Tooltip>
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="caption" color="text.secondary">
           Санд нийт {linked.count} нэр холбоотой
         </Typography>
       </Stack>
+
+      {/* Шүүлтүүр — аймаг/сум ба ангилал нь backend, нэрлэвэр нь client талд */}
+      <Collapse in={filterOpen} timeout="auto" unmountOnExit>
+        <Box sx={{ mt: 1.5 }}>
+          <Box
+            gap={1.5}
+            display="grid"
+            gridTemplateColumns={{ xs: "1fr", sm: "1fr 1fr 1fr" }}
+          >
+            <Autocomplete
+              size="small"
+              options={aimagOpts}
+              value={aimag}
+              onChange={(e, v) => {
+                setAimag(v);
+                setSum(null);
+              }}
+              getOptionLabel={(o) => o?.unit || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Аймаг/Нийслэл" />
+              )}
+            />
+            <Autocomplete
+              size="small"
+              options={sumOpts}
+              value={sum}
+              disabled={!aimag?.id}
+              onChange={(e, v) => setSum(v)}
+              getOptionLabel={(o) => o?.unit || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Сум/Дүүрэг" />
+              )}
+            />
+            <TextField
+              size="small"
+              label="Нэрлэвэр"
+              placeholder="ж: M-47-73-Б"
+              value={qNomek}
+              onChange={(e) => setQNomek(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Iconify
+                      icon="mdi:grid-large"
+                      sx={{ color: "text.disabled" }}
+                    />
+                  </InputAdornment>
+                ),
+                endAdornment: qNomek ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setQNomek("")}>
+                      <Iconify icon="eva:close-fill" width={16} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+            />
+          </Box>
+
+          {/* Нэрийн ангилал (дэвсгэр нэр) — dependent 3 түвшин */}
+          <Typography
+            variant="overline"
+            color="text.secondary"
+            sx={{ display: "block", mt: 1.5 }}
+          >
+            Нэрийн ангилал
+          </Typography>
+          <Box
+            gap={1.5}
+            display="grid"
+            gridTemplateColumns={{ xs: "1fr", sm: "1fr 1fr 1fr" }}
+            sx={{ mt: 0.5 }}
+          >
+            <Autocomplete
+              size="small"
+              options={cat1Opts}
+              value={cat1}
+              onChange={(e, v) => handleCat(1, v)}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => <TextField {...params} label="Үндсэн" />}
+            />
+            <Autocomplete
+              size="small"
+              disabled={!cat1?.id}
+              options={cat2Opts}
+              value={cat2}
+              onChange={(e, v) => handleCat(2, v)}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => (
+                <TextField {...params} label="Анхдагч" />
+              )}
+            />
+            <Autocomplete
+              size="small"
+              disabled={!cat2?.id}
+              options={cat3Opts}
+              value={cat3}
+              onChange={(e, v) => handleCat(3, v)}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o?.id === v?.id}
+              renderInput={(params) => <TextField {...params} label="Дэд" />}
+            />
+          </Box>
+
+          {hasFilter && (
+            <Button
+              size="small"
+              color="inherit"
+              sx={{ mt: 1 }}
+              startIcon={<Iconify icon="mdi:filter-remove-outline" />}
+              onClick={clearFilters}
+            >
+              Шүүлт цэвэрлэх
+            </Button>
+          )}
+        </Box>
+      </Collapse>
 
       {/* Нэрийн санг маягтаар нарийсгах */}
       <Stack
@@ -282,7 +516,7 @@ export default function AttachNamePanel({
         {formKeys.map((k) => (
           <Chip
             key={k}
-            label={`${FORM_LABEL[k] || `Маягт ${k}`} · ${forms[k].length}`}
+            label={`${FORM_LABEL[k] || `Маягт ${k}`} · ${formsN[k].length}`}
             color={tab === k ? "primary" : "default"}
             variant={tab === k ? "filled" : "outlined"}
             onClick={() => setTab(k)}
