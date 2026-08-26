@@ -1574,19 +1574,44 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 		if name_q:
 			conds.append('COALESCE(g.name, r.draft) ILIKE %s')
 			params.append('%' + name_q + '%')
-		where = ' AND '.join(conds)
+		# ⚠ Өмнө нь `JOIN core_geoname` (INNER) байсан тул батлагдсан нэртэй
+		# ХОЛБОГДООГҮЙ бүх тодруулалт (draft — ж: QGIS‑ээс импортолсон) модноос
+		# бүрмөсөн унадаг байв. Түүнчлэн ЗЗ нэгжийг зөвхөн нэрийн M2M‑ээс авдаг
+		# байсан нь draft‑д огт байхгүй. `recount_view`‑тэй ИЖИЛ дүрэм рүү
+		# шилжүүлэв: нэртэй бол нэрийн нэгж, draft бол БАЙРШЛААР нь орон зайгаар.
+		conds_rc = [c for c in conds if not c.startswith("lvl.name")]
+		where_rc = ' AND '.join(conds_rc)
 		sql = (
-			'SELECT r.id AS rid, COALESCE(g.name, r.draft) AS rname, '
-			's.id AS sum_id, s.unit AS sum_name, '
-			'a.id AS aimag_id, a.unit AS aimag_name '
-			'FROM core_recount r '
-			'JOIN core_geoname g ON g.id = r.name_id '
-			'JOIN core_geoname_unit gu ON gu.geoname_id = g.id '
-			'JOIN core_adminunit s ON s.id = gu.adminunit_id '
-			'JOIN core_constant lvl ON lvl.id = s.level_id '
-			'LEFT JOIN core_adminunit a ON a.id = s.parent_id '
-			'WHERE ' + where + ' '
-			'ORDER BY a.unit, s.unit, rname'
+			'WITH rc AS ('
+			'  SELECT r.id AS rid, COALESCE(g.name, r.draft) AS rname, '
+			'         r.loc AS loc, g.id AS gid '
+			'  FROM core_recount r '
+			'  LEFT JOIN core_geoname g ON g.id = r.name_id '
+			'  WHERE ' + where_rc + ''
+			'), pairs AS ('
+			# (a) батлагдсан нэртэй — нэрийн ЗЗ нэгжийн M2M‑ээр
+			'  SELECT rc.rid, rc.rname, s.id AS sum_id, s.unit AS sum_name, '
+			'         s.parent_id '
+			'  FROM rc '
+			'  JOIN core_geoname_unit gu ON gu.geoname_id = rc.gid '
+			'  JOIN core_adminunit s ON s.id = gu.adminunit_id '
+			'  JOIN core_constant lvl ON lvl.id = s.level_id '
+			"  WHERE lvl.name = 'Сум/Дүүрэг' "
+			'  UNION '
+			# (b) нэргүй (draft) — зурсан/импортолсон БАЙРШЛААР нь
+			'  SELECT rc.rid, rc.rname, s.id, s.unit, s.parent_id '
+			'  FROM rc '
+			'  JOIN core_adminunit s ON s.geom IS NOT NULL '
+			'       AND ST_Intersects(s.geom, rc.loc) '
+			'  JOIN core_constant lvl ON lvl.id = s.level_id '
+			"  WHERE lvl.name = 'Сум/Дүүрэг' "
+			'    AND rc.gid IS NULL AND rc.loc IS NOT NULL '
+			') '
+			'SELECT p.rid, p.rname, p.sum_id, p.sum_name, '
+			'       a.id AS aimag_id, a.unit AS aimag_name '
+			'FROM pairs p '
+			'LEFT JOIN core_adminunit a ON a.id = p.parent_id '
+			'ORDER BY a.unit, p.sum_name, p.rname'
 		)
 		with connection.cursor() as c:
 			c.execute(sql, params)
