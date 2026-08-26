@@ -841,14 +841,16 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			c = geom.centroid
 			return ((draft or '').strip().lower(), round(c.x, 5), round(c.y, 5))
 
-		seen = set()
+		# key → аль хэдийн байгаа тодруулалтын id (энэ багц дотроос давхардсан
+		# бол None). Алгассан шалтгааныг ЯЛГАЖ мэдээлэхэд хэрэгтэй.
+		seen = {}
 		if skip_existing:
-			for d, loc in (ReCount.objects.filter(project=project)
-			               .values_list('draft', 'loc')):
-				seen.add(key(d, loc))
+			for rid, d, loc in (ReCount.objects.filter(project=project)
+			                    .values_list('id', 'draft', 'loc')):
+				seen.setdefault(key(d, loc), rid)
 
 		user = request.user if request.user.is_authenticated else None
-		rows, errors, skipped = [], [], 0
+		rows, errors, skipped_items = [], [], []
 		for i, it in enumerate(items):
 			if not isinstance(it, dict):
 				errors.append({'index': i, 'detail': 'мөр нь объект байх ёстой'})
@@ -872,9 +874,18 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				continue
 			k = key(draft, geom)
 			if skip_existing and k in seen:
-				skipped += 1
+				# Аль хэдийн БД‑д байсан уу, эсвэл ЭНЭ багц дотроо давхардсан уу
+				prev = seen[k]
+				c = geom.centroid if geom is not None else None
+				skipped_items.append({
+					'index': i, 'draft': draft,
+					'lon': (round(c.x, 6) if c else None),
+					'lat': (round(c.y, 6) if c else None),
+					'reason': ('exists' if prev else 'batch'),
+					'recount_id': prev,
+				})
 				continue
-			seen.add(k)
+			seen[k] = None                # энэ багцад шинээр нэмэгдэж буй
 			rows.append(ReCount(
 				project=project, step_id=step_id, type_id=type_id,
 				draft=draft, loc=geom, user=user,
@@ -892,8 +903,14 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 					[through(recount_id=r.id, constant_id=s)
 					 for r in rows for s in status_ids],
 					batch_size=1000, ignore_conflicts=True)
-		return Response({'added': added, 'skipped': skipped,
-		                 'errors': errors[:50], 'error_count': len(errors)})
+		return Response({
+			'added': added, 'skipped': len(skipped_items),
+			# Алгассан бүр — plugin дээр жагсааж, дээр нь дарахад зурагт очно.
+			# reason: exists = төсөлд аль хэдийн бүртгэлтэй,
+			#         batch  = импортын ЭНЭ багц дотроо давхардсан
+			'skipped_items': skipped_items[:2000],
+			'errors': errors[:50], 'error_count': len(errors),
+		})
 
 	def perform_create(self, serializer):
 		# GeoName‑гүй (draft) тодруулалт ЗААВАЛ ангилалтай байх ёстой —
