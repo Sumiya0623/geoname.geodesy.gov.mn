@@ -17,7 +17,7 @@ def request_form(request, pk):
             .prefetch_related(
                 "option",
                 "namecontacts",
-                "name__orders",
+                "name__legalorders",
                 "name__unit",
                 "name__nomek",
             )
@@ -29,4 +29,6 @@ def request_form(request, pk):
     pdf_bytes = build_request_pdf(req)
     resp = HttpResponse(pdf_bytes, content_type="application/pdf")
     resp["Content-Disposition"] = f'attachment; filename="request_{pk}.pdf"'
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
     return resp

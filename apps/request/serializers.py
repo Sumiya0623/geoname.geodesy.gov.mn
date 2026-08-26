@@ -1,5 +1,8 @@
+import json
+
 from rest_framework import serializers
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.gis.geos import GEOSGeometry
 
 from core.serializers import (ProfileDropDownSerializer, PersonSerializerMixin,
                               AdminUnitDropDownSerializer)
@@ -119,18 +122,46 @@ class LegalOrderSerializer(serializers.ModelSerializer):
 	# ?projects=<id> үед — тухайн ТӨСЛИЙН тодруулалтад (ReCount) хамаарах
 	# нэрсээс хэд нь энэ баримтад холбогдсон бэ (төслийн хуудсанд харуулна)
 	project_names_count = serializers.IntegerField(read_only=True, default=0)
+	# Жагсаалтад ХАРУУЛАХ байгууллага. org (LEGAL_ORGS) нь зөвхөн аймаг/сум
+	# түвшний шийдвэрт бөглөгддөг тул дээд түвшний (ж: УИХ) баримт дээр хоосон
+	# үлдэж «-» болж харагддаг байв — тэр тохиолдолд түвшний нэрийг өгнө.
+	org_display = serializers.SerializerMethodField()
+
+	def get_org_display(self, obj):
+		if obj.org_id and obj.org.name:
+			return obj.org.name
+		if obj.govlevel_id and obj.govlevel.name:
+			return obj.govlevel.name
+		return ''
+
+	def to_internal_value(self, data):
+		"""multipart‑аар хоосон мөр ирсэн FK‑г (org_id="") ЦЭВЭРЛЭХ гэж үзнэ.
+
+		Формоос «—» сонгоход хоосон утга илгээгддэг; DRF‑ийн default зан
+		байдал нь «Invalid pk ""» гэж алдаа өгдөг тул None болгож хөрвүүлнэ.
+		"""
+		empty = ('', 'null', 'undefined')
+		keys = ('govlevel_id', 'org_id', 'type_id', 'unit_id')
+		if hasattr(data, 'copy') and any(
+				k in data and str(data.get(k)).strip() in empty for k in keys):
+			data = data.copy()
+			for k in keys:
+				if k in data and str(data.get(k)).strip() in empty:
+					data[k] = None
+		return super().to_internal_value(data)
 
 	class Meta:
 		model = LegalOrder
 		fields = [
 			'id', 'name', 'govlevel', 'govlevel_id', 'org', 'org_id',
+			'org_display',
 			'type', 'type_id', 'unit', 'unit_id',
 			'description', 'order_date', 'order_number', 'document', 'signer',
 			'user_name', 'created_date', 'views', 'names_count',
 			'project_names_count',
 		]
 		read_only_fields = ['user_name', 'created_date', 'views', 'names_count',
-		                    'project_names_count']
+		                    'project_names_count', 'org_display']
 
 
 # ----------------------------------------------------------------------
@@ -173,6 +204,31 @@ class NameOptionSerializer(serializers.ModelSerializer):
 		fields = ['id', 'name', 'name2', 'desc']
 
 
+class GeoJSONField(serializers.Field):
+	"""GeoJSON (dict/мөр) ↔ GEOSGeometry. Буруу утга ирвэл ValidationError."""
+
+	def to_representation(self, value):
+		if not value:
+			return None
+		try:
+			return json.loads(value.geojson)
+		except Exception:
+			return None
+
+	def to_internal_value(self, data):
+		if data in (None, '', 'null'):
+			return None
+		try:
+			raw = data if isinstance(data, str) else json.dumps(data)
+			geom = GEOSGeometry(raw)
+			if geom.srid is None:
+				geom.srid = 4326
+			return geom
+		except Exception as exc:
+			raise serializers.ValidationError(
+				f'Геометр буруу байна: {exc}')
+
+
 class RequestNameSerializer(serializers.ModelSerializer):
 	# Read — nested
 	name = GeoNameDropSerializer(read_only=True)
@@ -206,13 +262,16 @@ class RequestNameSerializer(serializers.ModelSerializer):
 	purpose_ids = serializers.PrimaryKeyRelatedField(
 		queryset=Constant.objects.filter(key='REQUEST_PURPOSES'), source='purpose',
 		many=True, write_only=True, required=False)
+	# Газрын зураг дээр зурсан дүрс — GeoJSON (dict эсвэл мөр) хэлбэрээр
+	# ирж/буцна. Шугам/талбай ангилалд цэгээр бус өөрийнх нь дүрсээр хадгална.
+	geoloc = GeoJSONField(required=False, allow_null=True)
 
 	class Meta:
 		model = RequestName
 		fields = [
 			'id', 'name', 'name_id', 'age', 'age_id', 'type', 'type_id',
 			'status', 'status_id', 'purpose', 'purpose_ids', 'options', 'contacts',
-			'description', 'lat', 'lon',
+			'description', 'lat', 'lon', 'geoloc',
 			'user_name', 'user_register', 'user_phone', 'user_email',
 			'photo_count', 'attach_count', 'created_date', 'views',
 		]

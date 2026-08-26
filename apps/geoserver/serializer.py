@@ -29,7 +29,8 @@ class BaseMapLayerSerializer(serializers.ModelSerializer):
 		model = BaseMapLayer
 		fields = [
 			'id', 'key', 'label', 'layer_type', 'source_type', 'workspace',
-			'gs_layer', 'url', 'params', 'color', 'is_enabled', 'sort_order',
+			'gs_layer', 'url', 'params', 'color', 'is_enabled', 'is_default',
+			'sort_order',
 			'roles', 'role_ids', 'created_date', 'modified_date',
 		]
 

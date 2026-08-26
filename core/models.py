@@ -341,7 +341,12 @@ class RequestName(UserMixin):
 	description=models.TextField(blank=True,null=True,verbose_name='Тайлбар')
 	lat=models.FloatField(blank=True,null=True,verbose_name='Өргөрөг')
 	lon=models.FloatField(blank=True,null=True,verbose_name='Уртраг')
-	
+	# Газрын зураг дээр зурсан ДҮРС. Ангилал бүр өөрийн геометрийн төрөлтэй
+	# (Цэг/Шугам/Талбай) тул жалга, гол зэрэг шугаман объектыг цэгээр биш
+	# өөрийнх нь дүрсээр хадгална; lat/lon нь маягтын «солбицол» мөрд зориулсан
+	# төлөөлөх цэг хэвээр үлдэнэ.
+	geoloc=models.GeometryField(blank=True,null=True,srid=4326,verbose_name='Газарзүйн байрлал')
+
 	def __str__(self):
 		return f'{self.name}'
 
@@ -729,6 +734,9 @@ class BaseMapLayer(models.Model):
 	params = models.JSONField(blank=True, null=True, default=dict, verbose_name='Нэмэлт параметр')
 	color = models.CharField(max_length=32, blank=True, default='', verbose_name='Өнгө/дүрс')
 	is_enabled = models.BooleanField(default=True, verbose_name='Идэвхтэй (нээх/хаах)')
+	# Газрын зураг ачаалахад АНХДАГЧААР сонгогдох суурь давхарга. Зөвхөн НЭГ
+	# суурь давхарга анхдагч байж болно (save() дээр хангагдана).
+	is_default = models.BooleanField(default=False, verbose_name='Анхдагч (map ачаалахад)')
 	sort_order = models.PositiveIntegerField(default=0, verbose_name='Эрэмбэ')
 	# roles ХООСОН → бүх хэрэглэгчид. Утгатай → зөвхөн тэр role‑той хэрэглэгчид.
 	roles = models.ManyToManyField(
@@ -743,3 +751,64 @@ class BaseMapLayer(models.Model):
 
 	def __str__(self):
 		return f'{self.label} ({self.key}) [{self.layer_type}]'
+
+	def save(self, *args, **kwargs):
+		"""Анхдагч нь ЗӨВХӨН нэг байна. Шинээр тэмдэглэсэн бол бусдыг цэвэрлэнэ.
+
+		Нэмэлт (overlay) давхарга анхдагч байх утгагүй тул тэмдэглэгээг хаяна.
+		"""
+		if self.layer_type != 'base':
+			self.is_default = False
+		super().save(*args, **kwargs)
+		if self.is_default:
+			(BaseMapLayer.objects
+			 .filter(layer_type='base', is_default=True)
+			 .exclude(pk=self.pk)
+			 .update(is_default=False))
+
+
+class Relief(models.Model):
+	height = models.FloatField(blank=True, null=True, verbose_name='Өндөр')
+	geom = models.MultiLineStringField(srid=32648, dim=3, blank=True, null=True, verbose_name='Геометр')
+	# Ойролцоох [[DemPoint]] (өндрийн цэг)‑ээр өндрийг нь баталгаажуулсан эсэх.
+	# «ЯГ ТЭНЦҮҮ» гэсэн утга БИШ — өндрийн цэг нь хаяалбар дээр биш, хоёр
+	# хаяалбарын хооронд байрладаг тул confirm_relief_height команд нь
+	# зай/хүлцлийн хязгаараар ажиллана (анхдагч: 200 м дотор, зөрүү ≤10 м).
+	confirmed = models.BooleanField(default=False, verbose_name='Өндөр баталгаажсан')
+	# Эх файлын «Хаяалбарын төрөл». Интервалыг тодорхойлдог тул өндөр сэргээхэд
+	# зайлшгүй: Turl 2,3 → 20 м‑ийн хаяалбар, Turl 4 → 10 м (хагас хаяалбар).
+	# Зөвхөн өндрөө алдсан (height=0) мөрүүдэд дахин импортлосон.
+	turl = models.IntegerField(blank=True, null=True, verbose_name='Хаяалбарын төрөл')
+	# СЭРГЭЭСЭН өндөр. `height` дээр дарж бичихгүй — хараад баталгаажуулсны
+	# дараа шилжүүлнэ. height_src нь ямар дүрмээр гарсныг тэмдэглэнэ.
+	height_est = models.FloatField(blank=True, null=True, verbose_name='Сэргээсэн өндөр')
+	height_src = models.CharField(max_length=32, blank=True, null=True, verbose_name='Сэргээсэн эх')
+
+	class Meta:
+		db_table = 'relief'
+		verbose_name = 'Релеф (түр)'
+		verbose_name_plural = 'Релеф (түр)'
+
+	def __str__(self):
+		return f'{self.pk} ({self.height})'
+
+
+class DemPoint(models.Model):
+	"""Түр зуурын DEM‑ийн цэгэн өгөгдөл (өндрийн цэг / picket, хаяалбараас
+	задалсан цэгүүд).
+
+	[[Relief]]‑тэй хамт 3D DEM гаргаж авахад ашиглана. DEM бэлэн болмогц
+	dem_point хүснэгт болон энэ моделийг УСТГАНА. Геометр нь эх өгөгдлийн
+	проекц (UTM zone 48N, EPSG:32648) дээр 3D Point хэвээр — өндөр нь
+	`height` баганад (эх файлын Z нь 0 тул түүнд бүү найд).
+	"""
+	height = models.FloatField(blank=True, null=True, verbose_name='Өндөр')
+	geom = models.PointField(srid=32648, dim=3, blank=True, null=True, verbose_name='Геометр')
+
+	class Meta:
+		db_table = 'dem_point'
+		verbose_name = 'DEM цэг (түр)'
+		verbose_name_plural = 'DEM цэг (түр)'
+
+	def __str__(self):
+		return f'{self.pk} ({self.height})'

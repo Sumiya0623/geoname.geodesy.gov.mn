@@ -28,9 +28,6 @@ class LegalTypeViewSet(PublicListMixin, viewsets.ReadOnlyModelViewSet):
 	serializer_class = LegalTypeSerializer
 	permission_classes = function_permission('legal')
 	def get_queryset(self):
-		# Эрэмбэ: code‑г БИЧСЭН ХЭВЭЭР нь (текстээр) — «01, 02, 03…» гэж
-		# бичихэд яг тэр дараалалдаа орно. Хоосон code хамгийн сүүлд, тэнцвэл
-		# color (гараар өгсөн дугаар) → id.  ЗӨВХӨН LEGAL_LEVELS‑д хамаарна.
 		return (
 			Constant.objects.filter(key='LEGAL_LEVELS')
 			.annotate(order_count=Count('orgs', distinct=True))
@@ -529,8 +526,15 @@ class RequestNameViewSet(PublicListMixin, viewsets.ModelViewSet):
 		obj = self.get_object()
 		ct = ContentType.objects.get_for_model(RequestName)
 		created = {'photos': 0, 'attachs': 0}
-		for f in request.FILES.getlist('photos'):
-			Photo.objects.create(file=f, content_type=ct, object_id=obj.id)
+		# Зураг бүрийн ЗОВХИС (зураг дарсан зүг) — `descs` нь `photos`-той ижил
+		# дараалалтай ирнэ. Маягт дээр зовхистой зураг «Гэрэл зураг», зовхисгүй
+		# нь «Байршлын зураг» хэсэгт ордог тул энэ утга чухал.
+		descs = (request.data.getlist('descs')
+		         if hasattr(request.data, 'getlist') else [])
+		for i, f in enumerate(request.FILES.getlist('photos')):
+			Photo.objects.create(
+				file=f, content_type=ct, object_id=obj.id,
+				desc=(descs[i].strip() if i < len(descs) else '') or None)
 			created['photos'] += 1
 		for f in request.FILES.getlist('attachs'):
 			Attach.objects.create(attach=f, content_type=ct, object_id=obj.id)
@@ -781,6 +785,115 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				 for i in fresh], batch_size=1000)
 		return Response({'added': len(fresh), 'skipped': total - len(fresh),
 		                 'total': total})
+
+	@action(detail=False, methods=['post'], url_path='bulk-import')
+	def bulk_import(self, request, *args, **kwargs):
+		"""QGIS plugin — ХЭРЭГЛЭГЧИЙН давхаргаас сонгосон обьектуудыг тухайн
+		төслийн тооллого руу НЭГ хүсэлтээр оруулна.
+
+		  POST {
+		    project: <id>, step: <id|null>, type: <id|null>,
+		    status_ids: [<id>, ...],            # ЗААВАЛ — дор хаяж нэг төлөв
+		    skip_existing: true|false,          # анхдагч: true
+		    items: [{draft, is_border, loc: <GeoJSON geometry>}, ...]
+		  } → {added, skipped, errors: [{index, detail}, ...]}
+
+		Feature бүрд нэг хүсэлт явуулбал 2000+ хүсэлт болж удаан бөгөөд дунд нь
+		тасарвал хагас орно — тиймээс багцаар НЭГ гүйлгээнд бичнэ.
+
+		Давхардал: тухайн төсөлд ИЖИЛ нэр + ИЖИЛ байршилтай (≈1 м) мөр байвал
+		алгасна (skip_existing) — импортыг дахин ажиллуулахад давхардахгүй.
+		"""
+		from django.contrib.gis.geos import GEOSGeometry
+		from django.db import transaction
+		import json as _json
+		from core.models import Project
+
+		MAX_ITEMS = 20000
+		project_id = request.data.get('project')
+		if not project_id:
+			return Response({'detail': 'project шаардлагатай'}, status=400)
+		project = Project.objects.filter(pk=project_id).first()
+		if not project:
+			return Response({'detail': 'Төсөл олдсонгүй'}, status=404)
+		status_ids = [s for s in (request.data.get('status_ids') or []) if s]
+		if not status_ids:
+			return Response({'detail': 'Дор хаяж нэг ТӨЛӨВ сонгоно уу.'},
+			                status=400)
+		items = request.data.get('items') or []
+		if not isinstance(items, list):
+			return Response({'detail': 'items нь жагсаалт байх ёстой'}, status=400)
+		if not items:
+			return Response({'detail': 'items хоосон байна'}, status=400)
+		if len(items) > MAX_ITEMS:
+			return Response(
+				{'detail': f'Нэг удаад дээд тал нь {MAX_ITEMS} мөр импортлоно '
+				           f'({len(items)} ирлээ).'}, status=400)
+
+		step_id = request.data.get('step') or None
+		type_id = request.data.get('type') or None
+		skip_existing = request.data.get('skip_existing', True)
+
+		def key(draft, geom):
+			"""Давхардлын түлхүүр — нэр + байршлын төв (5 орон ≈ 1 м)."""
+			if geom is None:
+				return ((draft or '').strip().lower(), None, None)
+			c = geom.centroid
+			return ((draft or '').strip().lower(), round(c.x, 5), round(c.y, 5))
+
+		seen = set()
+		if skip_existing:
+			for d, loc in (ReCount.objects.filter(project=project)
+			               .values_list('draft', 'loc')):
+				seen.add(key(d, loc))
+
+		user = request.user if request.user.is_authenticated else None
+		rows, errors, skipped = [], [], 0
+		for i, it in enumerate(items):
+			if not isinstance(it, dict):
+				errors.append({'index': i, 'detail': 'мөр нь объект байх ёстой'})
+				continue
+			draft = (it.get('draft') or '').strip() or None
+			raw = it.get('loc')
+			geom = None
+			if raw:
+				try:
+					val = raw if isinstance(raw, str) else _json.dumps(raw)
+					geom = GEOSGeometry(val)
+					if not geom.srid:
+						geom.srid = 4326
+					if geom.srid != 4326:
+						geom = geom.transform(4326, clone=True)
+				except Exception as exc:
+					errors.append({'index': i, 'detail': f'Геометр буруу: {exc}'})
+					continue
+			if not draft and geom is None:
+				errors.append({'index': i, 'detail': 'нэр ч, байршил ч алга'})
+				continue
+			k = key(draft, geom)
+			if skip_existing and k in seen:
+				skipped += 1
+				continue
+			seen.add(k)
+			rows.append(ReCount(
+				project=project, step_id=step_id, type_id=type_id,
+				draft=draft, loc=geom, user=user,
+				is_border=bool(it.get('is_border')),
+			))
+
+		added = 0
+		if rows:
+			with transaction.atomic():
+				ReCount.objects.bulk_create(rows, batch_size=500)
+				added = len(rows)
+				# M2M нь bulk_create‑аар бичигдэхгүй тул through‑ээр нэг дор
+				through = ReCount.statuses.through
+				through.objects.bulk_create(
+					[through(recount_id=r.id, constant_id=s)
+					 for r in rows for s in status_ids],
+					batch_size=1000, ignore_conflicts=True)
+		return Response({'added': added, 'skipped': skipped,
+		                 'errors': errors[:50], 'error_count': len(errors)})
 
 	def perform_create(self, serializer):
 		# GeoName‑гүй (draft) тодруулалт ЗААВАЛ ангилалтай байх ёстой —
@@ -1041,6 +1154,10 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 				frontier = kids
 
 		has_filter = gu is not None or type_ids is not None
+		# `tab` заагаагүй үед (ж: «Нэр холбох» панель — маягт бүхнээс нэр
+		# сонгодог тул идэвхтэй маягт гэж байхгүй) шүүлт БҮХ маягтад
+		# үйлчилнэ. Заасан үед хуучин зан: зөвхөн идэвхтэй маягт нарийсна.
+		filter_all = has_filter and not active
 
 		def passes(r):
 			if gu is not None:
@@ -1125,8 +1242,9 @@ class ReCountViewSet(PublicListMixin, viewsets.ModelViewSet):
 			seen = set()
 			for st in r.statuses.all():
 				b = bucket.get(st.id)
-				# Идэвхтэй маягтад шүүлт хэрэгжинэ; бусдад бүтэн орно.
-				if b and b not in seen and not (b == active and not ok):
+				# filter_all үед бүх маягтад, эсэхгүй бол зөвхөн идэвхтэйд.
+				if b and b not in seen and not (
+						(filter_all or b == active) and not ok):
 					seen.add(b)
 					counters[b] += 1
 					forms[b].append(row(r, counters[b]))

@@ -490,7 +490,10 @@ _REQUEST_VIEW_SQL = """SELECT r.id,
        r.type_id,
        tp.name AS type_name,
        ag.name AS age_name,
-       ST_SetSRID(ST_MakePoint(r.lon, r.lat), 4326)::geometry(Point,4326) AS geom
+       COALESCE(r.geoloc,
+                ST_SetSRID(ST_MakePoint(r.lon, r.lat), 4326)) AS geom,
+       GeometryType(COALESCE(r.geoloc,
+                ST_SetSRID(ST_MakePoint(r.lon, r.lat), 4326))) AS geom_type
 FROM core_requestname r
 LEFT JOIN core_geoname g  ON g.id  = r.name_id
 LEFT JOIN core_constant s ON s.id  = r.status_id
@@ -500,7 +503,8 @@ LEFT JOIN (SELECT ro.requestname_id, string_agg(no.name, ', ') AS names
            FROM core_requestname_option ro
            JOIN core_nameoption no ON no.id = ro.nameoption_id
            GROUP BY ro.requestname_id) opt ON opt.requestname_id = r.id
-WHERE r.lat IS NOT NULL AND r.lon IS NOT NULL"""
+WHERE r.geoloc IS NOT NULL
+   OR (r.lat IS NOT NULL AND r.lon IS NOT NULL)"""
 
 _MAP_VIEWS = (
     (LEGAL_VIEW, _LEGAL_VIEW_SQL, 'Шийдвэрийн сан'),
@@ -542,6 +546,54 @@ def _sld_point_rule(field, value, color, size=12, label_field=None):
         f'<CssParameter name="stroke-width">1.5</CssParameter></Stroke></Mark>'
         f'<Size>{size}</Size></Graphic></PointSymbolizer>' +
         (_sld_count_label(label_field) if label_field else '') + '</Rule>')
+
+
+def _sld_status_rules(value, color, size=13):
+    """Нэг төлөвийн дүрмүүд — ГЕОМЕТРИЙН ТӨРЛӨӨР ялгана.
+
+    Нэг дүрэмд Point+Line симболизаторыг зэрэг тавьбал GeoServer нь цэгийн
+    тэмдгийг шугамын ОРОЙ БҮРД давтаж зурдаг тул geom_type баганаар салгав.
+    """
+    def _flt(*extra):
+        return ('<ogc:Filter><ogc:And>'
+                '<ogc:PropertyIsEqualTo>'
+                '<ogc:PropertyName>status_name</ogc:PropertyName>'
+                f'<ogc:Literal>{_x(value)}</ogc:Literal>'
+                '</ogc:PropertyIsEqualTo>' + ''.join(extra) +
+                '</ogc:And></ogc:Filter>')
+
+    def _kind_eq(kind):
+        return ('<ogc:PropertyIsEqualTo>'
+                '<ogc:PropertyName>geom_type</ogc:PropertyName>'
+                f'<ogc:Literal>{kind}</ogc:Literal>'
+                '</ogc:PropertyIsEqualTo>')
+
+    def _kind_ne(kind):
+        return ('<ogc:PropertyIsNotEqualTo>'
+                '<ogc:PropertyName>geom_type</ogc:PropertyName>'
+                f'<ogc:Literal>{kind}</ogc:Literal>'
+                '</ogc:PropertyIsNotEqualTo>')
+
+    point = (f'<Rule><Name>{_x(value)} · цэг</Name>' + _flt(_kind_eq('POINT')) +
+             '<PointSymbolizer><Graphic><Mark>'
+             '<WellKnownName>circle</WellKnownName>'
+             f'<Fill><CssParameter name="fill">{color}</CssParameter></Fill>'
+             '<Stroke><CssParameter name="stroke">#ffffff</CssParameter>'
+             '<CssParameter name="stroke-width">1.5</CssParameter></Stroke>'
+             f'</Mark><Size>{size}</Size></Graphic></PointSymbolizer></Rule>')
+    # Шугам ба талбай — талбайн дүүргэлт тунгалаг, хүрээ нь мөн адил өнгөтэй
+    shape = (f'<Rule><Name>{_x(value)} · дүрс</Name>' + _flt(_kind_ne('POINT')) +
+             '<PolygonSymbolizer>'
+             f'<Fill><CssParameter name="fill">{color}</CssParameter>'
+             '<CssParameter name="fill-opacity">0.25</CssParameter></Fill>'
+             '</PolygonSymbolizer>'
+             '<LineSymbolizer><Stroke>'
+             f'<CssParameter name="stroke">{color}</CssParameter>'
+             '<CssParameter name="stroke-width">3</CssParameter>'
+             '<CssParameter name="stroke-linejoin">round</CssParameter>'
+             '<CssParameter name="stroke-linecap">round</CssParameter>'
+             '</Stroke></LineSymbolizer></Rule>')
+    return point + shape
 
 
 def _sld_count_label(field):
@@ -634,9 +686,9 @@ def ensure_map_styles():
             '</TextSymbolizer></Rule>' + _SLD_FOOTER)
         _write('legal_units', LEGAL_UNIT_VIEW, unit_sld)
 
-        # 3) Хүсэлт — төлөвөөр өнгөт цэг
+        # 3) Хүсэлт — төлөвөөр өнгөтэй; цэг/шугам/талбай тус бүрдээ
         rq = ''.join(
-            _sld_point_rule('status_name', nm, col, size=13)
+            _sld_status_rules(nm, col, size=13)
             for nm, col in _constant_colors('REQUEST_STATUS').items())
         rq += ('<Rule><Name>Бусад</Name><ElseFilter/>'
                '<PointSymbolizer><Graphic><Mark>'
