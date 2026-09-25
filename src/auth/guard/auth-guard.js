@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "src/routes/hooks";
 import { SplashScreen } from "src/components/loading-screen";
 import { paths } from "src/routes/paths";
 
+import IncompleteProfileView from "src/sections/error/incomplete-profile-view";
+
 import { useAuthContext } from "../hooks";
 import { publicPaths } from "./public-path";
 
@@ -188,6 +190,12 @@ const isPublicPath = (pathname) => {
   );
 };
 
+// Мэдээлэл дутуу хэрэглэгчид "Мэдээлэл бүрэн бус" хуудсыг харуулахгүй замууд.
+// /dashboard нь нийтийн замд орсон ч нэвтэрсний дараах нүүр хуудас тул
+// энд харуулах ёстой — эс тэгвээс хэрэглэгч 403 өгдөг хоосон самбар харна.
+const isProfileExemptPath = (pathname) =>
+  pathname !== "/dashboard" && isPublicPath(pathname);
+
 // ----------------------------------------------------------------------
 
 export default function AuthGuard({ children }) {
@@ -227,6 +235,12 @@ function Container({ children }) {
       return;
     }
 
+    // Мэдээлэл бүрэн бус хэрэглэгчийг системд оруулахгүй
+    if (user && user.profile_complete === false) {
+      setChecked(true);
+      return;
+    }
+
     if (!hasAccessToPath(menuEntries, pathname)) {
       if (
         !matchNormalizedPath(normalizedPathname, NORMALIZED_MAINTENANCE_PATH)
@@ -240,7 +254,7 @@ function Container({ children }) {
     }
 
     setChecked(true);
-  }, [authenticated, menuEntries, pathname, router]);
+  }, [authenticated, user, menuEntries, pathname, router]);
 
   useEffect(() => {
     setChecked(false);
@@ -249,6 +263,15 @@ function Container({ children }) {
 
   if (!checked) {
     return null;
+  }
+
+  if (
+    authenticated &&
+    user &&
+    user.profile_complete === false &&
+    !isProfileExemptPath(normalizePath(pathname))
+  ) {
+    return <IncompleteProfileView />;
   }
 
   return <>{children}</>;
