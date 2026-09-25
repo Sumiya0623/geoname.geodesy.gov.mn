@@ -177,10 +177,21 @@ class UserListSerializer(serializers.ModelSerializer):
 class MeSerializer(serializers.ModelSerializer):
 	menus = serializers.SerializerMethodField(read_only=True)
 	roles=ConstantDropDownSerializer(read_only=True, many=True)
+	profile_complete = serializers.SerializerMethodField(read_only=True)
+	missing_fields = serializers.SerializerMethodField(read_only=True)
 	class Meta:
 		model = RemoteUser
-		fields = ['id','full_name','is_citizen','phone','photo','email','roles','is_active','register','last_login','date_joined','menus']
+		fields = ['id','full_name','is_citizen','phone','photo','email','roles','is_active','register','last_login','date_joined','menus','profile_complete','missing_fields']
 		read_only_fields = ['id','photo','menus']
+	def _token(self):
+		request = self.context.get('request')
+		return getattr(request, 'auth', None) if request else None
+	def get_missing_fields(self, obj):
+		from portal.auth import profile_missing_fields
+		return profile_missing_fields(self._token())
+	def get_profile_complete(self, obj):
+		from portal.auth import is_profile_complete
+		return is_profile_complete(self._token())
 	def get_menus(self, obj):
 		user_roles = Constant.objects.filter(id__in=obj.roles.all())
 		user_actions = Constant.objects.filter(id__in=user_roles).values_list('actions', flat=True).distinct()

@@ -10,6 +10,8 @@ from django.core.files.base import ContentFile
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework import exceptions
+from rest_framework.permissions import AllowAny
 from core.models import Constant,SubMenuPermission
 import os
 import hashlib
@@ -22,6 +24,7 @@ User = get_user_model()
 # Профайл зургийг хэдэн секунд тутам дахин шалгахыг тохируулна (default 1 цаг)
 PHOTO_SYNC_TTL = getattr(settings, "SSO_PHOTO_SYNC_TTL", 3600)
 photo_logger = logging.getLogger(__name__)
+logger = photo_logger
 
 
 def build_photo_url(photo_path):
@@ -104,9 +107,82 @@ def sync_user_photo(user, photo_path):
     photo_logger.info("Profile photo synced for user %s from %s", user.pk, photo_url)
 
 
+# ----------------------------------------------------------------------
+# Хэрэглэгчийн мэдээлэл бүрэн эсэхийн шалгалт.
+# Бүх дэд системд ижил дүрэм үйлчилнэ. Шалгалтыг локал DB биш main-ийн
+# олгосон токены claim-ээр хийдэг тул дэд систем дотор (админ гараар имэйл
+# оруулах гэх мэт) тойрох боломжгүй — цорын ганц эх сурвалж нь main.
+#
+# Шаардлага (аль нэг дутвал дэд системд оруулахгүй, superuser ч мөн адил):
+#   - Иргэн          → баталгаажсан имэйл, утас, профайл зураг, харьяа байгууллага
+#   - Хуулийн этгээд → баталгаажсан имэйл, утас, лого
+# ----------------------------------------------------------------------
+
+# Мэдээлэл дутуу хэрэглэгч ч дуудах ёстой action-ууд
+# (me — дутуу талбаруудаа харах, logout — гарах).
+# Зөвхөн хэрэглэгчийн viewset (queryset.model == User) дээр чөлөөлнө — өөр
+# viewset-ийн "me" action (ж: хэрэглэгчийн файлууд) шалгалтыг тойрохгүй.
+PROFILE_EXEMPT_ACTIONS = {"me", "logout"}
+
+
+def _is_exempt_view(view):
+    if getattr(view, "action", None) not in PROFILE_EXEMPT_ACTIONS:
+        return False
+    queryset = getattr(view, "queryset", None)
+    return getattr(queryset, "model", None) is User
+
+
+def _claim(token, key):
+    return str((token.get(key) if token else "") or "").strip()
+
+
+def profile_missing_fields(token):
+    """Токены claim-ээс дутуу талбаруудын кодыг буцаана.
+
+    Кодууд: email, email_unconfirmed, phone, photo, orgReg
+    """
+    missing = []
+    if not _claim(token, "email"):
+        missing.append("email")
+    elif not (token and token.get("is_email_confirmed") is True):
+        # Хуучин (claim-гүй) токен баталгаажаагүй гэж тооцогдоно
+        missing.append("email_unconfirmed")
+    if not _claim(token, "phone"):
+        missing.append("phone")
+    if not _claim(token, "photo"):
+        missing.append("photo")
+    is_citizen = bool(token.get("is_citizen", True)) if token else True
+    if is_citizen and not _claim(token, "orgRegister"):
+        missing.append("orgReg")
+    return missing
+
+
+def is_profile_complete(token):
+    return not profile_missing_fields(token)
+
+
+class ProfileIncomplete(exceptions.PermissionDenied):
+    default_detail = "Таны бүртгэлийн мэдээлэл бүрэн бус тул энэ системийг ашиглах боломжгүй. geodesy.gov.mn дээр мэдээллээ гүйцээнэ үү."
+    default_code = "profile_incomplete"
+
+
+def _is_public_view(view):
+    """View нь зөвхөн AllowAny эрхтэй (нийтийн) эсэх."""
+    try:
+        perms = view.get_permissions()
+    except Exception:
+        return False
+    return bool(perms) and all(isinstance(p, AllowAny) for p in perms)
+
 
 class JWTAuthFromCookie(JWTAuthentication):
     def authenticate(self, request):
+        result = self._authenticate_token(request)
+        if result is None:
+            return None
+        return self.enforce_profile(request, result)
+
+    def _authenticate_token(self, request):
         header = self.get_header(request)
         if header:
             raw = self.get_raw_token(header)
@@ -118,6 +194,25 @@ class JWTAuthFromCookie(JWTAuthentication):
             token = self.get_validated_token(raw)
             return (self.get_user(token), token)
         return None
+
+    def enforce_profile(self, request, result):
+        """Мэдээлэл дутуу хэрэглэгчийг me/logout-оос бусад API-д оруулахгүй."""
+        user, token = result
+        view = (getattr(request, "parser_context", None) or {}).get("view")
+        # View-гүй дуудлага (requestLog middleware) зөвхөн хэрэглэгчийг танина
+        if view is None:
+            return result
+        missing = profile_missing_fields(token)
+        if not missing:
+            return result
+        if _is_exempt_view(view):
+            return result
+        # Нийтийн хуудсыг нэвтрээгүй хэрэглэгч шиг ашиглана
+        if _is_public_view(view):
+            return None
+        logger.info("Profile incomplete, blocked: user=%s missing=%s path=%s", user.pk, missing, request.path)
+        raise ProfileIncomplete()
+
     @transaction.atomic
     def get_user(self, validated_token):
         claim_name = api_settings.USER_ID_CLAIM    # e.g. "sso_id"

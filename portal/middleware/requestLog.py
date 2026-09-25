@@ -1,7 +1,10 @@
 import json
+import logging
+import traceback
 from urllib.parse import parse_qs
 
 from django.conf import settings
+from django.http import JsonResponse
 from core.models import Errors
 from core.models import Error500
 from core.models import RequestLog
@@ -23,6 +26,16 @@ SENSITIVE_KEYS = {
     "authorization","auth","api_key","client_secret","secret","sessionid"
 }
 REDACT = "******"
+
+logger = logging.getLogger(__name__)
+
+# Барьж аваагүй алдааны үед frontend рүү буцаах мессеж
+SERVER_ERROR = {
+    "code": 4,
+    "name": "ERROR 004",
+    "message": "Алдаа гарсан тул админд мэдэгдэнэ үү",
+    "status_code": 500,
+}
 
 def _redact(obj):
     if isinstance(obj, dict):
@@ -172,7 +185,26 @@ class RequestLogMiddleware(MiddlewareMixin):
         data['data'] = json.dumps(body, ensure_ascii=False)
         
         Error500.objects.create(**data)
-        return None 
+        # process_response дахин Error500 бичихгүй байхын тулд тэмдэглэнэ
+        request._error500_logged = True
+
+        error_msg = "**{url}**\n\n{error}\n\n````{tb}````".format(
+            url=request.build_absolute_uri(),
+            error=repr(exception),
+            tb=traceback.format_exc(),
+        )
+        if "хуудас байхгүй байна." not in error_msg:
+            logger.error(error_msg)
+
+        return JsonResponse(
+            {
+                "success": False,
+                "data": [],
+                "error": SERVER_ERROR,
+                "info": {},
+            },
+            status=500,
+        )
 
     def process_response(self, request, response):
         # ignore
@@ -195,7 +227,7 @@ class RequestLogMiddleware(MiddlewareMixin):
                 Errors.objects.create(**_clean_for_model(Errors, ed))
 
             # ---------- 5xx -> Error500 ----------
-            elif response.status_code >= 500:
+            elif response.status_code >= 500 and not getattr(request, '_error500_logged', False):
                 ed = {
                     'url': data.get('url', ''),
                     'method': data.get('method', request.method),
