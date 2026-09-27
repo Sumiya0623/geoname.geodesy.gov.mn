@@ -1,4 +1,4 @@
-import { View404 } from 'src/sections/settings/error';
+import { NotFoundView } from 'src/sections/error';
 
 // ----------------------------------------------------------------------
 
@@ -7,5 +7,5 @@ export const metadata = {
 };
 
 export default function NotFoundPage() {
-  return <View404 />;
+  return <NotFoundView />;
 }
