@@ -15,7 +15,7 @@ const LOGO = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcv
 
 const ORG = 'Геодези, зураг зүйн удирдлагын нэгдсэн систем';
 const PORTAL = process.env.NEXT_PUBLIC_PORTAL_URL || 'https://geodesy.gov.mn';
-const TICKET_URL = 'https://geodesy.gov.mn/dashboard/ticket/';
+const TICKET_URL = 'https://geodesy.gov.mn/guideline/?tab=ticket';
 const EMAIL = 'admin@geodesy.gov.mn';
 const PHONE = '262461';
 
@@ -35,7 +35,7 @@ const TEXT = {
   403: {
     title: 'Хандах эрхгүй',
     desc: 'Энэ хуудас эсвэл мэдээлэлд хандах эрх танд олгогдоогүй байна.',
-    hint: 'Эрх шаардлагатай бол системийн админд хандана уу.',
+    hint: 'Эрх шаардлагатай бол доорх сувгаар системийн админд хандана уу.',
     tone: '#B71D18',
     soft: '#FFE9D5',
   },
@@ -59,50 +59,69 @@ const pad = (n) => String(n).padStart(2, '0');
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Barlow:wght@300&display=swap');
-.gerr{--bg:#F4F6F8;--surface:#FFFFFF;--text:#1C252E;--muted:#637381;--faint:#919EAB;--line:#E3E8EE;
-  --grid:rgba(32,101,209,.06);--primary:#2065D1;--primary-soft:#E8F0FC;--on-primary:#FFFFFF;
+.gerr{--bg:#F7F9FC;--surface:#FFFFFF;--text:#1C252E;--muted:#637381;--faint:#919EAB;--line:#E3E8EE;
+  --grid:rgba(32,101,209,.07);--primary:#2065D1;--primary-soft:#E8F0FC;--on-primary:#FFFFFF;
   position:fixed;inset:0;z-index:2000;overflow:auto;background:var(--bg);color:var(--text);
   font-family:Montserrat,'Segoe UI',Roboto,system-ui,sans-serif;font-size:15px;line-height:1.6}
 @media (prefers-color-scheme:dark){.gerr{--bg:#141A21;--surface:#1C252E;--text:#F4F6F8;--muted:#A3B0BD;--faint:#76828F;
-  --line:#2A3440;--grid:rgba(118,176,241,.06);--primary:#5B9BF0;--primary-soft:#1D2F4A;--on-primary:#0E1620}}
+  --line:#2A3440;--grid:rgba(118,176,241,.07);--primary:#5B9BF0;--primary-soft:#1D2F4A;--on-primary:#0E1620}}
 .gerr *{box-sizing:border-box}
-.gerr-page{position:relative;min-height:100%;display:flex;align-items:center;justify-content:center;padding:48px 16px}
-.gerr-page::before{content:'';position:fixed;inset:0;pointer-events:none;
+.gerr::before{content:'';position:fixed;inset:0;pointer-events:none;
   background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
-  background-size:48px 48px;-webkit-mask-image:radial-gradient(ellipse at center,#000 30%,transparent 75%);
-  mask-image:radial-gradient(ellipse at center,#000 30%,transparent 75%)}
-.gerr-card{position:relative;width:100%;max-width:560px;background:var(--surface);border:1px solid var(--line);border-radius:20px;
-  padding:40px 40px 28px;text-align:center;box-shadow:0 1px 2px rgba(28,37,46,.04),0 24px 48px -24px rgba(28,37,46,.18)}
-.gerr-brand{display:flex;flex-direction:column;align-items:center;gap:10px;padding-bottom:28px;border-bottom:1px solid var(--line)}
+  background-size:56px 56px;-webkit-mask-image:linear-gradient(to bottom,#000,transparent 85%);mask-image:linear-gradient(to bottom,#000,transparent 85%)}
+.gerr-wrap{position:relative;max-width:1200px;min-height:100%;margin:0 auto;padding:40px 24px 32px;display:flex;flex-direction:column}
+.gerr-brand{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
 .gerr-brand img{width:72px;height:72px;object-fit:contain}
 .gerr-org{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .gerr-sys{font-size:18px;font-weight:700;color:var(--primary);line-height:1.2;min-height:22px}
-.gerr-status{display:flex;align-items:center;justify-content:center;gap:18px;margin:32px 0 20px}
-.gerr-status svg{width:56px;height:56px;flex:none}
-.gerr-code{font-family:Barlow,Montserrat,system-ui,sans-serif;font-weight:300;font-size:72px;line-height:1;letter-spacing:.02em;font-variant-numeric:tabular-nums}
-.gerr h1{font-size:22px;font-weight:700;margin:0 0 8px;text-wrap:balance}
-.gerr-desc{color:var(--muted);margin:0 auto;max-width:44ch}
-.gerr-hint{display:inline-block;margin-top:16px;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:500}
-.gerr-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:28px 0}
-.gerr-btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:8px;font:inherit;font-size:14px;font-weight:600;
-  text-decoration:none;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--text)}
+.gerr-main{flex:1;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:56px;align-items:center;padding:48px 0}
+.gerr-code{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+.gerr-code b{font-family:Barlow,Montserrat,system-ui,sans-serif;font-weight:300;font-size:120px;line-height:.9;letter-spacing:.01em;font-variant-numeric:tabular-nums}
+.gerr-code span{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.gerr h1{font-size:40px;line-height:1.15;font-weight:700;margin:0 0 12px;text-wrap:balance}
+.gerr-desc{font-size:17px;color:var(--muted);margin:0;max-width:52ch}
+.gerr-hint{display:inline-block;margin-top:18px;padding:8px 14px;border-radius:8px;font-size:14px;font-weight:500}
+.gerr-actions{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0 36px}
+.gerr-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:8px;font:inherit;font-size:15px;font-weight:600;
+  text-decoration:none;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--text)}
 .gerr-btn svg{width:18px;height:18px}
 .gerr-btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
 .gerr-btn:focus-visible,.gerr-help a:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-.gerr-help{text-align:left;padding:16px;border-radius:12px;background:var(--bg)}
-.gerr-help h2{margin:0 0 10px;font-size:14px;font-weight:700}
-.gerr-help ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.gerr-help a{display:grid;grid-template-columns:36px 1fr auto;gap:12px;align-items:center;padding:10px 12px;border-radius:10px;
+.gerr-help h2{margin:0 0 12px;font-size:14px;font-weight:700}
+.gerr-help ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.gerr-help a{height:100%;display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;align-items:center;padding:12px 14px;border-radius:10px;
   background:var(--surface);border:1px solid var(--line);color:inherit;text-decoration:none}
 .gerr-help a:hover{border-color:var(--primary)}
 .gerr-ico{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;background:var(--primary-soft);color:var(--primary)}
 .gerr-ico svg{width:18px;height:18px}
 .gerr-lbl{display:block;font-size:12px;color:var(--muted);line-height:1.3}
-.gerr-val{display:block;font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;word-break:break-all}
-.gerr-go{font-size:13px;font-weight:600;color:var(--primary);white-space:nowrap}
-.gerr-ref{margin-top:20px;font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums;letter-spacing:.02em;word-break:break-all}
-@media (max-width:480px){.gerr-card{padding:28px 20px 20px}.gerr-code{font-size:56px}.gerr-status svg{width:44px;height:44px}}
+.gerr-val{display:block;font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.gerr-art{display:flex;justify-content:center}
+.gerr-art svg{width:100%;max-width:440px;height:auto}
+.gerr-ref{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums;letter-spacing:.02em;overflow-wrap:anywhere}
+@media (max-width:1000px){.gerr-help ul{grid-template-columns:1fr}}
+@media (max-width:860px){.gerr-main{grid-template-columns:1fr;gap:24px;padding:32px 0}.gerr-art{order:-1}.gerr-art svg{max-width:240px}
+  .gerr-code b{font-size:88px}.gerr h1{font-size:30px}}
 `;
+
+// Геодезийн дүрслэл: изошугам (өндрийн шугам), тэгш өнцөгт тор, гурвалжны цэгийн тэмдэг
+function Illustration({ tone, soft }) {
+  return (
+    <svg viewBox="0 0 440 440" fill="none" aria-hidden="true">
+      <circle cx="220" cy="220" r="210" fill={soft} fillOpacity=".55" />
+      {[180, 150, 120, 90, 60].map((r, i) => (
+        <ellipse key={r} cx={220 + i * 4} cy={220 - i * 3} rx={r} ry={r * 0.82} stroke={tone} strokeOpacity={0.14 + i * 0.05} strokeWidth="1.5" />
+      ))}
+      <path d="M40 220H400M220 40V400" stroke={tone} strokeOpacity=".18" strokeDasharray="4 8" />
+      <circle cx="220" cy="220" r="78" style={{ fill: 'var(--surface)' }} stroke={tone} strokeWidth="3" />
+      <path d="M220 168 262 244H178Z" stroke={tone} strokeWidth="4" strokeLinejoin="round" fill={soft} />
+      <circle cx="220" cy="220" r="7" fill={tone} />
+      <path d="M220 124v18M220 298v18M124 220h18M298 220h18" stroke={tone} strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+Illustration.propTypes = { tone: PropTypes.string, soft: PropTypes.string };
 
 export default function ErrorPage({ code = 500 }) {
   const t = TEXT[code] || TEXT[500];
@@ -122,110 +141,101 @@ export default function ErrorPage({ code = 500 }) {
     <div className="gerr">
       {/* eslint-disable-next-line react/no-danger */}
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <main className="gerr-page">
-        <section className="gerr-card">
-          <div className="gerr-brand">
-            {/* Лого data URI — next/image шаардлагагүй */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={LOGO} alt={`${ORG} лого`} />
-            <div className="gerr-org">{ORG}</div>
-            <div className="gerr-sys">{system}</div>
+      <div className="gerr-wrap">
+        <header className="gerr-brand">
+          {/* Лого data URI — next/image шаардлагагүй */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO} alt={`${ORG} лого`} />
+          <div className="gerr-org">{ORG}</div>
+          <div className="gerr-sys">{system}</div>
+        </header>
+
+        <main className="gerr-main">
+          <div>
+            <div className="gerr-code">
+              <b style={{ color: t.tone }}>{code}</b>
+              <span>Алдааны код</span>
+            </div>
+            <h1>{t.title}</h1>
+            <p className="gerr-desc">{t.desc}</p>
+            <div className="gerr-hint" style={{ background: t.soft, color: t.tone }}>
+              {t.hint}
+            </div>
+
+            <div className="gerr-actions">
+              <a className="gerr-btn primary" href="/">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 3.2 2.8 10.6a1 1 0 0 0 1.25 1.56L5 11.4V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-8.6l.95.76a1 1 0 0 0 1.25-1.56z" />
+                </svg>
+                Нүүр хуудас
+              </a>
+              <a className="gerr-btn" href={PORTAL}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
+                </svg>
+                Портал руу шилжих
+              </a>
+            </div>
+
+            <section className="gerr-help" aria-labelledby="gerr-help-h">
+              <h2 id="gerr-help-h">Тусламж хэрэгтэй юу?</h2>
+              <ul>
+                <li>
+                  <a href={`mailto:${EMAIL}`}>
+                    <span className="gerr-ico">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                        <rect x="3" y="5" width="18" height="14" rx="2" />
+                        <path d="m4 7 8 6 8-6" />
+                      </svg>
+                    </span>
+                    <span>
+                      <span className="gerr-lbl">Системийн админ</span>
+                      <span className="gerr-val">{EMAIL}</span>
+                    </span>
+                  </a>
+                </li>
+                <li>
+                  <a href={`tel:${PHONE}`}>
+                    <span className="gerr-ico">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" />
+                      </svg>
+                    </span>
+                    <span>
+                      <span className="gerr-lbl">Утас</span>
+                      <span className="gerr-val">{PHONE}</span>
+                    </span>
+                  </a>
+                </li>
+                <li>
+                  <a href={TICKET_URL} target="_blank" rel="noopener noreferrer">
+                    <span className="gerr-ico">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4 5h16v11H9l-5 4z" />
+                        <path d="M8 9h8M8 12h5" strokeLinecap="round" />
+                      </svg>
+                    </span>
+                    <span>
+                      <span className="gerr-lbl">Тусламжийн хүсэлт</span>
+                      <span className="gerr-val">Хүсэлт илгээх →</span>
+                    </span>
+                  </a>
+                </li>
+              </ul>
+            </section>
           </div>
 
-          <div className="gerr-status">
-            {/* Гурвалжны цэгийн тэмдэг — геодезийн тулгуур цэгийн тэмдэглэгээ */}
-            <svg viewBox="0 0 56 56" fill="none" stroke={t.tone} strokeWidth="2" aria-hidden="true">
-              <circle cx="28" cy="28" r="26" strokeOpacity=".25" />
-              <path d="M28 12 L44 40 H12 Z" strokeLinejoin="round" />
-              <circle cx="28" cy="31" r="3" fill={t.tone} stroke="none" />
-            </svg>
-            <div className="gerr-code">{code}</div>
+          <div className="gerr-art">
+            <Illustration tone={t.tone} soft={t.soft} />
           </div>
+        </main>
 
-          <h1>{t.title}</h1>
-          <p className="gerr-desc">{t.desc}</p>
-          <div className="gerr-hint" style={{ background: t.soft, color: t.tone }}>
-            {t.hint}
-          </div>
-
-          <div className="gerr-actions">
-            <a className="gerr-btn primary" href="/">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 3.2 2.8 10.6a1 1 0 0 0 1.25 1.56L5 11.4V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-8.6l.95.76a1 1 0 0 0 1.25-1.56z" />
-              </svg>
-              Нүүр хуудас
-            </a>
-            <a className="gerr-btn" href={PORTAL}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
-              </svg>
-              Портал руу шилжих
-            </a>
-            <button type="button" className="gerr-btn" onClick={() => window.history.back()}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                <path d="M19 12H5M11 6l-6 6 6 6" />
-              </svg>
-              Буцах
-            </button>
-          </div>
-
-          <section className="gerr-help" aria-labelledby="gerr-help-h">
-            <h2 id="gerr-help-h">Тусламж хэрэгтэй юу?</h2>
-            <ul>
-              <li>
-                <a href={`mailto:${EMAIL}`}>
-                  <span className="gerr-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                      <rect x="3" y="5" width="18" height="14" rx="2" />
-                      <path d="m4 7 8 6 8-6" />
-                    </svg>
-                  </span>
-                  <span>
-                    <span className="gerr-lbl">Системийн админд имэйл</span>
-                    <span className="gerr-val">{EMAIL}</span>
-                  </span>
-                  <span />
-                </a>
-              </li>
-              <li>
-                <a href={`tel:${PHONE}`}>
-                  <span className="gerr-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" />
-                    </svg>
-                  </span>
-                  <span>
-                    <span className="gerr-lbl">Утас</span>
-                    <span className="gerr-val">{PHONE}</span>
-                  </span>
-                  <span />
-                </a>
-              </li>
-              <li>
-                <a href={TICKET_URL} target="_blank" rel="noopener noreferrer">
-                  <span className="gerr-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M4 5h16v11H9l-5 4z" />
-                      <path d="M8 9h8M8 12h5" strokeLinecap="round" />
-                    </svg>
-                  </span>
-                  <span>
-                    <span className="gerr-lbl">Тусламжийн хүсэлт</span>
-                    <span className="gerr-val">Хүсэлт илгээх</span>
-                  </span>
-                  <span className="gerr-go">Нээх →</span>
-                </a>
-              </li>
-            </ul>
-          </section>
-
-          <div className="gerr-ref">
-            Алдааны код {code}
-            {ref ? ` · ${ref}` : ''}
-          </div>
-        </section>
-      </main>
+        <footer className="gerr-ref">
+          Алдааны код {code}
+          {ref ? ` · ${ref}` : ''}
+        </footer>
+      </div>
     </div>
   );
 }
