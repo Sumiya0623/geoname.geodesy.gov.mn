@@ -1,4 +1,6 @@
 import { m } from "framer-motion";
+import Stack from "@mui/material/Stack";
+import Iconify from "src/components/iconify";
 import { useState } from "react";
 
 import Box from "@mui/material/Box";
@@ -148,12 +150,55 @@ export default function AccountPopover() {
         >
           QGIS Plugin Token
         </MenuItem>
-        <MenuItem
-          onClick={handleLogout}
-          sx={{ m: 1, fontWeight: "fontWeightBold", color: "error.main" }}
-        >
-          Гарах
-        </MenuItem>
+        {/* Заавар, тусламж, гарах — нэг мөрөнд */}
+        <Stack direction="row" spacing={0.5} sx={{ px: 1, py: 1.25 }}>
+          {[
+            {
+              href: "/guideline",
+              label: "Заавар",
+              icon: "solar:book-bookmark-bold-duotone",
+            },
+            {
+              href: "/support",
+              label: "Тусламж",
+              icon: "solar:headphones-round-sound-bold-duotone",
+            },
+            {
+              label: "Гарах",
+              icon: "solar:logout-3-bold-duotone",
+              onClick: handleLogout,
+              danger: true,
+            },
+          ].map((item) => (
+            <Button
+              key={item.label}
+              href={item.href}
+              onClick={item.onClick}
+              color="inherit"
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                px: 0.5,
+                py: 1.25,
+                gap: 0.75,
+                borderRadius: 1.5,
+                flexDirection: "column",
+                fontSize: "0.7rem",
+                fontWeight: 600,
+                lineHeight: 1.2,
+                textAlign: "center",
+                color: item.danger ? "error.main" : "text.secondary",
+                "&:hover": {
+                  color: item.danger ? "error.dark" : "primary.main",
+                  bgcolor: item.danger ? "error.lighter" : "action.hover",
+                },
+              }}
+            >
+              <Iconify icon={item.icon} width={24} />
+              {item.label}
+            </Button>
+          ))}
+        </Stack>
       </CustomPopover>
 
       <PluginTokenDialog open={tokenOpen} onClose={() => setTokenOpen(false)} />

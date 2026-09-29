@@ -1,4 +1,7 @@
 import { useEffect } from "react";
+import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
+import Iconify from "src/components/iconify";
 import PropTypes from "prop-types";
 
 import Box from "@mui/material/Box";
@@ -90,6 +93,42 @@ export default function NavVertical({ openNav, onCloseNav }) {
             )}
           </Box>
         </Stack>
+
+        {/* Заавар, тусламж */}
+        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+          {[
+            {
+              href: "/guideline",
+              label: "Заавар",
+              icon: "mdi:book-open-variant",
+            },
+            { href: "/support", label: "Тусламж", icon: "mdi:face-agent" },
+          ].map((item) => (
+            <Button
+              key={item.href}
+              href={item.href}
+              size="small"
+              startIcon={<Iconify icon={item.icon} width={16} />}
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                py: 0.75,
+                borderRadius: 2,
+                color: "common.white",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                bgcolor: "rgba(255,255,255,0.12)",
+                "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
+              }}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </Stack>
+
+        {/* Цэснээс тусгаарлах зураас */}
+        <Divider sx={{ mt: 1.5, borderColor: "rgba(255,255,255,0.24)" }} />
+
       </Box>
 
       <NavSectionVertical

@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
 import {
   Card,
   CardContent,
@@ -264,6 +266,48 @@ export default function Landing() {
         >
           Газар зүйн нэрийн дэд систем
         </Typography>
+
+        {/* Заавар, тусламжийн хуудас — гарчгийн доор, баруун захад */}
+        <Stack
+          direction="row"
+          justifyContent={{ xs: "stretch", sm: "flex-end" }}
+          sx={{ mb: { xs: 2.5, sm: 2 }, gap: 1, flexWrap: "wrap" }}
+        >
+          {[
+            { href: "/support", label: "Тусламж", icon: "mdi:face-agent" },
+            {
+              href: "/guideline",
+              label: "Заавар",
+              icon: "mdi:book-open-variant",
+            },
+          ].map((item) => (
+            <Button
+              key={item.href}
+              href={item.href}
+              size="small"
+              startIcon={<Iconify icon={item.icon} width={16} />}
+              sx={{
+                flex: { xs: 1, sm: "0 0 auto" },
+                minWidth: { xs: 0, sm: 120 },
+                py: { xs: 1, sm: 0.5 },
+                px: { xs: 1, sm: 1.5 },
+                color: "common.white",
+                fontSize: { xs: "0.8rem", sm: "0.75rem" },
+                borderRadius: 2,
+                border: "1px solid rgba(255, 255, 255, 0.25)",
+                backgroundColor: "rgba(255, 255, 255, 0.06)",
+                backdropFilter: "blur(10px)",
+                "&:hover": {
+                  borderColor: "rgba(255, 255, 255, 0.5)",
+                  backgroundColor: "rgba(255, 255, 255, 0.14)",
+                },
+              }}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </Stack>
+
 
         <Grid
           container
