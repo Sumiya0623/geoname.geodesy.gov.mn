@@ -137,6 +137,17 @@ def ecef_to_geodetic(x,y,z):
 	lon, lat, height = ecef_to_geodetic.transform(x, y, z)
 	return lon, lat, height
 
+def mongeoid_node(b, l, using=None):
+	"""MonGeoid торын зангилааны dh.  b, l баганууд double тул текстээр (LIKE) биш тоон утгаар хайна."""
+	from core.models import Mongeoid
+	eps = 1e-6
+	dh = Mongeoid.objects.using(using).values_list('dh', flat=True).filter(
+		b__gt=b-eps, b__lt=b+eps, l__gt=l-eps, l__lt=l+eps).first()
+	if dh is None:
+		raise ValueError(f'MonGeoid торын зангилаа олдсонгүй (B={b}, L={l})')
+	return dh
+
+
 def geoid_reader(b_in,l_in,z_in):
 	from core.models import Mongeoid
 	""" Геоид тооцоолол хийнэ """
@@ -151,10 +162,10 @@ def geoid_reader(b_in,l_in,z_in):
 	lat_2=round(min_lat+step,2)
 	long_1=round(min_long,2)
 	long_2=round(min_long+step,2)
-	dh1=Mongeoid.objects.values_list('dh', flat=True).filter(b__contains=str(lat_1),l__contains=str(long_1)).first()
-	dh2=Mongeoid.objects.values_list('dh', flat=True).filter(b__contains=str(lat_1),l__contains=str(long_2)).first()
-	dh3=Mongeoid.objects.values_list('dh', flat=True).filter(b__contains=str(lat_2),l__contains=str(long_1)).first()
-	dh4=Mongeoid.objects.values_list('dh', flat=True).filter(b__contains=str(lat_2),l__contains=str(long_2)).first()
+	dh1=mongeoid_node(lat_1,long_1)
+	dh2=mongeoid_node(lat_1,long_2)
+	dh3=mongeoid_node(lat_2,long_1)
+	dh4=mongeoid_node(lat_2,long_2)
 	points=((lat_1,long_1,dh1),(lat_1,long_2,dh2),(lat_2,long_1,dh3),(lat_2,long_2,dh4))
 	mongeoid=bilinear_interpolation(b_in, l_in, points)
 	if z_in==0:
