@@ -195,6 +195,16 @@ export const endpoints = {
       `/api/n/name-stat/facts/${unit ? `?unit=${unit}` : ""}`,
   },
 
+  // Скан топо зургаас нэр таних (nameqc) — таамаглал засах, шошголох дараалал
+  ml: {
+    detection: (request_body) => `/api/n/ml-detection/?${request_body}`,
+    detectionItem: (id) => `/api/n/ml-detection/${id}/`,
+    task: (request_body) => `/api/n/ml-task/?${request_body}`,
+    taskNext: (request_body) => `/api/n/ml-task/next/?${request_body}`,
+    taskStats: (request_body) => `/api/n/ml-task/stats/?${request_body}`,
+    taskItem: (id) => `/api/n/ml-task/${id}/`,
+  },
+
   raster: {
     list: (request_body) => `/api/n/raster/?${request_body}`,
     details: (id) => `/api/n/raster/${id}/`,
