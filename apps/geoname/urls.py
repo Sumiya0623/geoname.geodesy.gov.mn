@@ -9,6 +9,7 @@ from .apiviews import (
     ProjectMemberViewSet,
 )
 from .namestat import NameStatViewSet
+from .mlapi import MlDetectionViewSet, MlTaskViewSet
 
 
 router = DefaultRouter()
@@ -21,6 +22,9 @@ router.register('raster', PrintMapViewSet, basename='raster')
 router.register('project', ProjectViewSet, basename='project')
 router.register('project-area', ProjectAreaViewSet, basename='project-area')
 router.register('project-member', ProjectMemberViewSet, basename='project-member')
+# Скан топо зургаас нэр таних (nameqc) — таамаглал засах, шошголох дараалал
+router.register('ml-detection', MlDetectionViewSet, basename='ml-detection')
+router.register('ml-task', MlTaskViewSet, basename='ml-task')
 
 
 urlpatterns = []
