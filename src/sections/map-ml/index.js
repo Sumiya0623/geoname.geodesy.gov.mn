@@ -236,10 +236,22 @@ export default function MapMlView() {
     [enqueueSnackbar, goTo],
   );
 
+  const viewBbox = () => {
+    const map = mapRef.current;
+    const ext = transformExtent(map.getView().calculateExtent(map.getSize()), "EPSG:3857", "EPSG:4326");
+    return ext.map((v) => v.toFixed(6)).join(",");
+  };
+
   const finishTask = useCallback(
     async (status) => {
       if (!task) return;
       try {
+        // «Дууссан» = дэлгэцэн дээрх бүх бичвэрийг шалгасан → үлдсэн загварын хүрээг баталгаажуулна
+        if (status === "done" && mapRef.current && mapRef.current.getView().getZoom() >= EDIT_ZOOM) {
+          const { data } = await axiosInstance.post(endpoints.ml.confirmArea, { bbox: viewBbox() });
+          if (data?.confirmed) enqueueSnackbar(`${data.confirmed} хүрээ баталгаажлаа`, { variant: "success" });
+          refreshWms();
+        }
         await axiosInstance.patch(endpoints.ml.taskItem(task.id), { status });
         await loadStats();
         nextTask(task.id);
@@ -247,7 +259,7 @@ export default function MapMlView() {
         enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", { variant: "error" });
       }
     },
-    [task, loadStats, nextTask, enqueueSnackbar],
+    [task, loadStats, nextTask, enqueueSnackbar, refreshWms],
   );
 
   // ---------------------------------------------------------------- засвар
@@ -278,17 +290,9 @@ export default function MapMlView() {
   const setCls = useCallback(
     (cls) => {
       if (!selected) return;
-      const patch = { cls };
-      // Нэр болговол даалгаврын нэрийг санал болгож холбоно
-      const cur = currentRef.current;
-      if (cls === "name" && cur && !selected.get("recount_id")) {
-        patch.recount_id = cur.id;
-        if (!selected.get("text")) {
-          patch.text = cur.properties.name;
-          setText(cur.properties.name);
-        }
-      }
-      saveFeature(selected, patch);
+      // Ангилал өгөх = баталгаажуулах (PATCH нь status=confirmed болгоно).
+      // Даалгаврын нэртэй холбох нь зөвхөн T — цонхонд өөр газрын нэр ч байдаг.
+      saveFeature(selected, { cls });
     },
     [selected, saveFeature],
   );
@@ -297,8 +301,22 @@ export default function MapMlView() {
     if (!selected) return;
     const cur = currentRef.current;
     if (selected.get("recount_id")) saveFeature(selected, { recount_id: null });
-    else if (cur) saveFeature(selected, { recount_id: cur.id, cls: "name", text: selected.get("text") || cur.properties.name });
+    // Бичвэр бөглөхгүй: экспортод хуулийн нэрийг холбосон мөрүүдэд нь хуваана
+    else if (cur) saveFeature(selected, { recount_id: cur.id, cls: "name" });
   }, [selected, saveFeature]);
+
+  const clearSelection = useCallback(() => {
+    selectRef.current?.getFeatures().clear();
+    setSelected(null);
+    setSelProps(null);
+  }, []);
+
+  const confirmSelected = useCallback(async () => {
+    if (!selected) return;
+    await saveFeature(selected, { status: "confirmed" });
+    enqueueSnackbar("Баталгаажлаа", { variant: "success", autoHideDuration: 1200 });
+    clearSelection();
+  }, [selected, saveFeature, enqueueSnackbar, clearSelection]);
 
   const rejectSelected = useCallback(async () => {
     if (!selected) return;
@@ -487,13 +505,14 @@ export default function MapMlView() {
       else if (e.key === "Escape") {
         drawRef.current?.abortDrawing();
         setMode("select");
+        clearSelection();
       } else if (e.key === "t" || e.key === "T") toggleLink();
-      else if (e.key === "Enter" && selected) saveFeature(selected, { status: "confirmed" });
+      else if (e.key === "Enter" && selected) confirmSelected();
       else if (e.key === "n" || e.key === "N") finishTask("done");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setCls, rejectSelected, toggleLink, saveFeature, selected, finishTask]);
+  }, [setCls, rejectSelected, toggleLink, confirmSelected, clearSelection, selected, finishTask]);
 
   // ---------------------------------------------------------------- UI
 
@@ -581,7 +600,7 @@ export default function MapMlView() {
         </ToggleButtonGroup>
         {mode === "box" && (
           <Typography variant="caption" color="text.secondary">
-            Бичвэрийн доод шугамын эхэнд, төгсгөлд нь товшоод, 3 дахь товшилтоор өндрийг заана. Сийрэг үсэгтэй нэрийг нэг хүрээнд.
+            Бичвэрийн доод шугамын эхэнд, төгсгөлд нь товшоод, 3 дахь товшилтоор өндрийг заана. Нэг мөр = нэг хүрээ (сийрэг үсэгтэй ч). Олон мөртэй нэрийн мөр бүрийг тусад нь.
           </Typography>
         )}
 
@@ -610,7 +629,7 @@ export default function MapMlView() {
             <TextField
               fullWidth
               size="small"
-              label="Бичвэр (зураг дээр бичигдсэнээр)"
+              label="Бичвэр (заавал биш — зөвхөн өөр бичигдсэн бол)"
               value={text}
               onChange={(e) => setText(e.target.value)}
               onBlur={() => text !== (selProps.text || "") && saveFeature(selected, { text })}
@@ -622,7 +641,7 @@ export default function MapMlView() {
                   {selProps.recount_id ? "Даалгаврын нэр ✓" : "Даалгаврын нэр"}
                 </Button>
               </Tooltip>
-              <Button size="small" onClick={() => saveFeature(selected, { status: "confirmed" })}>
+              <Button size="small" onClick={confirmSelected}>
                 Батлах ↵
               </Button>
               <Button size="small" color="inherit" onClick={rejectSelected}>
@@ -649,7 +668,9 @@ export default function MapMlView() {
             шошгоогүй, ногоон — дууссан. Нэр нь цэгийн аль ч талд, ямар ч зайд байж болно.
           </Typography>
           <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-            Товч: 1–4 ангилал · T даалгаврын нэр · ↵ батлах · ⌫ устгах · B хүрээ · S тэмдэг · Esc · N дараах
+            Ажлын дараалал: буруу хүрээг ⌫ устгах · ангилал буруу бол 1–4 · даалгаврын нэрийн мөр бүрийг T ·
+            дутууг B-ээр зурах · N — дэлгэцэн дээрх үлдсэн хүрээ бүгд баталгаажиж дараагийнх руу.
+            Нэг мөр = нэг хүрээ. Бичвэр бичих шаардлагагүй.
           </Typography>
         </Box>
       </Paper>

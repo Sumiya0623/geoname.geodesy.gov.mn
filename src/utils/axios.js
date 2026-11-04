@@ -199,6 +199,7 @@ export const endpoints = {
   ml: {
     detection: (request_body) => `/api/n/ml-detection/?${request_body}`,
     detectionItem: (id) => `/api/n/ml-detection/${id}/`,
+    confirmArea: `/api/n/ml-detection/confirm-area/`,
     task: (request_body) => `/api/n/ml-task/?${request_body}`,
     taskNext: (request_body) => `/api/n/ml-task/next/?${request_body}`,
     taskStats: (request_body) => `/api/n/ml-task/stats/?${request_body}`,
