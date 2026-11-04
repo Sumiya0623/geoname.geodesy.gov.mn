@@ -114,6 +114,13 @@ function taskStyle(feature, currentId) {
   const p = feature.getProperties();
   const current = p.id === currentId;
   const color = current ? "#e53935" : p.status === "done" ? "#00c853" : p.status === "skip" ? "#9e9e9e" : "#ff6d00";
+  // Шугаман (ам, гол) / талбайн (нуур) нэрийн жинхэнэ хэлбэр
+  if (p.isShape) {
+    return new Style({
+      stroke: new Stroke({ color, width: current ? 3 : 1.5, lineDash: current ? undefined : [6, 4] }),
+      fill: new Fill({ color: current ? "rgba(229,57,53,0.08)" : "rgba(0,0,0,0)" }),
+    });
+  }
   return new Style({
     image: new CircleStyle({
       radius: current ? 11 : 7,
@@ -194,7 +201,15 @@ export default function MapMlView() {
           : Promise.resolve(null),
       ]);
       taskSrcRef.current.clear();
-      taskSrcRef.current.addFeatures(geojson.readFeatures(tasks.data));
+      const taskFeats = geojson.readFeatures(tasks.data);
+      const shapes = tasks.data.features
+        .filter((t) => t.properties.shape)
+        .map((t) => {
+          const f = geojson.readFeature({ type: "Feature", geometry: t.properties.shape, properties: {} });
+          f.setProperties({ id: t.id, status: t.properties.status, isShape: true, shape: null });
+          return f;
+        });
+      taskSrcRef.current.addFeatures([...shapes, ...taskFeats]);
       const keepId = selectRef.current?.getFeatures().item(0)?.getId();
       detSrcRef.current.clear();
       if (dets) {
@@ -570,6 +585,12 @@ export default function MapMlView() {
               <Typography variant="body2" color="text.secondary">
                 {task.properties.type || "—"} · #{task.id} · холбосон хүрээ {task.properties.linked}
               </Typography>
+              {task.properties.shape && (
+                <Typography variant="caption" color="error.main" component="div">
+                  {task.properties.shape.type.includes("Line") ? "Шугаман" : "Талбайн"} нэр — улаан шугам/хүрээний дагуу,
+                  ихэвчлэн тэмдэггүй. Хэлбэрийн дагуух нэрийн мөр бүрийг хүрээлээд T. Цэг (S) тэмдэглэх шаардлагагүй.
+                </Typography>
+              )}
               <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                 <Tooltip title="Энэ цэгийн эргэн тойрны бүх бичвэрийг шошгосны дараа (N)">
                   <Button variant="contained" size="small" onClick={() => finishTask("done")}>
