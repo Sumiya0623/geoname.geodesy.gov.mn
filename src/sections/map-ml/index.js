@@ -662,7 +662,8 @@ export default function MapMlView() {
           <Box>
             {rstats && (
               <Typography variant="caption" color="text.secondary" component="div">
-                Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo} үлдсэн
+                Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo} үлдсэн · машин өөрөө баталсан{" "}
+                {rstats.self || 0}
                 {rstats.ok + rstats.bad > 0 &&
                   ` · нарийвчлал ${Math.round((100 * rstats.ok) / (rstats.ok + rstats.bad))}%`}
               </Typography>
