@@ -76,15 +76,36 @@ class MlDetectionViewSet(_MissingTable):
         if not bbox:
             return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
         show_rejected = request.query_params.get('rejected') == '1'
+        # Шалгаагүй бэлэн илрүүлэгчийн (pre:*) хүрээ сургасан загварынхтай давхардаж шошголгоог
+        # удаашруулдаг тул нууна (?pre=1 өгвөл харуулна). Санд хэвээр.
+        show_pre = request.query_params.get('pre') == '1'
         rows = _rows(
             f"""SELECT id, kind, cls, text, score, source, status, recount_id,
                        ST_AsGeoJSON(geom, 7) AS geojson
                   FROM nameqc_detection
                  WHERE geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
                    {'' if show_rejected else "AND status <> 'rejected'"}
+                   {'' if show_pre else "AND NOT (status = 'pending' AND source LIKE 'pre:%%')"}
                  LIMIT {MAX_FEATURES}""",
             bbox)
         return Response(_fc(rows))
+
+    @action(detail=False, methods=['post'], url_path='confirm-area')
+    def confirm_area(self, request):
+        """Хүн шалгасан талбайн (bbox) үлдсэн загварын хүрээг баталгаажуулна (pre:* хамаарахгүй)."""
+        try:
+            v = [float(x) for x in str(request.data.get('bbox', '')).split(',')]
+            assert len(v) == 4
+        except (ValueError, AssertionError):
+            return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
+        with connection.cursor() as c:
+            c.execute(
+                """UPDATE nameqc_detection SET status = 'confirmed', user_id = %s, updated = now()
+                    WHERE status = 'pending' AND source NOT LIKE 'pre:%%'
+                      AND ST_Within(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))""",
+                [request.user.id, *v])
+            n = c.rowcount
+        return Response({'confirmed': n})
 
     def _clean(self, data, partial):
         out = {}
