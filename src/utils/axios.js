@@ -204,6 +204,9 @@ export const endpoints = {
     taskNext: (request_body) => `/api/n/ml-task/next/?${request_body}`,
     taskStats: (request_body) => `/api/n/ml-task/stats/?${request_body}`,
     taskItem: (id) => `/api/n/ml-task/${id}/`,
+    reviewNext: (request_body) => `/api/n/ml-review/next/?${request_body}`,
+    reviewStats: `/api/n/ml-review/stats/`,
+    reviewItem: (id) => `/api/n/ml-review/${id}/`,
   },
 
   raster: {

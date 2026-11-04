@@ -173,6 +173,13 @@ export default function MapMlView() {
   const [selProps, setSelProps] = useState(null);
   const [text, setText] = useState("");
   const [zoom, setZoom] = useState(0);
+  // review = автомат шошгыг зөв/буруу гэж шалгах (үндсэн), edit = гараар засах
+  const [view, setView] = useState("review");
+  const [review, setReview] = useState(null);
+  const [rstats, setRstats] = useState(null);
+  const reviewSrcRef = useRef(null);
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   currentRef.current = task;
 
@@ -242,7 +249,7 @@ export default function MapMlView() {
         const q = `batch=${BATCH}${after ? `&after=${after}` : ""}`;
         const { data } = await axiosInstance.get(endpoints.ml.taskNext(q));
         setTask(data);
-        if (data) goTo(data);
+        if (data && viewRef.current === "edit") goTo(data);
         else enqueueSnackbar("Шошголох даалгавар дууссан", { variant: "success" });
       } catch (e) {
         enqueueSnackbar(e?.response?.data?.detail || "Даалгавар ачаалж чадсангүй", { variant: "error" });
@@ -347,6 +354,52 @@ export default function MapMlView() {
     }
   }, [selected, refreshWms, loadStats, enqueueSnackbar]);
 
+  // ---------------------------------------------------------------- автомат шошгоны шалгалт
+
+  const loadRstats = useCallback(async () => {
+    try {
+      const { data } = await axiosInstance.get(endpoints.ml.reviewStats);
+      setRstats(data);
+    } catch (e) {
+      enqueueSnackbar(e?.response?.data?.detail || "Статистик ачаалж чадсангүй", { variant: "error" });
+    }
+  }, [enqueueSnackbar]);
+
+  const loadReview = useCallback(
+    async (skip) => {
+      try {
+        const { data } = await axiosInstance.get(endpoints.ml.reviewNext(skip ? `skip=${skip}` : ""));
+        setReview(data);
+        const src = reviewSrcRef.current;
+        src?.clear();
+        if (!data) {
+          enqueueSnackbar("Шалгах автомат шошго дууссан", { variant: "success" });
+          return;
+        }
+        src.addFeatures(geojson.readFeatures(data.boxes));
+        mapRef.current?.getView().fit(src.getExtent(), { padding: [160, 160, 160, 160], maxZoom: 17, duration: 300 });
+      } catch (e) {
+        enqueueSnackbar(e?.response?.data?.detail || "Ачаалж чадсангүй", { variant: "error" });
+      }
+    },
+    [enqueueSnackbar],
+  );
+
+  const answerReview = useCallback(
+    async (ok) => {
+      if (!review) return;
+      try {
+        await axiosInstance.put(endpoints.ml.reviewItem(review.recount_id), { ok });
+        loadRstats();
+        refreshWms();
+        loadReview();
+      } catch (e) {
+        enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", { variant: "error" });
+      }
+    },
+    [review, loadRstats, refreshWms, loadReview, enqueueSnackbar],
+  );
+
   // ---------------------------------------------------------------- газрын зураг
 
   useEffect(() => {
@@ -390,6 +443,26 @@ export default function MapMlView() {
 
     const taskSrc = new VectorSource();
     taskSrcRef.current = taskSrc;
+    const reviewSrc = new VectorSource();
+    reviewSrcRef.current = reviewSrc;
+    const reviewLayer = new VectorLayer({
+      source: reviewSrc,
+      zIndex: 80,
+      style: (f) =>
+        new Style({
+          stroke: new Stroke({ color: "#ffd600", width: 4 }),
+          fill: new Fill({ color: "rgba(255,214,0,0.12)" }),
+          text: new Text({
+            text: f.get("text") || "",
+            font: "bold 15px sans-serif",
+            offsetY: -22,
+            fill: new Fill({ color: "#000" }),
+            stroke: new Stroke({ color: "#ffd600", width: 4 }),
+            overflow: true,
+          }),
+        }),
+    });
+
     const taskLayer = new VectorLayer({
       source: taskSrc,
       zIndex: 70,
@@ -399,7 +472,7 @@ export default function MapMlView() {
 
     const map = new Map({
       target: elRef.current,
-      layers: [...baseLayers, wms, detLayer, taskLayer],
+      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer],
       view: new View({ center: fromLonLat([113.5, 46.3]), zoom: 8, maxZoom: 19 }),
     });
     mapRef.current = map;
@@ -512,6 +585,15 @@ export default function MapMlView() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
+      if (view === "review") {
+        if (e.key === "y" || e.key === "Y" || e.key === "Enter" || e.key === "ArrowRight") answerReview(true);
+        else if (e.key === "x" || e.key === "X" || e.key === "Backspace" || e.key === "Delete") answerReview(false);
+        else if (e.key === " ") {
+          e.preventDefault();
+          loadReview(review?.recount_id);
+        }
+        return;
+      }
       const c = CLASSES.find((x) => x.hot && x.hot === e.key);
       if (c) setCls(c.key);
       else if (e.key === "Delete" || e.key === "Backspace") rejectSelected();
@@ -527,7 +609,21 @@ export default function MapMlView() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setCls, rejectSelected, toggleLink, confirmSelected, clearSelection, selected, finishTask]);
+  }, [setCls, rejectSelected, toggleLink, confirmSelected, clearSelection, selected, finishTask, view, answerReview, loadReview, review]);
+
+  // Шалгах горимд орох/гарах
+  useEffect(() => {
+    if (view === "review") {
+      setMode("select");
+      loadRstats();
+      if (mapRef.current) loadReview();
+    } else {
+      reviewSrcRef.current?.clear();
+      setReview(null);
+      if (task) goTo(task);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, baseCfgs]);
 
   // ---------------------------------------------------------------- UI
 
@@ -557,6 +653,57 @@ export default function MapMlView() {
           </Typography>
         </Stack>
 
+        <ToggleButtonGroup size="small" exclusive fullWidth value={view} onChange={(e, v) => v && setView(v)}>
+          <ToggleButton value="review">Шалгах (зөв/буруу)</ToggleButton>
+          <ToggleButton value="edit">Гараар засах</ToggleButton>
+        </ToggleButtonGroup>
+
+        {view === "review" && (
+          <Box>
+            {rstats && (
+              <Typography variant="caption" color="text.secondary" component="div">
+                Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo} үлдсэн
+                {rstats.ok + rstats.bad > 0 &&
+                  ` · нарийвчлал ${Math.round((100 * rstats.ok) / (rstats.ok + rstats.bad))}%`}
+              </Typography>
+            )}
+            {review ? (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="overline" color="text.secondary">
+                  Батлагдсан нэр · {review.type || "—"} · #{review.recount_id}
+                </Typography>
+                <Typography variant="h5" sx={{ mb: 1 }}>
+                  {review.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Шар хүрээнд энэ нэр бичигдсэн үү? (машины олсон: {review.boxes.features.map((f) => f.properties.text).join(" / ")})
+                </Typography>
+                <Stack direction="row" spacing={1.5}>
+                  <Button fullWidth size="large" variant="contained" color="success" onClick={() => answerReview(true)}>
+                    ✓ Зөв
+                  </Button>
+                  <Button fullWidth size="large" variant="contained" color="error" onClick={() => answerReview(false)}>
+                    ✗ Буруу
+                  </Button>
+                </Stack>
+                <Button fullWidth size="small" sx={{ mt: 1 }} onClick={() => loadReview(review.recount_id)}>
+                  Мэдэхгүй, алгасах
+                </Button>
+                <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 2 }}>
+                  Товч: Y / Enter / → зөв · X / ⌫ буруу · Зай алгасах. Хүрээ нэрийн зарим хэсгийг л хамарсан ч нэр
+                  нь зөв бол «Зөв».
+                </Typography>
+              </Box>
+            ) : (
+              <Typography variant="body2" sx={{ mt: 2 }}>
+                Шалгах автомат шошго алга.
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {view === "edit" && (
+        <>
         {stats && (
           <Box>
             <Stack direction="row" justifyContent="space-between">
@@ -670,6 +817,9 @@ export default function MapMlView() {
               </Button>
             </Stack>
           </Box>
+        )}
+
+        </>
         )}
 
         <Divider />
