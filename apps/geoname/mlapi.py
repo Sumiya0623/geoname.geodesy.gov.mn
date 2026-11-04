@@ -194,6 +194,8 @@ _TASK_SELECT = """
     SELECT t.recount_id AS id, t.batch, t.ord, t.status, t.pre,
            COALESCE(g.name, r.draft) AS name, ty.name AS type,
            ST_AsGeoJSON(ST_PointOnSurface(r.loc), 7) AS geojson,
+           CASE WHEN GeometryType(r.loc) NOT IN ('POINT', 'MULTIPOINT')
+                THEN ST_AsGeoJSON(r.loc, 7)::json END AS shape,
            (SELECT count(*) FROM nameqc_detection d
              WHERE d.recount_id = t.recount_id AND d.status <> 'rejected') AS linked
       FROM nameqc_task t
