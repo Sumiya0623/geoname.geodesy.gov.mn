@@ -9,7 +9,7 @@ from .apiviews import (
     ProjectMemberViewSet,
 )
 from .namestat import NameStatViewSet
-from .mlapi import MlDetectionViewSet, MlTaskViewSet
+from .mlapi import MlDetectionViewSet, MlTaskViewSet, MlReviewViewSet
 
 
 router = DefaultRouter()
@@ -25,6 +25,7 @@ router.register('project-member', ProjectMemberViewSet, basename='project-member
 # Скан топо зургаас нэр таних (nameqc) — таамаглал засах, шошголох дараалал
 router.register('ml-detection', MlDetectionViewSet, basename='ml-detection')
 router.register('ml-task', MlTaskViewSet, basename='ml-task')
+router.register('ml-review', MlReviewViewSet, basename='ml-review')
 
 
 urlpatterns = []

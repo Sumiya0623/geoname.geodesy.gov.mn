@@ -272,3 +272,71 @@ class MlTaskViewSet(_MissingTable):
             if c.rowcount == 0:
                 return Response(status=http.HTTP_404_NOT_FOUND)
         return Response({'id': int(pk), 'status': st})
+
+
+_REVIEW_TODO = """
+    FROM nameqc_detection d
+   WHERE d.auto IS NOT NULL AND d.review IS NULL AND d.cls = 'name' AND d.recount_id IS NOT NULL
+     AND d.status = 'confirmed'
+"""
+
+
+class MlReviewViewSet(_MissingTable):
+    """Автомат шошголгоог хүн «зөв / буруу» гэж шалгах. Нэг шалгалт = нэг тодруулалтын бүх автомат хүрээ.
+
+      GET  /api/n/ml-review/next/              → {recount_id, name, type, boxes: GeoJSON} эсвэл null
+      PUT  /api/n/ml-review/<recount_id>/      → {"ok": true|false}
+      GET  /api/n/ml-review/stats/             → {ok, bad, todo}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def next(self, request):
+        skip = request.query_params.get('skip')
+        params = []
+        cond = ''
+        if skip:
+            cond = 'AND d.recount_id <> %s'
+            params.append(int(skip))
+        rows = _rows(f'SELECT d.recount_id {_REVIEW_TODO} {cond} GROUP BY d.recount_id ORDER BY random() LIMIT 1',
+                     params)
+        if not rows:
+            return Response(None)
+        rid = rows[0]['recount_id']
+        head = _rows(
+            """SELECT COALESCE(g.name, r.draft) AS name, ty.name AS type
+                 FROM core_recount r
+                 LEFT JOIN core_geoname g ON g.id = r.name_id
+                 LEFT JOIN core_constant ty ON ty.id = COALESCE(r.type_id, g.type_id)
+                WHERE r.id = %s""", [rid])
+        boxes = _rows(
+            f"""SELECT d.id, d.cls, d.text, d.ocr, d.auto, ST_AsGeoJSON(d.geom, 7) AS geojson
+                  {_REVIEW_TODO} AND d.recount_id = %s ORDER BY ST_Y(ST_Centroid(d.geom)) DESC,
+                  ST_X(ST_Centroid(d.geom))""", [rid])
+        return Response({'recount_id': rid, **(head[0] if head else {}), 'boxes': _fc(boxes)})
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        rows = _rows(
+            """SELECT count(DISTINCT recount_id) FILTER (WHERE review = 'ok') AS ok,
+                      count(DISTINCT recount_id) FILTER (WHERE review = 'bad') AS bad,
+                      count(DISTINCT recount_id) FILTER (WHERE review IS NULL AND status = 'confirmed') AS todo
+                 FROM nameqc_detection WHERE auto IS NOT NULL AND cls = 'name' AND recount_id IS NOT NULL""", [])
+        return Response(rows[0])
+
+    def create(self, request):
+        return Response(status=http.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def update(self, request, pk=None):
+        ok = request.data.get('ok')
+        if not isinstance(ok, bool):
+            return Response({'detail': 'ok: true|false'}, status=http.HTTP_400_BAD_REQUEST)
+        with connection.cursor() as c:
+            # буруу бол сургалтаас хасагдана: pending болгож, review='bad' тэмдэглэнэ
+            c.execute(
+                f"""UPDATE nameqc_detection SET review = %s, user_id = %s, updated = now()
+                           {'' if ok else ", status = 'pending'"}
+                     WHERE auto IS NOT NULL AND review IS NULL AND recount_id = %s""",
+                ['ok' if ok else 'bad', request.user.id, int(pk)])
+            n = c.rowcount
+        return Response({'recount_id': int(pk), 'ok': ok, 'boxes': n})
