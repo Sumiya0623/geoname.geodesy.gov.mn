@@ -286,7 +286,8 @@ class MlReviewViewSet(_MissingTable):
 
       GET  /api/n/ml-review/next/              → {recount_id, name, type, boxes: GeoJSON} эсвэл null
       PUT  /api/n/ml-review/<recount_id>/      → {"ok": true|false}
-      GET  /api/n/ml-review/stats/             → {ok, bad, todo}
+      GET  /api/n/ml-review/stats/             → {ok, self, bad, todo}
+    review='self' = машин өөрөө баталсан (чөлөөт OCR ↔ нэр ≥85, хүний шалгалтаар ~96% зөв) — дараалалд орохгүй.
     """
     permission_classes = [IsAuthenticated]
 
@@ -319,6 +320,7 @@ class MlReviewViewSet(_MissingTable):
     def stats(self, request):
         rows = _rows(
             """SELECT count(DISTINCT recount_id) FILTER (WHERE review = 'ok') AS ok,
+                      count(DISTINCT recount_id) FILTER (WHERE review = 'self') AS self,
                       count(DISTINCT recount_id) FILTER (WHERE review = 'bad') AS bad,
                       count(DISTINCT recount_id) FILTER (WHERE review IS NULL AND status = 'confirmed') AS todo
                  FROM nameqc_detection WHERE auto IS NOT NULL AND cls = 'name' AND recount_id IS NOT NULL""", [])
