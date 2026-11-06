@@ -176,7 +176,13 @@ export default function MapMlView() {
   const [text, setText] = useState("");
   const [zoom, setZoom] = useState(0);
   // review = автомат шошгыг зөв/буруу гэж шалгах (үндсэн), edit = гараар засах
+  // ?view=edit&lon=..&lat=..&z=.. — шууд газрын зураг дээр (жишээ: тодруулгагүй сумын туршилтын үр дүн)
+  const qp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const [view, setView] = useState("grid"); // grid = хүснэгтээр олноор нь шалгах (үндсэн)
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("view");
+    if (v === "edit" || v === "review" || v === "grid") setView(v);
+  }, []);
   const [review, setReview] = useState(null);
   const [rstats, setRstats] = useState(null);
   const reviewSrcRef = useRef(null);
@@ -434,6 +440,18 @@ export default function MapMlView() {
     });
     wmsRef.current = wms;
 
+    // Тодруулгагүй нутагт загварын олсон цэгэн нэр (nameqc_place): улаан = сумынх/хөршийнх,
+    // ягаан = өөр нэгжид бүртгэлтэй, улбар шар = эргэлзээтэй (2 нэр)
+    const placeLayer = new TileLayer({
+      zIndex: 90,
+      source: new TileWMS({
+        url: `${GEOSERVER}/geoname/wms`,
+        params: { LAYERS: "geoname:nameqc_place", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1" },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+      }),
+    });
+
     const detSrc = new VectorSource();
     detSrcRef.current = detSrc;
     const detLayer = new VectorLayer({
@@ -474,8 +492,12 @@ export default function MapMlView() {
 
     const map = new Map({
       target: elRef.current,
-      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer],
-      view: new View({ center: fromLonLat([113.5, 46.3]), zoom: 8, maxZoom: 19 }),
+      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer, placeLayer],
+      view: new View({
+        center: fromLonLat([Number(qp?.get("lon")) || 113.5, Number(qp?.get("lat")) || 46.3]),
+        zoom: Number(qp?.get("z")) || 8,
+        maxZoom: 19,
+      }),
     });
     mapRef.current = map;
 
