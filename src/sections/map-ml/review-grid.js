@@ -59,12 +59,31 @@ function wmsUrl(ex) {
   return `${GEOSERVER}/raster/wms?${q}`;
 }
 
+const pts = (ring) => ring.map(([x, y]) => `${x},${-y}`).join(" ");
+
+// Тодруулалтын геометр (цэг / шугам / талбай, Multi* орно) → SVG элементүүд (улаан)
+function LocShape({ geom, r }) {
+  if (!geom) return null;
+  const t = geom.type;
+  const c = geom.coordinates;
+  const line = { fill: "none", stroke: "#e53935", strokeWidth: 3, vectorEffect: "non-scaling-stroke" };
+  if (t === "Point") {
+    return <circle cx={c[0]} cy={-c[1]} r={r} fill="#e53935" stroke="#fff" strokeWidth={1} vectorEffect="non-scaling-stroke" />;
+  }
+  if (t === "MultiPoint") return c.map((p, i) => <LocShape key={i} geom={{ type: "Point", coordinates: p }} r={r} />);
+  if (t === "LineString") return <polyline points={pts(c)} {...line} />;
+  if (t === "MultiLineString") return c.map((l, i) => <polyline key={i} points={pts(l)} {...line} />);
+  if (t === "Polygon") return <polygon points={pts(c[0])} {...line} fill="rgba(229,57,53,0.12)" />;
+  if (t === "MultiPolygon") {
+    return c.map((p, i) => <polygon key={i} points={pts(p[0])} {...line} fill="rgba(229,57,53,0.12)" />);
+  }
+  return null;
+}
+
 function Card({ item, state, onToggle }) {
   const ex = cropExtent(item.bbox);
   const [w, h] = [ex[2] - ex[0], ex[3] - ex[1]];
   const look = LOOK[state];
-  const [lx, ly] = item.loc;
-  const locInside = lx >= ex[0] && lx <= ex[2] && ly >= ex[1] && ly <= ex[3];
   return (
     <Box
       onClick={onToggle}
@@ -92,19 +111,17 @@ function Card({ item, state, onToggle }) {
           preserveAspectRatio="none"
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
         >
+          <LocShape geom={item.loc} r={w / 70} />
           {item.boxes.map((ring, i) => (
             <polygon
               key={i}
-              points={ring.map(([x, y]) => `${x},${-y}`).join(" ")}
+              points={pts(ring)}
               fill="none"
               stroke="#ffd600"
               strokeWidth={2.5}
               vectorEffect="non-scaling-stroke"
             />
           ))}
-          {locInside && (
-            <circle cx={lx} cy={-ly} r={w / 70} fill="#e53935" stroke="#fff" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-          )}
         </svg>
         {state !== "ok" && (
           <Chip
