@@ -320,7 +320,7 @@ class MlReviewViewSet(_MissingTable):
     def page(self, request):
         """Хүснэгтэн шалгалт: n тодруулалт нэг дор. Хүрээ/цэг EPSG:3857-д (WMS-ээр гажилтгүй тайрц авна).
 
-        → [{recount_id, name, type, text:[..], ocr:[..], bbox:[minx,miny,maxx,maxy], loc:[x,y], boxes:[ring...]}]
+        → [{recount_id, name, type, text:[..], ocr:[..], bbox:[minx,miny,maxx,maxy], loc:GeoJSON geometry, boxes:[ring...]}]
         """
         try:
             n = max(1, min(int(request.query_params.get('n', 24)), 60))
@@ -333,7 +333,7 @@ class MlReviewViewSet(_MissingTable):
         rows = _rows(
             """SELECT d.recount_id, d.text, d.ocr,
                       ST_AsGeoJSON(ST_Transform(d.geom, 3857), 1) AS geojson,
-                      ST_X(ST_Transform(r.loc, 3857)) AS lx, ST_Y(ST_Transform(r.loc, 3857)) AS ly,
+                      ST_AsGeoJSON(ST_Transform(r.loc, 3857), 1) AS loc,
                       COALESCE(g.name, r.draft) AS name, ty.name AS type
                  FROM nameqc_detection d
                  JOIN core_recount r ON r.id = d.recount_id
@@ -346,7 +346,8 @@ class MlReviewViewSet(_MissingTable):
         for r in rows:
             it = items.setdefault(r['recount_id'], {
                 'recount_id': r['recount_id'], 'name': r['name'], 'type': r['type'],
-                'loc': [r['lx'], r['ly']], 'boxes': [], 'text': [], 'ocr': []})
+                # тодруулалт цэг, шугам (ам, гол) эсвэл талбай (нуур) байж болно
+                'loc': json.loads(r['loc']) if r['loc'] else None, 'boxes': [], 'text': [], 'ocr': []})
             geom = json.loads(r['geojson'])
             rings = geom['coordinates'] if geom['type'] == 'Polygon' else [p[0] for p in geom['coordinates']]
             it['boxes'].append(rings[0])
