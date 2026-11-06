@@ -317,6 +317,76 @@ class MlReviewViewSet(_MissingTable):
         return Response({'recount_id': rid, **(head[0] if head else {}), 'boxes': _fc(boxes)})
 
     @action(detail=False, methods=['get'])
+    def page(self, request):
+        """Хүснэгтэн шалгалт: n тодруулалт нэг дор. Хүрээ/цэг EPSG:3857-д (WMS-ээр гажилтгүй тайрц авна).
+
+        → [{recount_id, name, type, text:[..], ocr:[..], bbox:[minx,miny,maxx,maxy], loc:[x,y], boxes:[ring...]}]
+        """
+        try:
+            n = max(1, min(int(request.query_params.get('n', 24)), 60))
+        except ValueError:
+            n = 24
+        ids = [r['recount_id'] for r in _rows(
+            f'SELECT d.recount_id {_REVIEW_TODO} GROUP BY d.recount_id ORDER BY random() LIMIT %s', [n])]
+        if not ids:
+            return Response([])
+        rows = _rows(
+            """SELECT d.recount_id, d.text, d.ocr,
+                      ST_AsGeoJSON(ST_Transform(d.geom, 3857), 1) AS geojson,
+                      ST_X(ST_Transform(r.loc, 3857)) AS lx, ST_Y(ST_Transform(r.loc, 3857)) AS ly,
+                      COALESCE(g.name, r.draft) AS name, ty.name AS type
+                 FROM nameqc_detection d
+                 JOIN core_recount r ON r.id = d.recount_id
+                 LEFT JOIN core_geoname g ON g.id = r.name_id
+                 LEFT JOIN core_constant ty ON ty.id = COALESCE(r.type_id, g.type_id)
+                WHERE d.auto IS NOT NULL AND d.review IS NULL AND d.cls = 'name' AND d.status = 'confirmed'
+                  AND d.recount_id = ANY(%s)
+                ORDER BY d.recount_id, ST_Y(ST_Centroid(d.geom)) DESC, ST_X(ST_Centroid(d.geom))""", [ids])
+        items = {}
+        for r in rows:
+            it = items.setdefault(r['recount_id'], {
+                'recount_id': r['recount_id'], 'name': r['name'], 'type': r['type'],
+                'loc': [r['lx'], r['ly']], 'boxes': [], 'text': [], 'ocr': []})
+            geom = json.loads(r['geojson'])
+            rings = geom['coordinates'] if geom['type'] == 'Polygon' else [p[0] for p in geom['coordinates']]
+            it['boxes'].append(rings[0])
+            it['text'].append(r['text'] or '')
+            it['ocr'].append(r['ocr'] or '')
+        out = []
+        for it in items.values():
+            xs = [p[0] for b in it['boxes'] for p in b]
+            ys = [p[1] for b in it['boxes'] for p in b]
+            it['bbox'] = [min(xs), min(ys), max(xs), max(ys)]
+            out.append(it)
+        return Response(out)
+
+    @action(detail=False, methods=['post'])
+    def batch(self, request):
+        """Хүснэгтэн шалгалтын хариу нэг гүйлгээнд: {"ok": [recount_id...], "bad": [recount_id...]}."""
+        try:
+            ok = [int(x) for x in request.data.get('ok', [])]
+            bad = [int(x) for x in request.data.get('bad', [])]
+        except (TypeError, ValueError):
+            return Response({'detail': 'ok, bad: [recount_id]'}, status=http.HTTP_400_BAD_REQUEST)
+        if set(ok) & set(bad):
+            return Response({'detail': 'ok ба bad давхацсан'}, status=http.HTTP_400_BAD_REQUEST)
+        n = {'ok': 0, 'bad': 0}
+        with transaction.atomic(), connection.cursor() as c:
+            if ok:
+                c.execute("""UPDATE nameqc_detection SET review = 'ok', user_id = %s, updated = now()
+                              WHERE auto IS NOT NULL AND review IS NULL AND recount_id = ANY(%s)""",
+                          [request.user.id, ok])
+                n['ok'] = c.rowcount
+            if bad:
+                # буруу бол сургалтаас хасагдана (update()-тэй адил)
+                c.execute("""UPDATE nameqc_detection SET review = 'bad', user_id = %s, updated = now(),
+                                    status = 'pending'
+                              WHERE auto IS NOT NULL AND review IS NULL AND recount_id = ANY(%s)""",
+                          [request.user.id, bad])
+                n['bad'] = c.rowcount
+        return Response({'names': {'ok': len(ok), 'bad': len(bad)}, 'boxes': n})
+
+    @action(detail=False, methods=['get'])
     def stats(self, request):
         rows = _rows(
             """SELECT count(DISTINCT recount_id) FILTER (WHERE review = 'ok') AS ok,
