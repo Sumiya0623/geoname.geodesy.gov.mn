@@ -46,6 +46,8 @@ import { useSnackbar } from "src/components/snackbar";
 import axiosInstance, { endpoints } from "src/utils/axios";
 import { buildOlBaseLayer } from "src/sections/map/layers-wmts";
 
+import ReviewGrid from "./review-grid";
+
 const GEOSERVER = process.env.NEXT_PUBLIC_GEOSERVER_URL;
 const BATCH = 1;
 const EDIT_ZOOM = 14; // үүнээс ойрт вектор (засах), холд WMS
@@ -174,7 +176,7 @@ export default function MapMlView() {
   const [text, setText] = useState("");
   const [zoom, setZoom] = useState(0);
   // review = автомат шошгыг зөв/буруу гэж шалгах (үндсэн), edit = гараар засах
-  const [view, setView] = useState("review");
+  const [view, setView] = useState("grid"); // grid = хүснэгтээр олноор нь шалгах (үндсэн)
   const [review, setReview] = useState(null);
   const [rstats, setRstats] = useState(null);
   const reviewSrcRef = useRef(null);
@@ -585,6 +587,7 @@ export default function MapMlView() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
+      if (view === "grid") return; // ReviewGrid өөрөө Enter-ийг барина
       if (view === "review") {
         if (e.key === "y" || e.key === "Y" || e.key === "Enter" || e.key === "ArrowRight") answerReview(true);
         else if (e.key === "x" || e.key === "X" || e.key === "Backspace" || e.key === "Delete") answerReview(false);
@@ -617,6 +620,11 @@ export default function MapMlView() {
       setMode("select");
       loadRstats();
       if (mapRef.current) loadReview();
+    } else if (view === "grid") {
+      setMode("select");
+      loadRstats();
+      reviewSrcRef.current?.clear();
+      setReview(null);
     } else {
       reviewSrcRef.current?.clear();
       setReview(null);
@@ -633,7 +641,8 @@ export default function MapMlView() {
     <Box sx={{ display: "flex", height: "100dvh", width: "100%", overflow: "hidden" }}>
       <Box sx={{ flex: 1, position: "relative" }}>
         <Box ref={elRef} sx={{ position: "absolute", inset: 0 }} />
-        {zoom < EDIT_ZOOM && (
+        {view === "grid" && <ReviewGrid onSaved={loadRstats} />}
+        {view !== "grid" && zoom < EDIT_ZOOM && (
           <Chip
             size="small"
             color="info"
@@ -654,9 +663,19 @@ export default function MapMlView() {
         </Stack>
 
         <ToggleButtonGroup size="small" exclusive fullWidth value={view} onChange={(e, v) => v && setView(v)}>
-          <ToggleButton value="review">Шалгах (зөв/буруу)</ToggleButton>
+          <ToggleButton value="grid">Хүснэгтээр</ToggleButton>
+          <ToggleButton value="review">Нэг нэгээр</ToggleButton>
           <ToggleButton value="edit">Гараар засах</ToggleButton>
         </ToggleButtonGroup>
+
+        {view === "grid" && rstats && (
+          <Typography variant="caption" color="text.secondary" component="div">
+            Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo} үлдсэн · машин өөрөө баталсан{" "}
+            {rstats.self || 0}
+            {rstats.ok + rstats.bad > 0 &&
+              ` · нарийвчлал ${Math.round((100 * rstats.ok) / (rstats.ok + rstats.bad))}%`}
+          </Typography>
+        )}
 
         {view === "review" && (
           <Box>

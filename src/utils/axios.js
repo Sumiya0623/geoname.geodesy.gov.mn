@@ -207,6 +207,8 @@ export const endpoints = {
     reviewNext: (request_body) => `/api/n/ml-review/next/?${request_body}`,
     reviewStats: `/api/n/ml-review/stats/`,
     reviewItem: (id) => `/api/n/ml-review/${id}/`,
+    reviewPage: (n) => `/api/n/ml-review/page/?n=${n}`,
+    reviewBatch: `/api/n/ml-review/batch/`,
   },
 
   raster: {
