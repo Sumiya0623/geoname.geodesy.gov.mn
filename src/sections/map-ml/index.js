@@ -66,7 +66,7 @@ const COLOR = Object.fromEntries(CLASSES.map((c) => [c.key, c.color]));
 
 const geojson = new GeoJSON({ dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
 
-function detStyle(feature, selected) {
+function detStyle(feature, selected, curId) {
   const p = feature.getProperties();
   if (p.kind === "symbol") {
     return new Style({
@@ -81,6 +81,7 @@ function detStyle(feature, selected) {
   }
   const color = COLOR[p.cls] || COLOR.unknown;
   const confirmed = p.status === "confirmed";
+  const mine = curId != null && p.recount_id === curId; // одоогийн даалгаврын нэрд холбогдсон
   const styles = [
     new Style({
       stroke: new Stroke({
@@ -90,9 +91,9 @@ function detStyle(feature, selected) {
       }),
       fill: new Fill({ color: confirmed ? `${color}22` : "rgba(0,0,0,0)" }),
       text:
-        p.text && (confirmed || selected)
+        p.text && (confirmed || selected || mine)
           ? new Text({
-              text: p.text,
+              text: mine ? `✓ ${p.text}` : p.text,
               font: "bold 13px sans-serif",
               fill: new Fill({ color: "#000" }),
               stroke: new Stroke({ color: "#fff", width: 3 }),
@@ -101,8 +102,15 @@ function detStyle(feature, selected) {
           : undefined,
     }),
   ];
-  // Даалгаврын нэртэй холбоотой хүрээ — булангийн тэмдэг
-  if (p.recount_id) {
+  // Одоогийн даалгаврын нэр — тод улаан зузаан хүрээ; өөр даалгаврынх — нимгэн улаан
+  if (mine) {
+    styles.push(
+      new Style({
+        stroke: new Stroke({ color: "#d50000", width: 5 }),
+        fill: new Fill({ color: "rgba(213,0,0,0.15)" }),
+      }),
+    );
+  } else if (p.recount_id) {
     styles.push(
       new Style({
         stroke: new Stroke({ color: "#e53935", width: 1.5 }),
@@ -167,8 +175,14 @@ export default function MapMlView() {
   const selectRef = useRef(null);
   const drawRef = useRef(null);
   const currentRef = useRef(null);
+  const detLayerRef = useRef(null);
+  const modeRef = useRef("select");
+  const linkRef = useRef(null); // хүрээн дээр дарахад холбох/салгах (газрын зургийн хаалтаас дуудна)
+  const [linkTick, setLinkTick] = useState(0);
+  const [showAdv, setShowAdv] = useState(false);
 
   const [mode, setMode] = useState("select"); // select | box | symbol
+  modeRef.current = mode;
   const [task, setTask] = useState(null);
   const [stats, setStats] = useState(null);
   const [selected, setSelected] = useState(null); // ol Feature
@@ -229,6 +243,7 @@ export default function MapMlView() {
       detSrcRef.current.clear();
       if (dets) {
         detSrcRef.current.addFeatures(geojson.readFeatures(dets.data));
+        setLinkTick((t) => t + 1);
         if (keepId != null) {
           const f = detSrcRef.current.getFeatureById(keepId);
           selectRef.current.getFeatures().clear();
@@ -301,6 +316,7 @@ export default function MapMlView() {
         feature.setProperties(data.properties);
         feature.changed();
         setSelProps({ ...data.properties });
+        setLinkTick((t) => t + 1);
         refreshWms();
         loadStats();
       } catch (e) {
@@ -334,6 +350,18 @@ export default function MapMlView() {
     // Бичвэр бөглөхгүй: экспортод хуулийн нэрийг холбосон мөрүүдэд нь хуваана
     else if (cur) saveFeature(selected, { recount_id: cur.id, cls: "name" });
   }, [selected, saveFeature]);
+
+  // Нэг товшилт = холбох/салгах. Өөр даалгаварт холбогдсон байсан ч одоогийнх руу шилжүүлнэ.
+  const linkFeature = useCallback(
+    (f) => {
+      const cur = currentRef.current;
+      if (!f || !cur || f.get("kind") !== "text") return;
+      if (f.get("recount_id") === cur.id) saveFeature(f, { recount_id: null });
+      else saveFeature(f, { recount_id: cur.id, cls: "name" });
+    },
+    [saveFeature],
+  );
+  linkRef.current = linkFeature;
 
   const clearSelection = useCallback(() => {
     selectRef.current?.getFeatures().clear();
@@ -458,7 +486,7 @@ export default function MapMlView() {
       source: detSrc,
       zIndex: 60,
       minZoom: EDIT_ZOOM,
-      style: (f) => detStyle(f, false),
+      style: (f) => detStyle(f, false, currentRef.current?.id),
     });
 
     const taskSrc = new VectorSource();
@@ -504,10 +532,17 @@ export default function MapMlView() {
     const select = new Select({
       layers: [detLayer],
       condition: click,
-      style: (f) => detStyle(f, true),
+      style: (f) => detStyle(f, true, currentRef.current?.id),
       hitTolerance: 4,
     });
     selectRef.current = select;
+    detLayerRef.current = detLayer;
+    // Засах горимд хүрээн дээр нэг дарах = даалгаврын нэрд холбох/салгах (Shift+дарах = зөвхөн сонгох)
+    map.on("singleclick", (e) => {
+      if (viewRef.current !== "edit" || modeRef.current !== "select" || e.originalEvent.shiftKey) return;
+      const f = map.forEachFeatureAtPixel(e.pixel, (x) => x, { layerFilter: (l) => l === detLayer, hitTolerance: 4 });
+      if (f) linkRef.current?.(f);
+    });
     select.on("select", () => {
       const f = select.getFeatures().item(0) || null;
       setSelected(f);
@@ -569,8 +604,9 @@ export default function MapMlView() {
       const body = {
         geometry: geomOf(e.feature),
         kind: mode === "box" ? "text" : "symbol",
-        cls: mode === "box" ? "unknown" : "other",
-        ...(mode === "symbol" && cur ? { recount_id: cur.id } : {}),
+        // Зурсан хүрээ = ихэвчлэн дутуу нэрийн үг → шууд даалгаварт холбоно (буруу бол дахин дарж салгана)
+        cls: mode === "box" ? (cur ? "name" : "unknown") : "other",
+        ...(cur ? { recount_id: cur.id } : {}),
       };
       try {
         const { data } = await axiosInstance.post(endpoints.ml.detection(""), body);
@@ -603,7 +639,52 @@ export default function MapMlView() {
 
   useEffect(() => {
     taskLayerRef.current?.changed();
+    detLayerRef.current?.changed();
   }, [task]);
+
+  // Даалгаврын нэрийн үг бүр холбогдсон хүрээнд байгаа эсэх (✓/✗) + илүү/давхар холболтын анхааруулга.
+  // linkTick нь хүрээ хадгалах/ачаалах бүрт дахин тооцоолуулна.
+  const check = (() => {
+    if (!task || linkTick < 0) return { words: [], extra: [], dup: [] };
+    const norm = (t) => (t || "").toLowerCase().replace(/[^\p{L}\d]+/gu, " ").trim();
+    const pre = (x, y) => {
+      let i = 0;
+      while (i < x.length && i < y.length && x[i] === y[i]) i += 1;
+      return i;
+    };
+    const ws = norm(task.properties.name).split(" ").filter(Boolean);
+    const hit = ws.map(() => 0);
+    const extra = [];
+    let blank = 0;
+    (detSrcRef.current?.getFeatures() || [])
+      .filter((f) => f.get("recount_id") === task.id && f.get("kind") === "text")
+      .forEach((f) => {
+        const toks = norm(f.get("text")).split(" ").filter(Boolean);
+        if (!toks.length) {
+          blank += 1; // гараар зурсан, бичвэргүй хүрээ
+          return;
+        }
+        let any = false;
+        toks.forEach((t) => {
+          ws.forEach((w, i) => {
+            if (t.length >= 2 && pre(w, t) >= Math.min(3, w.length, t.length)) {
+              hit[i] += 1;
+              any = true;
+            }
+          });
+        });
+        if (!any) extra.push(f.get("text"));
+      });
+    const words = ws.map((w, i) => {
+      let ok = hit[i] > 0;
+      if (!ok && blank > 0) {
+        blank -= 1;
+        ok = true;
+      }
+      return { w, ok };
+    });
+    return { words, extra, dup: ws.filter((w, i) => hit[i] > 1) };
+  })();
 
   // Гарын товч
   useEffect(() => {
@@ -772,8 +853,30 @@ export default function MapMlView() {
             <>
               <Typography variant="h6">{task.properties.name}</Typography>
               <Typography variant="body2" color="text.secondary">
-                {task.properties.type || "—"} · #{task.id} · холбосон хүрээ {task.properties.linked}
+                {task.properties.type || "—"} · #{task.id}
               </Typography>
+              <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mt: 1 }}>
+                {check.words.map((x, i) => (
+                  <Chip
+                    // eslint-disable-next-line react/no-array-index-key
+                    key={i}
+                    size="small"
+                    label={`${x.ok ? "✓" : "✗"} ${x.w}`}
+                    color={x.ok ? "success" : "default"}
+                    variant={x.ok ? "filled" : "outlined"}
+                  />
+                ))}
+              </Stack>
+              {check.dup.length > 0 && (
+                <Typography variant="caption" color="error.main" component="div">
+                  «{check.dup.join(", ")}» хоёр удаа холбогдсон — хажуудах өөр нэрийнхийг дарж салга.
+                </Typography>
+              )}
+              {check.extra.length > 0 && (
+                <Typography variant="caption" color="warning.main" component="div">
+                  Нэрэнд үл хамаарах байж магадгүй: {check.extra.join(", ")} — нэрийн хэсэг биш бол дарж салга.
+                </Typography>
+              )}
               {task.properties.shape && (
                 <Typography variant="caption" color="error.main" component="div">
                   {task.properties.shape.type.includes("Line") ? "Шугаман" : "Талбайн"} нэр — улаан шугам/хүрээний дагуу,
@@ -781,14 +884,16 @@ export default function MapMlView() {
                 </Typography>
               )}
               <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                <Tooltip title="Энэ цэгийн эргэн тойрны бүх бичвэрийг шошгосны дараа (N)">
+                <Tooltip title="Нэрийн үгс бүгд ✓ бол (N)">
                   <Button variant="contained" size="small" onClick={() => finishTask("done")}>
-                    Дууссан, дараах
+                    ✓ Зөв, дараах (N)
                   </Button>
                 </Tooltip>
-                <Button size="small" onClick={() => finishTask("skip")}>
-                  Алгасах
-                </Button>
+                <Tooltip title="Нэр харагдахгүй, эргэлзээтэй, хэцүү бол — дараа нь гараар">
+                  <Button size="small" onClick={() => finishTask("skip")}>
+                    Алгасах
+                  </Button>
+                </Tooltip>
                 <Tooltip title="Цэг рүү буцах">
                   <Button size="small" onClick={() => goTo(task)}>
                     <Iconify icon="mdi:crosshairs-gps" />
@@ -803,6 +908,19 @@ export default function MapMlView() {
 
         <Divider />
 
+        <Box sx={{ bgcolor: "action.hover", borderRadius: 1, p: 1.25 }}>
+          <Typography variant="body2" component="div">
+            <b>1.</b> Нэрийн үг бүр дээр <b>дар</b> → тод улаан ✓ болно. Буруу бол дахин дарж салга.
+            <br />
+            <b>2.</b> Үг хүрээгүй бол <b>B</b> дараад хүрээл (өөрөө холбогдоно).
+            <br />
+            <b>3.</b> Дээрх үгс бүгд ✓ бол <b>N</b>. Эргэлзвэл «Алгасах».
+          </Typography>
+          <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>
+            Бичвэрийн алдаа, хүрээ бага зэрэг өргөн, тойрог тэмдгээс зөрсөн — эдгээрийг тоохгүй.
+          </Typography>
+        </Box>
+
         <ToggleButtonGroup size="small" exclusive fullWidth value={mode} onChange={(e, v) => v && setMode(v)}>
           <ToggleButton value="select">Сонгох</ToggleButton>
           <ToggleButton value="box">Хүрээ (B)</ToggleButton>
@@ -814,7 +932,11 @@ export default function MapMlView() {
           </Typography>
         )}
 
-        {selected && selProps && (
+        <Button size="small" color="inherit" onClick={() => setShowAdv((v) => !v)} sx={{ alignSelf: "flex-start" }}>
+          {showAdv ? "▾ Нарийвчилсан засвар нуух" : "▸ Нарийвчилсан засвар (ангилал, бичвэр, устгах)"}
+        </Button>
+
+        {showAdv && selected && selProps && (
           <Box>
             <Typography variant="overline" color="text.secondary">
               Сонгосон {selProps.kind === "symbol" ? "тэмдэг" : "хүрээ"} #{selProps.id} · {selProps.status} · {selProps.source}
@@ -881,9 +1003,8 @@ export default function MapMlView() {
             шошгоогүй, ногоон — дууссан. Нэр нь цэгийн аль ч талд, ямар ч зайд байж болно.
           </Typography>
           <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-            Ажлын дараалал: буруу хүрээг ⌫ устгах · ангилал буруу бол 1–4 · даалгаврын нэрийн мөр бүрийг T ·
-            дутууг B-ээр зурах · N — дэлгэцэн дээрх үлдсэн хүрээ бүгд баталгаажиж дараагийнх руу.
-            Нэг мөр = нэг хүрээ. Бичвэр бичих шаардлагагүй.
+            Нарийвчилсан: Shift+дарах = зөвхөн сонгох · 1–4 ангилал · ⌫ устгах · S тэмдэг тавих.
+            N дарахад дэлгэцэн дээрх үлдсэн хүрээ баталгаажна.
           </Typography>
         </Box>
       </Paper>
