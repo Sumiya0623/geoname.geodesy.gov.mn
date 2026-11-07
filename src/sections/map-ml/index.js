@@ -185,6 +185,8 @@ export default function MapMlView() {
   const [showBoxes, setShowBoxes] = useState(true); // илрүүлэгчийн хүрээ (тасархай) харуулах
   const placeLayerRef = useRef(null);
   const [showPlaces, setShowPlaces] = useState(true); // загварын олсон цэгэн нэр
+  const symLayerRef = useRef(null);
+  const [showSyms, setShowSyms] = useState(true); // тэмдэг илрүүлэгчийн олсон тэмдэг
 
   const [mode, setMode] = useState("select"); // select | box | symbol
   modeRef.current = mode;
@@ -486,6 +488,17 @@ export default function MapMlView() {
     });
 
     placeLayerRef.current = placeLayer;
+    // Тэмдэг илрүүлэгчийн олсон тэмдэг (nameqc_symbol): хөх □ = худаг, бор □ = толгой/уул/овоо, тоо = итгэл
+    const symLayer = new TileLayer({
+      zIndex: 85,
+      source: new TileWMS({
+        url: `${GEOSERVER}/geoname/wms`,
+        params: { LAYERS: "geoname:nameqc_symbol", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1" },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+      }),
+    });
+    symLayerRef.current = symLayer;
     const detSrc = new VectorSource();
     detSrcRef.current = detSrc;
     const detLayer = new VectorLayer({
@@ -526,7 +539,7 @@ export default function MapMlView() {
 
     const map = new Map({
       target: elRef.current,
-      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer, placeLayer],
+      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer, symLayer, placeLayer],
       view: new View({
         center: fromLonLat([Number(qp?.get("lon")) || 113.5, Number(qp?.get("lat")) || 46.3]),
         zoom: Number(qp?.get("z")) || 8,
@@ -655,6 +668,9 @@ export default function MapMlView() {
   useEffect(() => {
     placeLayerRef.current?.setVisible(showPlaces);
   }, [showPlaces]);
+  useEffect(() => {
+    symLayerRef.current?.setVisible(showSyms);
+  }, [showSyms]);
 
   // Даалгаврын нэрийн үг бүр холбогдсон хүрээнд байгаа эсэх (✓/✗) + илүү/давхар холболтын анхааруулга.
   // linkTick нь хүрээ хадгалах/ачаалах бүрт дахин тооцоолуулна.
@@ -1008,9 +1024,14 @@ export default function MapMlView() {
             control={<Switch size="small" checked={showPlaces} onChange={(e) => setShowPlaces(e.target.checked)} />}
             label={<Typography variant="body2">Загварын олсон нэр (цэг)</Typography>}
           />
+          <FormControlLabel
+            control={<Switch size="small" checked={showSyms} onChange={(e) => setShowSyms(e.target.checked)} />}
+            label={<Typography variant="body2">Загварын олсон тэмдэг (□)</Typography>}
+          />
           <Typography variant="caption" color="text.secondary" component="div">
             Цэг: ● дүүрэн — тэмдэг (⊙) дээр буусан · ○ хөндий — тэмдэг олдоогүй, бичвэрийн эхэнд. Өнгө: улаан —
             сумын/хөршийн бүртгэлтэй · ягаан — өөр нэгжийнх · улбар шар — эргэлзээтэй («нэр ? нөгөө нэр»).
+            Тэмдэг: хөх □ — худаг, бор □ — толгой/уул/овоо; доорх тоо — загварын итгэл (0–1).
           </Typography>
         </Box>
 
