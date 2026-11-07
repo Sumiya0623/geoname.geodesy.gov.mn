@@ -413,3 +413,87 @@ class MlReviewViewSet(_MissingTable):
                 ['ok' if ok else 'bad', request.user.id, int(pk)])
             n = c.rowcount
         return Response({'recount_id': int(pk), 'ok': ok, 'boxes': n})
+
+
+# Тэмдгийн төв: тодруулгын цэгэн нэр (худаг / толгой-уул / овоо) бүрийн тэмдгийн ЯГ төвийг хүн нэг товшилтоор
+# тавина → тэмдэг илрүүлэгчийн (nameqc symdata) цэвэр шошго. nameqc/symdata.py GROUP-тэй ижил байх ёстой.
+_SYM_GROUP = {
+    'well': ['Худаг', 'Булаг', 'Рашаан', 'Цооног', 'Задгай', 'Хужир', 'Шанд'],
+    'peak': ['Толгой', 'Уул', 'Үзүүр', 'Овгор', 'Хад', 'Цохио', 'Оргил', 'Сарьдаг', 'Хайрхан', 'Хөтөл', 'Дов'],
+    'ovoo': ['Овоо'],
+}
+_SYM_CASE = 'CASE ' + ' '.join(
+    f"WHEN ty.name = ANY(ARRAY[{','.join(repr(t) for t in v)}]) THEN '{k}'" for k, v in _SYM_GROUP.items()
+) + ' END'
+_SYM_FROM = f"""
+    FROM nameqc_task t
+    JOIN core_recount r ON r.id = t.recount_id
+    LEFT JOIN core_geoname g ON g.id = r.name_id
+    JOIN core_constant ty ON ty.id = COALESCE(r.type_id, g.type_id)
+   WHERE ST_Dimension(r.loc) = 0 AND ({_SYM_CASE}) IS NOT NULL
+"""
+
+
+class MlSymCenterViewSet(_MissingTable):
+    """Тэмдгийн төвийг тавих (хүснэгтээр).
+
+      GET  /api/n/ml-symcenter/page/?n=24  → [{recount_id, name, type, cls, loc:[x,y] EPSG:3857}]
+      POST /api/n/ml-symcenter/batch/      → {"items":[{recount_id, x, y}], "none":[recount_id]}  (EPSG:3857)
+      GET  /api/n/ml-symcenter/stats/      → {done, none, todo, by_cls:{well,peak,ovoo}}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def page(self, request):
+        try:
+            n = max(1, min(int(request.query_params.get('n', 24)), 60))
+        except ValueError:
+            n = 24
+        rows = _rows(
+            f"""SELECT r.id AS recount_id, COALESCE(g.name, r.draft) AS name, ty.name AS type, {_SYM_CASE} AS cls,
+                       ST_X(ST_Transform(r.loc, 3857)) AS x, ST_Y(ST_Transform(r.loc, 3857)) AS y
+                  {_SYM_FROM}
+                   AND NOT EXISTS (SELECT 1 FROM nameqc_symcenter s WHERE s.recount_id = r.id)
+                 ORDER BY ({_SYM_CASE}) = 'ovoo' DESC, random() LIMIT %s""", [n])
+        return Response([{**{k: v for k, v in it.items() if k not in ('x', 'y')}, 'loc': [it['x'], it['y']]}
+                         for it in rows])
+
+    @action(detail=False, methods=['post'])
+    def batch(self, request):
+        try:
+            items = [(int(i['recount_id']), float(i['x']), float(i['y'])) for i in request.data.get('items', [])]
+            none = [int(x) for x in request.data.get('none', [])]
+        except (TypeError, ValueError, KeyError):
+            return Response({'detail': 'items:[{recount_id,x,y}], none:[recount_id]'}, status=http.HTTP_400_BAD_REQUEST)
+        ids = [i[0] for i in items] + none
+        if not ids:
+            return Response({'saved': 0})
+        with transaction.atomic(), connection.cursor() as c:
+            c.execute(f"SELECT r.id, {_SYM_CASE} {_SYM_FROM} AND r.id = ANY(%s)", [ids])
+            cls = dict(c.fetchall())
+            n = 0
+            for rid, x, y in items:
+                if rid in cls:
+                    c.execute("""INSERT INTO nameqc_symcenter (recount_id, cls, geom, user_id)
+                                 VALUES (%s, %s, ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326), %s)
+                                 ON CONFLICT (recount_id) DO UPDATE SET geom = EXCLUDED.geom, cls = EXCLUDED.cls,
+                                        user_id = EXCLUDED.user_id, created = now()""",
+                              [rid, cls[rid], x, y, request.user.id])
+                    n += 1
+            for rid in none:
+                if rid in cls:
+                    c.execute("""INSERT INTO nameqc_symcenter (recount_id, cls, geom, user_id) VALUES (%s, %s, NULL, %s)
+                                 ON CONFLICT (recount_id) DO UPDATE SET geom = NULL, user_id = EXCLUDED.user_id,
+                                        created = now()""", [rid, cls[rid], request.user.id])
+                    n += 1
+        return Response({'saved': n})
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        done = _rows("""SELECT cls, count(*) FILTER (WHERE geom IS NOT NULL) AS done,
+                               count(*) FILTER (WHERE geom IS NULL) AS none FROM nameqc_symcenter GROUP BY cls""", [])
+        total = _rows(f"SELECT count(*) AS n {_SYM_FROM}", [])[0]['n']
+        by = {r['cls']: r['done'] for r in done}
+        d = sum(r['done'] for r in done)
+        nn = sum(r['none'] for r in done)
+        return Response({'done': d, 'none': nn, 'todo': total - d - nn, 'by_cls': by})
