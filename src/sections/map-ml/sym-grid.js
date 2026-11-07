@@ -215,7 +215,10 @@ export default function SymGrid() {
       {stats && (
         <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5 }}>
           Тавьсан: <b>{stats.done}</b> / {goal} зорилт (худаг {stats.by_cls?.well || 0} · толгой{" "}
-          {stats.by_cls?.peak || 0} · овоо {stats.by_cls?.ovoo || 0}) · тэмдэггүй {stats.none} · үлдсэн {stats.todo}
+          {stats.by_cls?.peak || 0} · овоо {stats.by_cls?.ovoo || 0}) · тэмдэггүй {stats.none}
+          {stats.done >= goal && (
+            <b style={{ color: "#2e7d32" }}> — ✓ зорилт биелсэн, цааш хийх шаардлагагүй (нэмбэл зөвхөн овоо, худаг тус болно)</b>
+          )}
         </Typography>
       )}
       {items && items.length === 0 && <Typography sx={{ p: 4 }}>Бүх цэгийг тавьж дууссан.</Typography>}
