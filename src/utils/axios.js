@@ -208,6 +208,9 @@ export const endpoints = {
     reviewStats: `/api/n/ml-review/stats/`,
     reviewItem: (id) => `/api/n/ml-review/${id}/`,
     reviewPage: (n) => `/api/n/ml-review/page/?n=${n}`,
+    symPage: (n) => `/api/n/ml-symcenter/page/?n=${n}`,
+    symStats: `/api/n/ml-symcenter/stats/`,
+    symBatch: `/api/n/ml-symcenter/batch/`,
     reviewBatch: `/api/n/ml-review/batch/`,
   },
 
