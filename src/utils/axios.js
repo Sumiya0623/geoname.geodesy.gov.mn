@@ -211,6 +211,9 @@ export const endpoints = {
     symPage: (n) => `/api/n/ml-symcenter/page/?n=${n}`,
     symStats: `/api/n/ml-symcenter/stats/`,
     symBatch: `/api/n/ml-symcenter/batch/`,
+    placePage: (n) => `/api/n/ml-place/page/?n=${n}`,
+    placeStats: `/api/n/ml-place/stats/`,
+    placeBatch: `/api/n/ml-place/batch/`,
     reviewBatch: `/api/n/ml-review/batch/`,
   },
 

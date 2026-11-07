@@ -50,6 +50,7 @@ import { buildOlBaseLayer } from "src/sections/map/layers-wmts";
 
 import ReviewGrid from "./review-grid";
 import SymGrid from "./sym-grid";
+import PlaceGrid from "./place-grid";
 
 const GEOSERVER = process.env.NEXT_PUBLIC_GEOSERVER_URL;
 const BATCH = 1;
@@ -203,7 +204,7 @@ export default function MapMlView() {
   const [view, setView] = useState("grid"); // grid = хүснэгтээр олноор нь шалгах (үндсэн)
   useEffect(() => {
     const v = new URLSearchParams(window.location.search).get("view");
-    if (v === "edit" || v === "review" || v === "grid" || v === "sym") setView(v);
+    if (v === "edit" || v === "review" || v === "grid" || v === "sym" || v === "pos") setView(v);
   }, []);
   const [review, setReview] = useState(null);
   const [rstats, setRstats] = useState(null);
@@ -715,7 +716,7 @@ export default function MapMlView() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
-      if (view === "grid" || view === "sym") return; // ReviewGrid / SymGrid өөрөө Enter-ийг барина
+      if (view === "grid" || view === "sym" || view === "pos") return; // ReviewGrid / SymGrid өөрөө Enter-ийг барина
       if (view === "review") {
         if (e.key === "y" || e.key === "Y" || e.key === "Enter" || e.key === "ArrowRight") answerReview(true);
         else if (e.key === "x" || e.key === "X" || e.key === "Backspace" || e.key === "Delete") answerReview(false);
@@ -748,7 +749,7 @@ export default function MapMlView() {
       setMode("select");
       loadRstats();
       if (mapRef.current) loadReview();
-    } else if (view === "grid" || view === "sym") {
+    } else if (view === "grid" || view === "sym" || view === "pos") {
       setMode("select");
       loadRstats();
       reviewSrcRef.current?.clear();
@@ -771,7 +772,8 @@ export default function MapMlView() {
         <Box ref={elRef} sx={{ position: "absolute", inset: 0 }} />
         {view === "grid" && <ReviewGrid onSaved={loadRstats} />}
         {view === "sym" && <SymGrid />}
-        {view !== "grid" && view !== "sym" && zoom < EDIT_ZOOM && (
+        {view === "pos" && <PlaceGrid />}
+        {view !== "grid" && view !== "sym" && view !== "pos" && zoom < EDIT_ZOOM && (
           <Chip
             size="small"
             color="info"
@@ -791,11 +793,19 @@ export default function MapMlView() {
           </Typography>
         </Stack>
 
-        <ToggleButtonGroup size="small" exclusive fullWidth value={view} onChange={(e, v) => v && setView(v)}>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          fullWidth
+          value={view}
+          onChange={(e, v) => v && setView(v)}
+          sx={{ flexWrap: "wrap", "& .MuiToggleButton-root": { flex: "1 0 30%", fontSize: 12, px: 0.5 } }}
+        >
           <ToggleButton value="grid">Хүснэгтээр</ToggleButton>
           <ToggleButton value="review">Нэг нэгээр</ToggleButton>
           <ToggleButton value="edit">Гараар засах</ToggleButton>
           <ToggleButton value="sym">Тэмдгийн төв</ToggleButton>
+          <ToggleButton value="pos">Байрлал шалгах</ToggleButton>
         </ToggleButtonGroup>
 
         {view === "grid" && rstats && (
