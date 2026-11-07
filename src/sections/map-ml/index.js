@@ -675,14 +675,8 @@ export default function MapMlView() {
         });
         if (!any) extra.push(f.get("text"));
       });
-    const words = ws.map((w, i) => {
-      let ok = hit[i] > 0;
-      if (!ok && blank > 0) {
-        blank -= 1;
-        ok = true;
-      }
-      return { w, ok };
-    });
+    // Гараар зурсан (бичвэргүй) хүрээ = нэг мөр, хэдэн ч үг багтана → үлдсэн үгсийг хамарсан гэж үзнэ
+    const words = ws.map((w, i) => ({ w, ok: hit[i] > 0 || blank > 0 }));
     return { words, extra, dup: ws.filter((w, i) => hit[i] > 1) };
   })();
 
