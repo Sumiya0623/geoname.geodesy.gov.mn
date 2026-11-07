@@ -30,11 +30,13 @@ import {
   Stack,
   Paper,
   Button,
+  Switch,
   Divider,
   Tooltip,
   TextField,
   Typography,
   ToggleButton,
+  FormControlLabel,
   LinearProgress,
   ToggleButtonGroup,
 } from "@mui/material";
@@ -180,6 +182,9 @@ export default function MapMlView() {
   const linkRef = useRef(null); // хүрээн дээр дарахад холбох/салгах (газрын зургийн хаалтаас дуудна)
   const [linkTick, setLinkTick] = useState(0);
   const [showAdv, setShowAdv] = useState(false);
+  const [showBoxes, setShowBoxes] = useState(true); // илрүүлэгчийн хүрээ (тасархай) харуулах
+  const placeLayerRef = useRef(null);
+  const [showPlaces, setShowPlaces] = useState(true); // загварын олсон цэгэн нэр
 
   const [mode, setMode] = useState("select"); // select | box | symbol
   modeRef.current = mode;
@@ -480,6 +485,7 @@ export default function MapMlView() {
       }),
     });
 
+    placeLayerRef.current = placeLayer;
     const detSrc = new VectorSource();
     detSrcRef.current = detSrc;
     const detLayer = new VectorLayer({
@@ -641,6 +647,14 @@ export default function MapMlView() {
     taskLayerRef.current?.changed();
     detLayerRef.current?.changed();
   }, [task]);
+
+  useEffect(() => {
+    wmsRef.current?.setVisible(showBoxes);
+    detLayerRef.current?.setVisible(showBoxes);
+  }, [showBoxes]);
+  useEffect(() => {
+    placeLayerRef.current?.setVisible(showPlaces);
+  }, [showPlaces]);
 
   // Даалгаврын нэрийн үг бүр холбогдсон хүрээнд байгаа эсэх (✓/✗) + илүү/давхар холболтын анхааруулга.
   // linkTick нь хүрээ хадгалах/ачаалах бүрт дахин тооцоолуулна.
@@ -979,6 +993,26 @@ export default function MapMlView() {
 
         </>
         )}
+
+        <Divider />
+
+        <Box>
+          <Typography variant="overline" color="text.secondary">
+            Давхарга
+          </Typography>
+          <FormControlLabel
+            control={<Switch size="small" checked={showBoxes} onChange={(e) => setShowBoxes(e.target.checked)} />}
+            label={<Typography variant="body2">Бичвэрийн хүрээ (тасархай)</Typography>}
+          />
+          <FormControlLabel
+            control={<Switch size="small" checked={showPlaces} onChange={(e) => setShowPlaces(e.target.checked)} />}
+            label={<Typography variant="body2">Загварын олсон нэр (цэг)</Typography>}
+          />
+          <Typography variant="caption" color="text.secondary" component="div">
+            Цэг: ● дүүрэн — тэмдэг (⊙) дээр буусан · ○ хөндий — тэмдэг олдоогүй, бичвэрийн эхэнд. Өнгө: улаан —
+            сумын/хөршийн бүртгэлтэй · ягаан — өөр нэгжийнх · улбар шар — эргэлзээтэй («нэр ? нөгөө нэр»).
+          </Typography>
+        </Box>
 
         <Divider />
 
