@@ -497,3 +497,46 @@ class MlSymCenterViewSet(_MissingTable):
         d = sum(r['done'] for r in done)
         nn = sum(r['none'] for r in done)
         return Response({'done': d, 'none': nn, 'todo': total - d - nn, 'by_cls': by})
+
+
+class MlPlaceViewSet(_MissingTable):
+    """Тэмдэг илрүүлэгчийн тавьсан байрлалыг (nameqc_place how='model') хүснэгтээр шалгах.
+    Буруу (pos_ok=false) = «энэ тэмдэг биш» сургалтын сөрөг жишээ (nameqc symdata) + итгэлийн босго.
+
+      GET  /api/n/ml-place/page/?n=24  → [{id, name, type, conf, loc:[x,y] EPSG:3857}]
+      POST /api/n/ml-place/batch/      → {"ok":[id], "bad":[id]}
+      GET  /api/n/ml-place/stats/      → {ok, bad, todo}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def page(self, request):
+        try:
+            n = max(1, min(int(request.query_params.get('n', 24)), 60))
+        except ValueError:
+            n = 24
+        rows = _rows("""SELECT id, name, type_name AS type, p_type AS conf,
+                               ST_X(ST_Transform(geom, 3857)) AS x, ST_Y(ST_Transform(geom, 3857)) AS y
+                          FROM nameqc_place WHERE how = 'model' AND pos_ok IS NULL ORDER BY random() LIMIT %s""", [n])
+        return Response([{**{k: v for k, v in it.items() if k not in ('x', 'y')}, 'loc': [it['x'], it['y']]}
+                         for it in rows])
+
+    @action(detail=False, methods=['post'])
+    def batch(self, request):
+        try:
+            ok = [int(x) for x in request.data.get('ok', [])]
+            bad = [int(x) for x in request.data.get('bad', [])]
+        except (TypeError, ValueError):
+            return Response({'detail': 'ok, bad: [id]'}, status=http.HTTP_400_BAD_REQUEST)
+        with transaction.atomic(), connection.cursor() as c:
+            if ok:
+                c.execute("UPDATE nameqc_place SET pos_ok = true WHERE id = ANY(%s) AND how = 'model'", [ok])
+            if bad:
+                c.execute("UPDATE nameqc_place SET pos_ok = false WHERE id = ANY(%s) AND how = 'model'", [bad])
+        return Response({'ok': len(ok), 'bad': len(bad)})
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        return Response(_rows("""SELECT count(*) FILTER (WHERE pos_ok) AS ok, count(*) FILTER (WHERE NOT pos_ok) AS bad,
+                                        count(*) FILTER (WHERE pos_ok IS NULL) AS todo
+                                   FROM nameqc_place WHERE how = 'model'""", [])[0])

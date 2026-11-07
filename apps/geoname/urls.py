@@ -9,7 +9,7 @@ from .apiviews import (
     ProjectMemberViewSet,
 )
 from .namestat import NameStatViewSet
-from .mlapi import MlDetectionViewSet, MlTaskViewSet, MlReviewViewSet, MlSymCenterViewSet
+from .mlapi import MlDetectionViewSet, MlTaskViewSet, MlReviewViewSet, MlSymCenterViewSet, MlPlaceViewSet
 
 
 router = DefaultRouter()
@@ -27,6 +27,7 @@ router.register('ml-detection', MlDetectionViewSet, basename='ml-detection')
 router.register('ml-task', MlTaskViewSet, basename='ml-task')
 router.register('ml-review', MlReviewViewSet, basename='ml-review')
 router.register('ml-symcenter', MlSymCenterViewSet, basename='ml-symcenter')
+router.register('ml-place', MlPlaceViewSet, basename='ml-place')
 
 
 urlpatterns = []
