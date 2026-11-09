@@ -94,14 +94,53 @@ export function NameSearch({ tag, onPick, initial = "" }) {
 }
 
 function Card({ item, tag, st, onChange }) {
-  const ex = extentOf(item);
+  // харагдац: дугуйгаар томруулах/жижигрүүлэх, чирж хөдөлгөх; хөдөлгөөгүй товшилт = тэмдгийн төв
+  const [ex, setEx] = useState(() => extentOf(item));
+  const [drag, setDrag] = useState(null); // {x0, y0, dx, dy}
+  const boxRef = useRef(null);
   const W = ex[2] - ex[0];
   const pos = (p) => ({ left: `${((p[0] - ex[0]) / W) * 100}%`, top: `${((ex[3] - p[1]) / W) * 100}%` });
-  const click = (e) => {
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      const fx = (e.clientX - r.left) / r.width;
+      const fy = (e.clientY - r.top) / r.height;
+      setEx((o) => {
+        const w = o[2] - o[0];
+        const k = e.deltaY > 0 ? 1.25 : 0.8;
+        const nw = Math.min(Math.max(w * k, 120), 6000);
+        const mx = o[0] + fx * w;
+        const my = o[3] - fy * w;
+        return [mx - fx * nw, my - (1 - fy) * nw, mx + (1 - fx) * nw, my + fy * nw];
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+  const down = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({ x0: e.clientX, y0: e.clientY, dx: 0, dy: 0 });
+  };
+  const move = (e) => {
+    if (drag) setDrag({ ...drag, dx: e.clientX - drag.x0, dy: e.clientY - drag.y0 });
+  };
+  const up = (e) => {
+    if (!drag) return;
     const r = e.currentTarget.getBoundingClientRect();
-    const fx = (e.clientX - r.left) / r.width;
-    const fy = (e.clientY - r.top) / r.height;
-    onChange({ pos: [ex[0] + fx * W, ex[3] - fy * W] });
+    const { dx, dy } = drag;
+    setDrag(null);
+    if (Math.hypot(dx, dy) < 4) {
+      const fx = (e.clientX - r.left) / r.width;
+      const fy = (e.clientY - r.top) / r.height;
+      onChange({ pos: [ex[0] + fx * W, ex[3] - fy * W] });
+      return;
+    }
+    const mx = (dx / r.width) * W;
+    const my = (dy / r.height) * W;
+    setEx((o) => [o[0] - mx, o[1] + my, o[2] - mx, o[3] + my]);
   };
   const isText = item.kind === "text";
   const border =
@@ -115,9 +154,29 @@ function Card({ item, tag, st, onChange }) {
   return (
     <Box sx={{ border: `3px solid ${border}`, borderRadius: 1, overflow: "hidden", bgcolor: "background.paper" }}>
       <Box
-        onClick={click}
-        sx={{ position: "relative", width: "100%", aspectRatio: "1 / 1", bgcolor: "#eee", cursor: "crosshair", opacity: st.verdict === "notname" ? 0.5 : 1 }}
+        ref={boxRef}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        sx={{
+          position: "relative",
+          width: "100%",
+          aspectRatio: "1 / 1",
+          bgcolor: "#eee",
+          overflow: "hidden",
+          touchAction: "none",
+          cursor: drag && Math.hypot(drag.dx, drag.dy) >= 4 ? "grabbing" : "crosshair",
+          opacity: st.verdict === "notname" ? 0.5 : 1,
+        }}
       >
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            transform: drag ? `translate(${drag.dx}px, ${drag.dy}px)` : "none",
+            pointerEvents: "none",
+          }}
+        >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={wmsUrl(ex)} alt="" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
         {box && <Box sx={{ position: "absolute", ...box, border: "2px dashed #43a047", pointerEvents: "none" }} />}
@@ -154,6 +213,18 @@ function Card({ item, tag, st, onChange }) {
           label={isText ? `Бичвэр: «${item.ocr}»` : `Олсон нэр${item.doubt ? " (эргэлзээтэй)" : ""}`}
           sx={{ position: "absolute", top: 4, left: 4, maxWidth: "95%", bgcolor: isText ? "#546e7a" : "#c62828", color: "#fff", pointerEvents: "none" }}
         />
+        </Box>
+        <Button
+          size="small"
+          variant="contained"
+          color="inherit"
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={() => setEx(extentOf(item))}
+          sx={{ position: "absolute", bottom: 4, right: 4, minWidth: 0, px: 1, py: 0, fontSize: 12, opacity: 0.85 }}
+        >
+          ↺
+        </Button>
       </Box>
       <Stack spacing={0.75} sx={{ p: 1 }}>
         <Stack direction="row" flexWrap="wrap" gap={0.5}>
