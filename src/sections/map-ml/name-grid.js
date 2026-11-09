@@ -321,7 +321,7 @@ export default function NameGrid({ tag }) {
       .map(({ it, s }) => ({ kind: it.kind, id: it.id, verdict: s.verdict, name: s.name, geoname_id: s.geoname_id, pos: s.pos }));
     setBusy(true);
     try {
-      if (list.length) await axiosInstance.post(endpoints.ml.nameRevBatch, { items: list });
+      if (list.length) await axiosInstance.post(endpoints.ml.nameRevBatch, { items: list, recount: true });
       enqueueSnackbar(`Хадгаллаа: ${list.length}`, { variant: "success" });
       await load();
     } catch (e) {
