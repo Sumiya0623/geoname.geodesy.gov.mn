@@ -625,10 +625,18 @@ class MlNameReviewViewSet(_MissingTable):
         except (ValueError, AssertionError):
             return Response({'detail': 'bbox'}, status=http.HTTP_400_BAD_REQUEST)
         tag = request.query_params.get('tag') or None
-        rows = _rows("""SELECT id, tag, name, how, doubt, review, ST_AsGeoJSON(ST_Transform(geom, 3857)) AS geojson
+        rows = _rows("""SELECT 'place:' || id AS id, 'place' AS kind, id AS ref, tag, name, NULL AS ocr, alt, how, doubt,
+                               review, ST_AsGeoJSON(ST_Transform(geom, 3857)) AS geojson
                           FROM nameqc_place
                          WHERE geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND (%s::text IS NULL OR tag = %s)
-                           AND coalesce(review, '') <> 'notname' LIMIT 1500""", [*b, tag, tag])
+                           AND coalesce(review, '') <> 'notname'
+                        UNION ALL
+                        SELECT 'text:' || t.id, 'text', t.id, t.tag, t.guess, t.ocr, NULL, 'text', true, NULL,
+                               ST_AsGeoJSON(ST_Transform(t.geom, 3857))
+                          FROM nameqc_text t
+                         WHERE t.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND (%s::text IS NULL OR t.tag = %s)
+                           AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)
+                         LIMIT 3000""", [*b, tag, tag, *b, tag, tag])
         return Response(_fc(rows))
 
     @action(detail=False, methods=['get'])
@@ -715,7 +723,9 @@ class MlNameReviewViewSet(_MissingTable):
                                              review = 'human', doubt = false, alt = NULL
                                              {', geom = ' + pg[0] + ", how = 'human', pos_ok = true" if pos else ''}
                                        WHERE id = %s""", [name, gid, *pg[1], rid])
-                elif verdict != 'notname':
+                elif verdict == 'notname':
+                    c.execute("DELETE FROM nameqc_text WHERE id = %s", [rid])
+                else:
                     c.execute(f"""INSERT INTO nameqc_place (tag, unit_id, geoname_id, name, type_name, how, box_ids, geom,
                                                             review, reg, doubt)
                                   SELECT %s, %s, %s, %s, (SELECT k.name FROM core_geoname g JOIN core_constant k
