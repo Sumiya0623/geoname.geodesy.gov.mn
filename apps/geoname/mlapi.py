@@ -548,9 +548,11 @@ ML_PROJECT_NAME = '1970 оны 1:100 000 зургаас гараар батал�
 ML_STEP_NAME = 'Суурин судалгаа'
 
 
-def _sync_recount(c, kind, ref_id, uid, loc_wkt):
+def _sync_recount(c, kind, ref_id, uid, loc_wkt, create=False):
     """namerev-ийн шийдвэрийг core_recount-д тусгана: ok/fixed → үүсгэх/шинэчлэх, notname → устгах,
-    pos → байрлалыг шинэчлэх. loc_wkt: эцсийн байрлал (EPSG:4326 WKT)."""
+    pos → байрлалыг шинэчлэх. loc_wkt: эцсийн байрлал (EPSG:4326 WKT).
+    create=False үед ШИНЭ тодруулга үүсгэхгүй — зөвхөн «Хадгалаад дараагийнх» (хүснэгт, recount=true) үүсгэнэ;
+    газрын зургийн засвар зөвхөн сургалтын шошго (nameqc_namerev), өмнө үүссэн тодруулгыг л тааруулна."""
     from core.models import Constant, GeoName, Project, ReCount
     c.execute("SELECT id, verdict, name, geoname_id, recount_id FROM nameqc_namerev WHERE kind = %s AND ref_id = %s",
               [kind, ref_id])
@@ -573,6 +575,8 @@ def _sync_recount(c, kind, ref_id, uid, loc_wkt):
         if loc:
             rc.loc = loc
             rc.save(update_fields=['loc', 'modified_date'])
+        return
+    if rc is None and not create:
         return
     gn = GeoName.objects.filter(id=gid).first() if gid else None
     if rc is None:
@@ -741,6 +745,7 @@ class MlNameReviewViewSet(_MissingTable):
     def batch(self, request):
         items = request.data.get('items') or []
         uid = request.user.id
+        to_rc = bool(request.data.get('recount'))   # хүснэгтийн «Хадгалаад дараагийнх» → тодруулга үүсгэнэ
         done = 0
         with transaction.atomic(), connection.cursor() as c:
             for it in items:
@@ -804,7 +809,7 @@ class MlNameReviewViewSet(_MissingTable):
                                              review = 'human', doubt = false, alt = NULL
                                              {', geom = ' + pg[0] + ", how = 'human', pos_ok = true" if pos else ''}
                                        WHERE id = %s RETURNING ST_AsText(geom)""", [name, gid, *pg[1], rid])
-                        _sync_recount(c, kind, rid, uid, c.fetchone()[0])
+                        _sync_recount(c, kind, rid, uid, c.fetchone()[0], to_rc)
                 elif verdict == 'notname':
                     c.execute("DELETE FROM nameqc_text WHERE id = %s", [rid])
                     _sync_recount(c, kind, rid, uid, None)
@@ -820,7 +825,7 @@ class MlNameReviewViewSet(_MissingTable):
                     if pos:
                         c.execute("SELECT ST_AsText(ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326))", pg[1])
                         gwkt = c.fetchone()[0]
-                    _sync_recount(c, kind, rid, uid, gwkt)
+                    _sync_recount(c, kind, rid, uid, gwkt, to_rc)
                 done += 1
         return Response({'saved': done})
 
