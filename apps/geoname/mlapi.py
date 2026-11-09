@@ -542,6 +542,53 @@ class MlPlaceViewSet(_MissingTable):
                                    FROM nameqc_place WHERE how = 'model'""", [])[0])
 
 
+# Хүний баталсан нэр → тодруулга (core_recount): тусдаа төсөлд, «Суурин боловсруулалт» шатаар.
+# Дахин сургалтад (nameqc recountlab) баталгаат өгөгдөл болно. Холбоос: nameqc_namerev.recount_id
+ML_PROJECT_NAME = '1970 оны 1:100 000 зургаас гараар баталгаажуулсан нэр (nameqc)'
+ML_STEP_NAME = 'Суурин боловсруулалт'
+
+
+def _sync_recount(c, kind, ref_id, uid, loc_wkt):
+    """namerev-ийн шийдвэрийг core_recount-д тусгана: ok/fixed → үүсгэх/шинэчлэх, notname → устгах,
+    pos → байрлалыг шинэчлэх. loc_wkt: эцсийн байрлал (EPSG:4326 WKT)."""
+    from core.models import Constant, GeoName, Project, ReCount
+    c.execute("SELECT id, verdict, name, geoname_id, recount_id FROM nameqc_namerev WHERE kind = %s AND ref_id = %s",
+              [kind, ref_id])
+    row = c.fetchone()
+    if not row:
+        return
+    rev_id, verdict, name, gid, rc_id = row
+    rc = ReCount.objects.filter(id=rc_id).first() if rc_id else None
+    if verdict == 'notname':
+        if rc:
+            rc.delete()
+        c.execute("UPDATE nameqc_namerev SET recount_id = NULL WHERE id = %s", [rev_id])
+        return
+    if verdict == 'pos' and not rc:
+        # зөвхөн байрлал зөөсөн, нэрийн шийдвэр гараагүй — нэр нь шалгагдсаны дараа бичигдэнэ
+        return
+    from django.contrib.gis.geos import GEOSGeometry
+    loc = GEOSGeometry(loc_wkt, srid=4326) if loc_wkt else None
+    if verdict == 'pos':
+        if loc:
+            rc.loc = loc
+            rc.save(update_fields=['loc', 'modified_date'])
+        return
+    gn = GeoName.objects.filter(id=gid).first() if gid else None
+    if rc is None:
+        proj, _ = Project.objects.get_or_create(name=ML_PROJECT_NAME, defaults={'dugaar': 'nameqc', 'percent': ''})
+        step = Constant.objects.filter(key='RECOUNT_STEPS', name=ML_STEP_NAME).first()
+        rc = ReCount(project=proj, step=step)
+    rc.name = gn
+    rc.draft = None if gn else name
+    rc.type_id = gn.type_id if gn else rc.type_id
+    if loc:
+        rc.loc = loc
+    rc.user_id = uid
+    rc.save()
+    c.execute("UPDATE nameqc_namerev SET recount_id = %s WHERE id = %s", [rc.id, rev_id])
+
+
 class MlNameReviewViewSet(_MissingTable):
     """«Нэр шалгах»: загварын олсон нэр (nameqc_place) ба нэр болоогүй бичвэр (nameqc_text)-ийг хүн шалгана —
     тэмдгийн төв (байрлал) дээр товшиж, нэрийг батлах / сонгох / бичих / «нэр биш». Үр дүн → nameqc_namerev
@@ -719,6 +766,8 @@ class MlNameReviewViewSet(_MissingTable):
                                   ON CONFLICT (kind, ref_id) DO UPDATE SET pos = EXCLUDED.pos, pos_moved = true,
                                       user_id = EXCLUDED.user_id, created = now()""",
                               [rid, row[0], row[1], row[2], *xy, row[3], uid])
+                    c.execute("SELECT ST_AsText(geom) FROM nameqc_place WHERE id = %s", [rid])
+                    _sync_recount(c, 'place', rid, uid, c.fetchone()[0])
                     done += 1
                     continue
                 name = (it.get('name') or '').strip() or None
@@ -749,13 +798,16 @@ class MlNameReviewViewSet(_MissingTable):
                 if kind == 'place':
                     if verdict == 'notname':
                         c.execute("UPDATE nameqc_place SET review = 'notname' WHERE id = %s", [rid])
+                        _sync_recount(c, kind, rid, uid, None)
                     else:
                         c.execute(f"""UPDATE nameqc_place SET name = %s, geoname_id = COALESCE(%s, geoname_id),
                                              review = 'human', doubt = false, alt = NULL
                                              {', geom = ' + pg[0] + ", how = 'human', pos_ok = true" if pos else ''}
-                                       WHERE id = %s""", [name, gid, *pg[1], rid])
+                                       WHERE id = %s RETURNING ST_AsText(geom)""", [name, gid, *pg[1], rid])
+                        _sync_recount(c, kind, rid, uid, c.fetchone()[0])
                 elif verdict == 'notname':
                     c.execute("DELETE FROM nameqc_text WHERE id = %s", [rid])
+                    _sync_recount(c, kind, rid, uid, None)
                 else:
                     c.execute(f"""INSERT INTO nameqc_place (tag, unit_id, geoname_id, name, type_name, how, box_ids, geom,
                                                             review, reg, doubt)
@@ -765,6 +817,10 @@ class MlNameReviewViewSet(_MissingTable):
                               [tag, unit, gid, name, gid, 'human' if pos else 'label', box_ids,
                                *(pg[1] if pos else [gwkt])])
                     c.execute("DELETE FROM nameqc_text WHERE id = %s", [rid])
+                    if pos:
+                        c.execute("SELECT ST_AsText(ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326))", pg[1])
+                        gwkt = c.fetchone()[0]
+                    _sync_recount(c, kind, rid, uid, gwkt)
                 done += 1
         return Response({'saved': done})
 
