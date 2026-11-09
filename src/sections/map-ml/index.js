@@ -186,7 +186,7 @@ function rotatedBox(coords, geom) {
   return g;
 }
 
-function NameEditPanel({ item, tag, onClose, onSaved }) {
+function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
   const [pick, setPick] = useState(null);
   const [busy, setBusy] = useState(false);
   const isText = item.kind === "text";
@@ -228,8 +228,13 @@ function NameEditPanel({ item, tag, onClose, onSaved }) {
         )}
         <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
           <Button size="small" color="inherit" onClick={onClose} disabled={busy}>
-            Болих
+            Хаах
           </Button>
+          {tag && (
+            <Button size="small" color="inherit" onClick={onSkip} disabled={busy}>
+              Алгасах →
+            </Button>
+          )}
           <Button size="small" color="inherit" onClick={() => save("notname", null)} disabled={busy}>
             Нэр биш
           </Button>
@@ -242,6 +247,11 @@ function NameEditPanel({ item, tag, onClose, onSaved }) {
             Хадгалах
           </Button>
         </Stack>
+        {item.todo != null && (
+          <Typography variant="caption" color="text.secondary">
+            Энэ суманд шалгаагүй үлдсэн: {item.todo}
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary">
           Нэрийг хайх талбарт бичээд жагсаалтаас сонго (жагсаалтад байхгүй бол бүтэн бичээд Enter). Байрлалыг шар
           цагирагийг чирж засна.
@@ -282,7 +292,32 @@ export default function MapMlView() {
   const sumTagRef = useRef("");
   const placeVecSrcRef = useRef(null);
   const placeVecRef = useRef(null);
-  const [nameEdit, setNameEdit] = useState(null); // газрын зураг дээр нэр засах цонх // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
+  const [nameEdit, setNameEdit] = useState(null); // газрын зураг дээр нэр засах цонх
+  const skippedRef = useRef(new Set());
+  // сонгосон сумын дараагийн шалгаагүй нэр/бичвэр рүү очиж засах цонхыг нээнэ
+  const goNext = useCallback(
+    async (from) => {
+      const map = mapRef.current;
+      if (!sumTagRef.current || !map) return;
+      const c = from || map.getView().getCenter();
+      const ex = [...skippedRef.current].join(",");
+      try {
+        const { data } = await axiosInstance.get(
+          `${endpoints.ml.nameRevNext}?tag=${encodeURIComponent(sumTagRef.current)}&x=${c[0]}&y=${c[1]}&exclude=${ex}`
+        );
+        if (!data.kind) {
+          setNameEdit(null);
+          enqueueSnackbar("Энэ сумын бүх нэрийг шалгаж дууслаа", { variant: "success" });
+          return;
+        }
+        map.getView().animate({ center: data.loc, zoom: Math.max(map.getView().getZoom(), 16), duration: 350 });
+        setNameEdit({ kind: data.kind, id: data.ref, name: data.name, ocr: data.ocr, alt: data.alt, pos: null, loc: data.loc, todo: data.todo });
+      } catch (e) {
+        enqueueSnackbar("Дараагийнхыг ачаалж чадсангүй", { variant: "error" });
+      }
+    },
+    [enqueueSnackbar]
+  ); // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
 
   const [mode, setMode] = useState("select"); // select | box | symbol
   modeRef.current = mode;
@@ -722,7 +757,7 @@ export default function MapMlView() {
       if (f.get("kind") === "text") {
         // нэр болоогүй бичвэр: байрлал заасан → нэрийг нь сонгуулна (хадгалахад шинэ нэр энэ цэг дээр үүснэ)
         f.set("moved", true);
-        setNameEdit({ kind: "text", id: f.get("ref"), name: f.get("name"), ocr: f.get("ocr"), alt: null, pos: [x, y] });
+        setNameEdit({ kind: "text", id: f.get("ref"), name: f.get("name"), ocr: f.get("ocr"), alt: null, pos: [x, y], loc: [x, y] });
         return;
       }
       axiosInstance
@@ -745,6 +780,7 @@ export default function MapMlView() {
           ocr: f.get("ocr"),
           alt: f.get("alt"),
           pos: f.get("moved") ? f.getGeometry().getCoordinates() : null,
+          loc: f.getGeometry().getCoordinates(),
         });
       }
     });
@@ -953,12 +989,18 @@ export default function MapMlView() {
             item={nameEdit}
             tag={sumTag}
             onClose={() => setNameEdit(null)}
+            onSkip={() => {
+              skippedRef.current.add(`${nameEdit.kind}:${nameEdit.id}`);
+              goNext(nameEdit.loc);
+            }}
             onSaved={(msg) => {
+              const from = nameEdit.loc;
               setNameEdit(null);
               enqueueSnackbar(msg, { variant: "success" });
               placeLayerRef.current?.getSource().updateParams({ _t: Date.now() });
               textLayerRef.current?.getSource().updateParams({ _t: Date.now() });
-              reloadVectors();
+              if (sumTagRef.current) goNext(from); // засмагц дараагийнх руу
+              else reloadVectors();
             }}
           />
         )}
@@ -1241,6 +1283,11 @@ export default function MapMlView() {
               </option>
             ))}
           </TextField>
+          {sumTag && (
+            <Button size="small" variant="outlined" fullWidth sx={{ mb: 1 }} onClick={() => goNext()}>
+              ▶ Нэрийг дараалан шалгах (ойрын шалгаагүйгээс)
+            </Button>
+          )}
           <FormControlLabel
             control={<Switch size="small" checked={showBoxes} onChange={(e) => setShowBoxes(e.target.checked)} />}
             label={<Typography variant="body2">Бичвэрийн хүрээ (тасархай)</Typography>}
