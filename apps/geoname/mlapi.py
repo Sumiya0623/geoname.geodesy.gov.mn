@@ -639,6 +639,8 @@ class MlNameReviewViewSet(_MissingTable):
                 SELECT 'place'::text AS kind, p.id, p.unit_id, p.name, p.alt, p.type_name AS type, p.how, p.doubt,
                        p.reg, p.ocr, p.geoname_id, p.box_ids, p.geom
                   FROM nameqc_place p WHERE p.tag = %s
+                   -- бичвэрээс хүн үүсгэсэн / тодруулгаар шошгологдсон / «нэр биш» нэр дахин гарахгүй
+                   AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount')
                 UNION ALL
                 SELECT 'text', t.id, t.unit_id, t.guess, NULL, NULL, 'text', true, NULL, t.ocr, NULL, t.box_ids, t.geom
                   FROM nameqc_text t WHERE t.tag = %s)
@@ -836,7 +838,8 @@ class MlNameReviewViewSet(_MissingTable):
                             count(*) FILTER (WHERE verdict = 'notname') AS notname,
                             count(*) FILTER (WHERE pos_moved) AS pos
                        FROM nameqc_namerev WHERE tag = %s""", [tag])[0]
-        r['todo'] = _rows("""SELECT (SELECT count(*) FROM nameqc_place p WHERE p.tag = %s AND NOT EXISTS
+        r['todo'] = _rows("""SELECT (SELECT count(*) FROM nameqc_place p WHERE p.tag = %s
+                                       AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount') AND NOT EXISTS
                                        (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id))
                                   + (SELECT count(*) FROM nameqc_text t WHERE t.tag = %s AND NOT EXISTS
                                        (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)) AS n""",
