@@ -640,7 +640,7 @@ class MlNameReviewViewSet(_MissingTable):
                        p.reg, p.ocr, p.geoname_id, p.box_ids, p.geom
                   FROM nameqc_place p WHERE p.tag = %s
                    -- бичвэрээс хүн үүсгэсэн / тодруулгаар шошгологдсон / «нэр биш» нэр дахин гарахгүй
-                   AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount')
+                   AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount', 'later')
                 UNION ALL
                 SELECT 'text', t.id, t.unit_id, t.guess, NULL, NULL, 'text', true, NULL, t.ocr, NULL, t.box_ids, t.geom
                   FROM nameqc_text t WHERE t.tag = %s)
@@ -686,7 +686,7 @@ class MlNameReviewViewSet(_MissingTable):
         rows = _rows(f"""
             WITH it AS (
                 SELECT 'place'::text AS kind, p.id, p.name, NULL::text AS ocr, p.alt, p.geom FROM nameqc_place p
-                 WHERE p.tag = %s AND coalesce(p.review, '') NOT IN ('human', 'notname', 'recount') AND NOT (p.id = ANY(%s))
+                 WHERE p.tag = %s AND coalesce(p.review, '') NOT IN ('human', 'notname', 'recount', 'later') AND NOT (p.id = ANY(%s))
                    AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id AND r.verdict <> 'pos')
                 UNION ALL
                 SELECT 'text', t.id, t.guess, t.ocr, NULL, t.geom FROM nameqc_text t
@@ -713,7 +713,7 @@ class MlNameReviewViewSet(_MissingTable):
                                review, ST_AsGeoJSON(ST_Transform(geom, 3857)) AS geojson
                           FROM nameqc_place
                          WHERE geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND (%s::text IS NULL OR tag = %s)
-                           AND coalesce(review, '') <> 'notname'
+                           AND coalesce(review, '') NOT IN ('notname', 'later')
                         UNION ALL
                         SELECT 'text:' || t.id, 'text', t.id, t.tag, t.guess, t.ocr, NULL, 'text', true, NULL,
                                ST_AsGeoJSON(ST_Transform(t.geom, 3857))
@@ -752,7 +752,7 @@ class MlNameReviewViewSet(_MissingTable):
         with transaction.atomic(), connection.cursor() as c:
             for it in items:
                 kind, rid, verdict = it.get('kind'), it.get('id'), it.get('verdict')
-                if kind not in ('place', 'text') or verdict not in ('ok', 'fixed', 'notname', 'pos'):
+                if kind not in ('place', 'text') or verdict not in ('ok', 'fixed', 'notname', 'pos', 'later'):
                     continue
                 if verdict == 'pos':
                     # газрын зураг дээр цэгийг чирсэн — зөвхөн байрлал (нэрийн шийдвэр хэвээр)
@@ -778,6 +778,22 @@ class MlNameReviewViewSet(_MissingTable):
                     done += 1
                     continue
                 name = (it.get('name') or '').strip() or None
+                if verdict == 'later':
+                    # шугам/талбайн нэр (гуу, жалга, ам …) — одоохондоо алгасна: дарааллаас гарна, устахгүй,
+                    # сургалтад «нэр биш» гэж орохгүй
+                    src = 'nameqc_place' if kind == 'place' else 'nameqc_text'
+                    c.execute(f"SELECT tag, box_ids FROM {src} WHERE id = %s", [rid])
+                    row = c.fetchone()
+                    if not row:
+                        continue
+                    c.execute("""INSERT INTO nameqc_namerev (kind, ref_id, tag, verdict, name, box_ids, user_id)
+                                  VALUES (%s, %s, %s, 'later', %s, %s, %s)
+                                  ON CONFLICT (kind, ref_id) DO UPDATE SET verdict = 'later', user_id = EXCLUDED.user_id,
+                                      created = now()""", [kind, rid, row[0], name, row[1], uid])
+                    if kind == 'place':
+                        c.execute("UPDATE nameqc_place SET review = 'later' WHERE id = %s", [rid])
+                    done += 1
+                    continue
                 if verdict != 'notname' and not name:
                     continue
                 gid = it.get('geoname_id')
@@ -836,10 +852,11 @@ class MlNameReviewViewSet(_MissingTable):
         tag = request.query_params.get('tag') or ''
         r = _rows("""SELECT count(*) FILTER (WHERE verdict = 'ok') AS ok, count(*) FILTER (WHERE verdict = 'fixed') AS fixed,
                             count(*) FILTER (WHERE verdict = 'notname') AS notname,
+                            count(*) FILTER (WHERE verdict = 'later') AS later,
                             count(*) FILTER (WHERE pos_moved) AS pos
                        FROM nameqc_namerev WHERE tag = %s""", [tag])[0]
         r['todo'] = _rows("""SELECT (SELECT count(*) FROM nameqc_place p WHERE p.tag = %s
-                                       AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount') AND NOT EXISTS
+                                       AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount', 'later') AND NOT EXISTS
                                        (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id))
                                   + (SELECT count(*) FROM nameqc_text t WHERE t.tag = %s AND NOT EXISTS
                                        (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)) AS n""",
