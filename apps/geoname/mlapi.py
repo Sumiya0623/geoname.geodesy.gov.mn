@@ -540,3 +540,167 @@ class MlPlaceViewSet(_MissingTable):
         return Response(_rows("""SELECT count(*) FILTER (WHERE pos_ok) AS ok, count(*) FILTER (WHERE NOT pos_ok) AS bad,
                                         count(*) FILTER (WHERE pos_ok IS NULL) AS todo
                                    FROM nameqc_place WHERE how = 'model'""", [])[0])
+
+
+class MlNameReviewViewSet(_MissingTable):
+    """«Нэр шалгах»: загварын олсон нэр (nameqc_place) ба нэр болоогүй бичвэр (nameqc_text)-ийг хүн шалгана —
+    тэмдгийн төв (байрлал) дээр товшиж, нэрийг батлах / сонгох / бичих / «нэр биш». Үр дүн → nameqc_namerev
+    (сургалтын шошго: тэмдэг илрүүлэгчийн цэвэр төв, бичвэр илрүүлэгч/танигчийн нэр-хүрээ).
+
+      GET  /api/n/ml-namerev/page/?tag=t56&n=20&kind=all|place|text
+      GET  /api/n/ml-namerev/names/?tag=t56&q=улаан   → [{id, name, type}]
+      POST /api/n/ml-namerev/batch/  {"items":[{kind,id,verdict:ok|fixed|notname,name,geoname_id,pos:[x,y]|null}]}
+      GET  /api/n/ml-namerev/stats/?tag=t56
+    """
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _unit(tag):
+        r = _rows("""SELECT unit_id FROM nameqc_place WHERE tag = %s AND unit_id IS NOT NULL
+                     UNION ALL SELECT unit_id FROM nameqc_text WHERE tag = %s AND unit_id IS NOT NULL LIMIT 1""", [tag, tag])
+        return r[0]['unit_id'] if r else None
+
+    @staticmethod
+    def _similar(unit, text, n=5):
+        """Сум + хөрш сумдын бүртгэлтэй нэрсээс бичвэртэй хамгийн төстэй n нэр (pg_trgm)."""
+        if not unit or not text:
+            return []
+        return _rows("""SELECT g.id, g.name, max(k.name) AS type, max(similarity(lower(g.name), lower(%s))) AS s
+                          FROM core_geoname g JOIN core_geoname_unit gu ON gu.geoname_id = g.id
+                          LEFT JOIN core_constant k ON k.id = g.type_id
+                         WHERE gu.adminunit_id IN (SELECT n.id FROM core_adminunit n, core_adminunit u
+                                                    WHERE u.id = %s AND n.parent_id IS NOT NULL
+                                                      AND (n.id = u.id OR ST_Intersects(n.geom, u.geom)))
+                           AND similarity(lower(g.name), lower(%s)) > 0.15
+                         GROUP BY g.id, g.name ORDER BY s DESC LIMIT %s""", [text, unit, text, n])
+
+    @action(detail=False, methods=['get'])
+    def page(self, request):
+        tag = request.query_params.get('tag') or ''
+        kind = request.query_params.get('kind') or 'all'
+        try:
+            n = max(1, min(int(request.query_params.get('n', 20)), 60))
+        except ValueError:
+            n = 20
+        kinds = ['place', 'text'] if kind == 'all' else [kind]
+        rows = _rows("""
+            WITH it AS (
+                SELECT 'place'::text AS kind, p.id, p.unit_id, p.name, p.alt, p.type_name AS type, p.how, p.doubt,
+                       p.reg, p.ocr, p.geoname_id, p.box_ids, p.geom
+                  FROM nameqc_place p WHERE p.tag = %s
+                UNION ALL
+                SELECT 'text', t.id, t.unit_id, t.guess, NULL, NULL, 'text', true, NULL, t.ocr, NULL, t.box_ids, t.geom
+                  FROM nameqc_text t WHERE t.tag = %s)
+            SELECT it.kind, it.id, it.unit_id, it.name, it.alt, it.type, it.how, it.doubt, it.reg, it.ocr, it.geoname_id,
+                   ST_X(ST_Transform(it.geom, 3857)) AS x, ST_Y(ST_Transform(it.geom, 3857)) AS y,
+                   ST_XMin(b.e) AS bx0, ST_YMin(b.e) AS by0, ST_XMax(b.e) AS bx1, ST_YMax(b.e) AS by1
+              FROM it
+              LEFT JOIN nameqc_namerev r ON r.kind = it.kind AND r.ref_id = it.id
+              LEFT JOIN LATERAL (SELECT ST_Extent(ST_Transform(d.geom, 3857))::geometry AS e
+                                   FROM nameqc_detection d WHERE d.id = ANY(it.box_ids)) b ON true
+             WHERE r.id IS NULL AND it.kind = ANY(%s)
+             ORDER BY (it.kind = 'text'), it.doubt DESC, random() LIMIT %s""", [tag, tag, kinds, n])
+        out = []
+        for it in rows:
+            cands = []
+            if it['name']:
+                cands.append({'id': it['geoname_id'], 'name': it['name'], 'type': it['type']})
+            if it['alt'] and not it['alt'].startswith('…'):
+                cands.append({'id': None, 'name': it['alt'], 'type': None})
+            for s in self._similar(it['unit_id'], it['ocr'] or it['name'], 6):
+                if all(s['name'] != c['name'] for c in cands):
+                    cands.append({'id': s['id'], 'name': s['name'], 'type': s['type']})
+            box = [it['bx0'], it['by0'], it['bx1'], it['by1']] if it['bx0'] is not None else None
+            out.append({'kind': it['kind'], 'id': it['id'], 'name': it['name'], 'type': it['type'], 'how': it['how'],
+                        'doubt': it['doubt'], 'ocr': it['ocr'], 'loc': [it['x'], it['y']], 'box': box,
+                        'cands': cands[:6]})
+        return Response(out)
+
+    @action(detail=False, methods=['get'])
+    def names(self, request):
+        tag = request.query_params.get('tag') or ''
+        q = (request.query_params.get('q') or '').strip()
+        if len(q) < 2:
+            return Response([])
+        unit = self._unit(tag)
+        rows = _rows("""SELECT g.id, g.name, k.name AS type, string_agg(DISTINCT u.unit, ', ') AS units,
+                               bool_or(n.id IS NOT NULL) AS near
+                          FROM core_geoname g LEFT JOIN core_constant k ON k.id = g.type_id
+                          LEFT JOIN core_geoname_unit gu ON gu.geoname_id = g.id
+                          LEFT JOIN core_adminunit u ON u.id = gu.adminunit_id AND u.parent_id IS NOT NULL
+                          LEFT JOIN core_adminunit su ON su.id = %s
+                          LEFT JOIN core_adminunit n ON n.id = u.id AND (n.id = su.id OR ST_Intersects(n.geom, su.geom))
+                         WHERE g.name ILIKE %s
+                         GROUP BY g.id, g.name, k.name
+                         ORDER BY bool_or(n.id IS NOT NULL) DESC, similarity(lower(g.name), lower(%s)) DESC LIMIT 15""",
+                     [unit, f'%{q}%', q])
+        return Response(rows)
+
+    @action(detail=False, methods=['post'])
+    def batch(self, request):
+        items = request.data.get('items') or []
+        uid = request.user.id
+        done = 0
+        with transaction.atomic(), connection.cursor() as c:
+            for it in items:
+                kind, rid, verdict = it.get('kind'), it.get('id'), it.get('verdict')
+                if kind not in ('place', 'text') or verdict not in ('ok', 'fixed', 'notname'):
+                    continue
+                name = (it.get('name') or '').strip() or None
+                if verdict != 'notname' and not name:
+                    continue
+                gid = it.get('geoname_id')
+                if name and not gid:
+                    c.execute("SELECT id FROM core_geoname WHERE name = %s ORDER BY id LIMIT 1", [name])
+                    r = c.fetchone()
+                    gid = r[0] if r else None
+                pos = it.get('pos')
+                src = 'nameqc_place' if kind == 'place' else 'nameqc_text'
+                c.execute(f"SELECT tag, unit_id, box_ids, ST_AsText(geom) FROM {src} WHERE id = %s", [rid])
+                row = c.fetchone()
+                if not row:
+                    continue
+                tag, unit, box_ids, gwkt = row
+                pg = ("ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326)", [float(pos[0]), float(pos[1])]) \
+                    if pos else ("NULL", [])
+                c.execute(f"""INSERT INTO nameqc_namerev (kind, ref_id, tag, verdict, name, geoname_id, pos, pos_moved,
+                                                          box_ids, user_id)
+                              VALUES (%s, %s, %s, %s, %s, %s, {pg[0]}, %s, %s, %s)
+                              ON CONFLICT (kind, ref_id) DO UPDATE SET verdict = EXCLUDED.verdict, name = EXCLUDED.name,
+                                  geoname_id = EXCLUDED.geoname_id, pos = EXCLUDED.pos, pos_moved = EXCLUDED.pos_moved,
+                                  user_id = EXCLUDED.user_id, created = now()""",
+                          [kind, rid, tag, verdict, name, gid, *pg[1], bool(pos), box_ids, uid])
+                # газрын зураг дээр шууд тусгах
+                if kind == 'place':
+                    if verdict == 'notname':
+                        c.execute("UPDATE nameqc_place SET review = 'notname' WHERE id = %s", [rid])
+                    else:
+                        c.execute(f"""UPDATE nameqc_place SET name = %s, geoname_id = COALESCE(%s, geoname_id),
+                                             review = 'human', doubt = false, alt = NULL
+                                             {', geom = ' + pg[0] + ", how = 'human', pos_ok = true" if pos else ''}
+                                       WHERE id = %s""", [name, gid, *pg[1], rid])
+                elif verdict != 'notname':
+                    c.execute(f"""INSERT INTO nameqc_place (tag, unit_id, geoname_id, name, type_name, how, box_ids, geom,
+                                                            review, reg, doubt)
+                                  SELECT %s, %s, %s, %s, (SELECT k.name FROM core_geoname g JOIN core_constant k
+                                                           ON k.id = g.type_id WHERE g.id = %s),
+                                         %s, %s, {pg[0] if pos else 'ST_GeomFromText(%s, 4326)'}, 'human', 'human', false""",
+                              [tag, unit, gid, name, gid, 'human' if pos else 'label', box_ids,
+                               *(pg[1] if pos else [gwkt])])
+                    c.execute("DELETE FROM nameqc_text WHERE id = %s", [rid])
+                done += 1
+        return Response({'saved': done})
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        tag = request.query_params.get('tag') or ''
+        r = _rows("""SELECT count(*) FILTER (WHERE verdict = 'ok') AS ok, count(*) FILTER (WHERE verdict = 'fixed') AS fixed,
+                            count(*) FILTER (WHERE verdict = 'notname') AS notname,
+                            count(*) FILTER (WHERE pos_moved) AS pos
+                       FROM nameqc_namerev WHERE tag = %s""", [tag])[0]
+        r['todo'] = _rows("""SELECT (SELECT count(*) FROM nameqc_place p WHERE p.tag = %s AND NOT EXISTS
+                                       (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id))
+                                  + (SELECT count(*) FROM nameqc_text t WHERE t.tag = %s AND NOT EXISTS
+                                       (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)) AS n""",
+                          [tag, tag])[0]['n']
+        return Response(r)
