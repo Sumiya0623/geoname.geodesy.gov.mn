@@ -195,6 +195,8 @@ export default function MapMlView() {
   const [linkTick, setLinkTick] = useState(0);
   const [showAdv, setShowAdv] = useState(false);
   const [showBoxes, setShowBoxes] = useState(true); // илрүүлэгчийн хүрээ (тасархай) харуулах
+  const [namesOnly, setNamesOnly] = useState(true); // зөвхөн «нэр» ангиллын хүрээ (өндрийн тоо, бусдыг нуух)
+  const namesOnlyRef = useRef(true);
   const placeLayerRef = useRef(null);
   const [showPlaces, setShowPlaces] = useState(true); // загварын олсон цэгэн нэр
   const symLayerRef = useRef(null);
@@ -477,6 +479,7 @@ export default function MapMlView() {
         url: `${GEOSERVER}/geoname/wms`,
         params: {
           LAYERS: "geoname:nameqc_detection",
+          ...(namesOnlyRef.current ? { CQL_FILTER: "cls='name'" } : {}),
           FORMAT: "image/png",
           TRANSPARENT: "true",
           TILED: "true",
@@ -519,7 +522,8 @@ export default function MapMlView() {
       source: detSrc,
       zIndex: 60,
       minZoom: EDIT_ZOOM,
-      style: (f) => detStyle(f, false, currentRef.current?.id),
+      style: (f) =>
+        namesOnlyRef.current && f.get("cls") !== "name" ? null : detStyle(f, false, currentRef.current?.id),
     });
 
     const taskSrc = new VectorSource();
@@ -679,6 +683,11 @@ export default function MapMlView() {
     wmsRef.current?.setVisible(showBoxes);
     detLayerRef.current?.setVisible(showBoxes);
   }, [showBoxes]);
+  useEffect(() => {
+    namesOnlyRef.current = namesOnly;
+    detLayerRef.current?.changed();
+    wmsRef.current?.getSource().updateParams({ CQL_FILTER: namesOnly ? "cls='name'" : undefined });
+  }, [namesOnly]);
   useEffect(() => {
     placeLayerRef.current?.setVisible(showPlaces);
   }, [showPlaces]);
@@ -1070,6 +1079,12 @@ export default function MapMlView() {
           <FormControlLabel
             control={<Switch size="small" checked={showBoxes} onChange={(e) => setShowBoxes(e.target.checked)} />}
             label={<Typography variant="body2">Бичвэрийн хүрээ (тасархай)</Typography>}
+          />
+          <FormControlLabel
+            sx={{ pl: 3 }}
+            disabled={!showBoxes}
+            control={<Switch size="small" checked={namesOnly} onChange={(e) => setNamesOnly(e.target.checked)} />}
+            label={<Typography variant="body2">Зөвхөн нэрийн хүрээ (тоо, бусдыг нуух)</Typography>}
           />
           <FormControlLabel
             control={<Switch size="small" checked={showPlaces} onChange={(e) => setShowPlaces(e.target.checked)} />}
