@@ -617,6 +617,21 @@ class MlNameReviewViewSet(_MissingTable):
         return Response(out)
 
     @action(detail=False, methods=['get'])
+    def inbox(self, request):
+        """Харагдаж буй хэсгийн олсон нэрс (чирж засахад) — bbox EPSG:4326 «x0,y0,x1,y1»."""
+        try:
+            b = [float(v) for v in (request.query_params.get('bbox') or '').split(',')]
+            assert len(b) == 4
+        except (ValueError, AssertionError):
+            return Response({'detail': 'bbox'}, status=http.HTTP_400_BAD_REQUEST)
+        tag = request.query_params.get('tag') or None
+        rows = _rows("""SELECT id, tag, name, how, doubt, review, ST_AsGeoJSON(ST_Transform(geom, 3857)) AS geojson
+                          FROM nameqc_place
+                         WHERE geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND (%s::text IS NULL OR tag = %s)
+                           AND coalesce(review, '') <> 'notname' LIMIT 1500""", [*b, tag, tag])
+        return Response(_fc(rows))
+
+    @action(detail=False, methods=['get'])
     def names(self, request):
         tag = request.query_params.get('tag') or ''
         q = (request.query_params.get('q') or '').strip()
@@ -644,7 +659,28 @@ class MlNameReviewViewSet(_MissingTable):
         with transaction.atomic(), connection.cursor() as c:
             for it in items:
                 kind, rid, verdict = it.get('kind'), it.get('id'), it.get('verdict')
-                if kind not in ('place', 'text') or verdict not in ('ok', 'fixed', 'notname'):
+                if kind not in ('place', 'text') or verdict not in ('ok', 'fixed', 'notname', 'pos'):
+                    continue
+                if verdict == 'pos':
+                    # газрын зураг дээр цэгийг чирсэн — зөвхөн байрлал (нэрийн шийдвэр хэвээр)
+                    pos = it.get('pos')
+                    if kind != 'place' or not pos:
+                        continue
+                    xy = [float(pos[0]), float(pos[1])]
+                    c.execute("""UPDATE nameqc_place SET geom = ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326),
+                                        how = 'human', pos_ok = true WHERE id = %s RETURNING tag, name, geoname_id, box_ids""",
+                              [*xy, rid])
+                    row = c.fetchone()
+                    if not row:
+                        continue
+                    c.execute("""INSERT INTO nameqc_namerev (kind, ref_id, tag, verdict, name, geoname_id, pos, pos_moved,
+                                                              box_ids, user_id)
+                                  VALUES ('place', %s, %s, 'pos', %s, %s,
+                                          ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326), true, %s, %s)
+                                  ON CONFLICT (kind, ref_id) DO UPDATE SET pos = EXCLUDED.pos, pos_moved = true,
+                                      user_id = EXCLUDED.user_id, created = now()""",
+                              [rid, row[0], row[1], row[2], *xy, row[3], uid])
+                    done += 1
                     continue
                 name = (it.get('name') or '').strip() or None
                 if verdict != 'notname' and not name:
