@@ -494,7 +494,8 @@ export default function MapMlView() {
       zIndex: 90,
       source: new TileWMS({
         url: `${GEOSERVER}/geoname/wms`,
-        params: { LAYERS: "geoname:nameqc_place", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1" },
+        // BUFFER: хөрш тайлын захад байгаа цэгийн нэрийг ч зурна (томруулахад нэр алга болохоос сэргийлнэ)
+        params: { LAYERS: "geoname:nameqc_place", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1", BUFFER: 256 },
         serverType: "geoserver",
         crossOrigin: "anonymous",
       }),
