@@ -194,7 +194,7 @@ function NameEditPanel({ item, tag, onClose, onSaved }) {
     setBusy(true);
     try {
       await axiosInstance.post(endpoints.ml.nameRevBatch, {
-        items: [{ kind: item.kind, id: item.id, verdict, name, geoname_id: gid ?? null, pos: null }],
+        items: [{ kind: item.kind, id: item.id, verdict, name, geoname_id: gid ?? null, pos: item.pos || null }],
       });
       onSaved(verdict === "notname" ? "«Нэр биш» гэж тэмдэглэлээ" : `Хадгаллаа: ${name}`);
     } catch (e) {
@@ -208,6 +208,11 @@ function NameEditPanel({ item, tag, onClose, onSaved }) {
         <Typography variant="subtitle2">
           {isText ? `Бичвэр: «${item.ocr || ""}»` : `Олсон нэр: ${item.name}`}
         </Typography>
+        {isText && (
+          <Typography variant="caption" color={item.pos ? "success.main" : "text.secondary"}>
+            {item.pos ? "✓ Байрлал заасан — нэрийг сонгоод хадгал" : "Байрлал: саарал ◇-г тэмдгийн төв рүү чирж заана"}
+          </Typography>
+        )}
         {chips.length > 0 && (
           <Stack direction="row" gap={0.5} flexWrap="wrap">
             {chips.map((c) => (
@@ -709,11 +714,17 @@ export default function MapMlView() {
     const placeVec = new VectorLayer({ source: placeVecSrc, zIndex: 95, minZoom: EDIT_ZOOM, style: placeHandle });
     placeVecRef.current = placeVec;
     map.addLayer(placeVec);
-    const ptranslate = new Translate({ layers: [placeVec], hitTolerance: 6, filter: (f) => f.get("kind") === "place" });
+    const ptranslate = new Translate({ layers: [placeVec], hitTolerance: 6 });
     ptranslate.on("translateend", (e) => {
       const f = e.features.item(0);
       if (!f) return;
       const [x, y] = f.getGeometry().getCoordinates();
+      if (f.get("kind") === "text") {
+        // нэр болоогүй бичвэр: байрлал заасан → нэрийг нь сонгуулна (хадгалахад шинэ нэр энэ цэг дээр үүснэ)
+        f.set("moved", true);
+        setNameEdit({ kind: "text", id: f.get("ref"), name: f.get("name"), ocr: f.get("ocr"), alt: null, pos: [x, y] });
+        return;
+      }
       axiosInstance
         .post(endpoints.ml.nameRevBatch, { items: [{ kind: "place", id: f.get("ref"), verdict: "pos", pos: [x, y] }] })
         .then(() => {
@@ -726,7 +737,16 @@ export default function MapMlView() {
     // нэр засах: шар цагираг / саарал бичвэр дээр дарахад засах цонх
     map.on("singleclick", (e) => {
       const f = map.forEachFeatureAtPixel(e.pixel, (x) => x, { layerFilter: (l) => l === placeVec, hitTolerance: 6 });
-      if (f) setNameEdit({ kind: f.get("kind"), id: f.get("ref"), name: f.get("name"), ocr: f.get("ocr"), alt: f.get("alt") });
+      if (f) {
+        setNameEdit({
+          kind: f.get("kind"),
+          id: f.get("ref"),
+          name: f.get("name"),
+          ocr: f.get("ocr"),
+          alt: f.get("alt"),
+          pos: f.get("moved") ? f.getGeometry().getCoordinates() : null,
+        });
+      }
     });
 
     let timer;
