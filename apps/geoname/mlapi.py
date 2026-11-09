@@ -617,6 +617,37 @@ class MlNameReviewViewSet(_MissingTable):
         return Response(out)
 
     @action(detail=False, methods=['get'])
+    def next(self, request):
+        """Сумын (tag) дараагийн шалгаагүй нэр/бичвэр — одоогийн цэгт (x,y EPSG:3857) хамгийн ойрыг.
+        exclude=place:12,text:5 — энэ удаад алгассан. Буцаана {kind, ref, name, ocr, alt, loc, todo}."""
+        tag = request.query_params.get('tag') or ''
+        try:
+            x = float(request.query_params.get('x')); y = float(request.query_params.get('y'))
+        except (TypeError, ValueError):
+            x = y = None
+        ex = [e.split(':') for e in (request.query_params.get('exclude') or '').split(',') if ':' in e]
+        exp = [int(i) for k, i in ex if k == 'place' and i.isdigit()]
+        ext = [int(i) for k, i in ex if k == 'text' and i.isdigit()]
+        order = ("it.geom <-> ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326)", [x, y]) if x is not None \
+            else ("it.id", [])
+        rows = _rows(f"""
+            WITH it AS (
+                SELECT 'place'::text AS kind, p.id, p.name, NULL::text AS ocr, p.alt, p.geom FROM nameqc_place p
+                 WHERE p.tag = %s AND coalesce(p.review, '') NOT IN ('human', 'notname') AND NOT (p.id = ANY(%s))
+                   AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id AND r.verdict <> 'pos')
+                UNION ALL
+                SELECT 'text', t.id, t.guess, t.ocr, NULL, t.geom FROM nameqc_text t
+                 WHERE t.tag = %s AND NOT (t.id = ANY(%s))
+                   AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id))
+            SELECT kind, id AS ref, name, ocr, alt, ST_X(ST_Transform(geom, 3857)) AS x, ST_Y(ST_Transform(geom, 3857)) AS y,
+                   count(*) OVER () AS todo
+              FROM it ORDER BY {order[0]} LIMIT 1""", [tag, exp, tag, ext, *order[1]])
+        if not rows:
+            return Response({'todo': 0})
+        r = rows[0]
+        return Response({**{k: r[k] for k in ('kind', 'ref', 'name', 'ocr', 'alt', 'todo')}, 'loc': [r['x'], r['y']]})
+
+    @action(detail=False, methods=['get'])
     def inbox(self, request):
         """Харагдаж буй хэсгийн олсон нэрс (чирж засахад) — bbox EPSG:4326 «x0,y0,x1,y1»."""
         try:
