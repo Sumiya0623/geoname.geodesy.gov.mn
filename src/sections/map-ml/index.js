@@ -201,6 +201,8 @@ export default function MapMlView() {
   const [showPlaces, setShowPlaces] = useState(true); // загварын олсон цэгэн нэр
   const symLayerRef = useRef(null);
   const [showSyms, setShowSyms] = useState(true); // тэмдэг илрүүлэгчийн олсон тэмдэг
+  const textLayerRef = useRef(null);
+  const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
   const [sumTag, setSumTag] = useState(""); // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
 
   const [mode, setMode] = useState("select"); // select | box | symbol
@@ -505,6 +507,17 @@ export default function MapMlView() {
     });
 
     placeLayerRef.current = placeLayer;
+    // Нэр болоогүй бичвэр (nameqc_text): «чөлөөт уншилт» → жагсаалтаас хамгийн ойр нэр? — саарал налуу
+    const textLayer = new TileLayer({
+      zIndex: 88,
+      source: new TileWMS({
+        url: `${GEOSERVER}/geoname/wms`,
+        params: { LAYERS: "geoname:nameqc_text", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1", BUFFER: 256 },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+      }),
+    });
+    textLayerRef.current = textLayer;
     // Тэмдэг илрүүлэгчийн олсон тэмдэг (nameqc_symbol): хөх □ = худаг, бор □ = толгой/уул/овоо, тоо = итгэл
     const symLayer = new TileLayer({
       zIndex: 85,
@@ -557,7 +570,7 @@ export default function MapMlView() {
 
     const map = new Map({
       target: elRef.current,
-      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer, symLayer, placeLayer],
+      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer, symLayer, textLayer, placeLayer],
       view: new View({
         center: fromLonLat([Number(qp?.get("lon")) || 113.5, Number(qp?.get("lat")) || 46.3]),
         zoom: Number(qp?.get("z")) || 8,
@@ -692,8 +705,11 @@ export default function MapMlView() {
     placeLayerRef.current?.setVisible(showPlaces);
   }, [showPlaces]);
   useEffect(() => {
+    textLayerRef.current?.setVisible(showTexts);
+  }, [showTexts]);
+  useEffect(() => {
     const cql = sumTag ? `tag='${sumTag}'` : undefined;
-    [placeLayerRef.current, symLayerRef.current].forEach((l) => l?.getSource().updateParams({ CQL_FILTER: cql }));
+    [placeLayerRef.current, symLayerRef.current, textLayerRef.current].forEach((l) => l?.getSource().updateParams({ CQL_FILTER: cql }));
     const s = SUMS.find((x) => x.tag === sumTag);
     if (s && mapRef.current) {
       mapRef.current.getView().animate({ center: fromLonLat([s.lon, s.lat]), zoom: 10, duration: 400 });
@@ -1089,6 +1105,10 @@ export default function MapMlView() {
           <FormControlLabel
             control={<Switch size="small" checked={showPlaces} onChange={(e) => setShowPlaces(e.target.checked)} />}
             label={<Typography variant="body2">Загварын олсон нэр (цэг)</Typography>}
+          />
+          <FormControlLabel
+            control={<Switch size="small" checked={showTexts} onChange={(e) => setShowTexts(e.target.checked)} />}
+            label={<Typography variant="body2">Нэр болоогүй бичвэр («уншилт» → таамаг?)</Typography>}
           />
           <FormControlLabel
             control={<Switch size="small" checked={showSyms} onChange={(e) => setShowSyms(e.target.checked)} />}
