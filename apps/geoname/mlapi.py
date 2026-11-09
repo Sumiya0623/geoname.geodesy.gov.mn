@@ -633,7 +633,7 @@ class MlNameReviewViewSet(_MissingTable):
         rows = _rows(f"""
             WITH it AS (
                 SELECT 'place'::text AS kind, p.id, p.name, NULL::text AS ocr, p.alt, p.geom FROM nameqc_place p
-                 WHERE p.tag = %s AND coalesce(p.review, '') NOT IN ('human', 'notname') AND NOT (p.id = ANY(%s))
+                 WHERE p.tag = %s AND coalesce(p.review, '') NOT IN ('human', 'notname', 'recount') AND NOT (p.id = ANY(%s))
                    AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id AND r.verdict <> 'pos')
                 UNION ALL
                 SELECT 'text', t.id, t.guess, t.ocr, NULL, t.geom FROM nameqc_text t
