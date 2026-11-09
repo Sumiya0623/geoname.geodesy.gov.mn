@@ -46,9 +46,9 @@ function extentOf(item) {
   return [cx - half, cy - half, cx + half, cy + half];
 }
 
-function NameSearch({ tag, onPick }) {
+export function NameSearch({ tag, onPick, initial = "" }) {
   const [opts, setOpts] = useState([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initial);
   useEffect(() => {
     if (input.trim().length < 2) {
       setOpts([]);

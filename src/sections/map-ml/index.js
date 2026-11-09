@@ -51,7 +51,7 @@ import { buildOlBaseLayer } from "src/sections/map/layers-wmts";
 import ReviewGrid from "./review-grid";
 import SymGrid from "./sym-grid";
 import PlaceGrid from "./place-grid";
-import NameGrid from "./name-grid";
+import NameGrid, { NameSearch } from "./name-grid";
 
 // Нэр илрүүлэх урсгал (region → locate) ажиллуулсан сумд. t* = тодруулгагүй (жинхэнэ шалгалт), lk* = тодруулгатай.
 const SUMS = [
@@ -82,9 +82,13 @@ const COLOR = Object.fromEntries(CLASSES.map((c) => [c.key, c.color]));
 const geojson = new GeoJSON({ dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
 const geojson3857 = new GeoJSON({ dataProjection: "EPSG:3857", featureProjection: "EPSG:3857" });
 // олсон нэрийн цэг — ойрын зумд чирж засах бариул (шар цагираг)
-const placeHandle = new Style({
+const placeRing = new Style({
   image: new CircleStyle({ radius: 10, stroke: new Stroke({ color: "#ffd600", width: 2.5 }), fill: new Fill({ color: "rgba(255,214,0,0.12)" }) }),
 });
+const textHandle = new Style({
+  image: new RegularShape({ points: 4, radius: 8, angle: Math.PI / 4, stroke: new Stroke({ color: "#546e7a", width: 2 }), fill: new Fill({ color: "rgba(84,110,122,0.15)" }) }),
+});
+const placeHandle = (f) => (f.get("kind") === "text" ? textHandle : placeRing);
 
 function detStyle(feature, selected, curId) {
   const p = feature.getProperties();
@@ -182,6 +186,66 @@ function rotatedBox(coords, geom) {
   return g;
 }
 
+function NameEditPanel({ item, tag, onClose, onSaved }) {
+  const [pick, setPick] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const isText = item.kind === "text";
+  const save = async (verdict, name, gid) => {
+    setBusy(true);
+    try {
+      await axiosInstance.post(endpoints.ml.nameRevBatch, {
+        items: [{ kind: item.kind, id: item.id, verdict, name, geoname_id: gid ?? null, pos: null }],
+      });
+      onSaved(verdict === "notname" ? "«Нэр биш» гэж тэмдэглэлээ" : `Хадгаллаа: ${name}`);
+    } catch (e) {
+      setBusy(false);
+    }
+  };
+  const chips = [item.name, item.alt && !item.alt.startsWith("…") ? item.alt : null].filter(Boolean);
+  return (
+    <Paper elevation={6} sx={{ position: "absolute", top: 12, right: 12, zIndex: 20, width: 340, p: 1.5 }}>
+      <Stack spacing={1}>
+        <Typography variant="subtitle2">
+          {isText ? `Бичвэр: «${item.ocr || ""}»` : `Олсон нэр: ${item.name}`}
+        </Typography>
+        {chips.length > 0 && (
+          <Stack direction="row" gap={0.5} flexWrap="wrap">
+            {chips.map((c) => (
+              <Chip key={c} size="small" label={c} variant={pick?.name === c ? "filled" : "outlined"} color={pick?.name === c ? "success" : "default"} onClick={() => setPick({ name: c, id: null })} />
+            ))}
+          </Stack>
+        )}
+        <NameSearch tag={tag} initial={(item.ocr || item.name || "").split(" ")[0].slice(0, 5)} onPick={(c) => setPick(c)} />
+        {pick && (
+          <Typography variant="caption" color="success.main">
+            Сонгосон: {pick.name}
+          </Typography>
+        )}
+        <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
+          <Button size="small" color="inherit" onClick={onClose} disabled={busy}>
+            Болих
+          </Button>
+          <Button size="small" color="inherit" onClick={() => save("notname", null)} disabled={busy}>
+            Нэр биш
+          </Button>
+          {!isText && (
+            <Button size="small" variant="outlined" color="success" onClick={() => save("ok", item.name)} disabled={busy}>
+              Энэ нэр зөв
+            </Button>
+          )}
+          <Button size="small" variant="contained" color="success" disabled={busy || !pick} onClick={() => save("fixed", pick.name, pick.id)}>
+            Хадгалах
+          </Button>
+        </Stack>
+        <Typography variant="caption" color="text.secondary">
+          Нэрийг хайх талбарт бичээд жагсаалтаас сонго (жагсаалтад байхгүй бол бүтэн бичээд Enter). Байрлалыг шар
+          цагирагийг чирж засна.
+        </Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
 export default function MapMlView() {
   const { enqueueSnackbar } = useSnackbar();
   const { baseLayers: baseCfgs } = useGetBaseLayers();
@@ -212,7 +276,8 @@ export default function MapMlView() {
   const [sumTag, setSumTag] = useState("");
   const sumTagRef = useRef("");
   const placeVecSrcRef = useRef(null);
-  const placeVecRef = useRef(null); // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
+  const placeVecRef = useRef(null);
+  const [nameEdit, setNameEdit] = useState(null); // газрын зураг дээр нэр засах цонх // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
 
   const [mode, setMode] = useState("select"); // select | box | symbol
   modeRef.current = mode;
@@ -644,13 +709,13 @@ export default function MapMlView() {
     const placeVec = new VectorLayer({ source: placeVecSrc, zIndex: 95, minZoom: EDIT_ZOOM, style: placeHandle });
     placeVecRef.current = placeVec;
     map.addLayer(placeVec);
-    const ptranslate = new Translate({ layers: [placeVec], hitTolerance: 6 });
+    const ptranslate = new Translate({ layers: [placeVec], hitTolerance: 6, filter: (f) => f.get("kind") === "place" });
     ptranslate.on("translateend", (e) => {
       const f = e.features.item(0);
       if (!f) return;
       const [x, y] = f.getGeometry().getCoordinates();
       axiosInstance
-        .post(endpoints.ml.nameRevBatch, { items: [{ kind: "place", id: f.getId(), verdict: "pos", pos: [x, y] }] })
+        .post(endpoints.ml.nameRevBatch, { items: [{ kind: "place", id: f.get("ref"), verdict: "pos", pos: [x, y] }] })
         .then(() => {
           enqueueSnackbar(`Байрлал хадгалсан: ${f.get("name")}`, { variant: "success" });
           placeLayerRef.current?.getSource().updateParams({ _t: Date.now() });
@@ -658,6 +723,11 @@ export default function MapMlView() {
         .catch(() => enqueueSnackbar("Байрлал хадгалж чадсангүй", { variant: "error" }));
     });
     map.addInteraction(ptranslate);
+    // нэр засах: шар цагираг / саарал бичвэр дээр дарахад засах цонх
+    map.on("singleclick", (e) => {
+      const f = map.forEachFeatureAtPixel(e.pixel, (x) => x, { layerFilter: (l) => l === placeVec, hitTolerance: 6 });
+      if (f) setNameEdit({ kind: f.get("kind"), id: f.get("ref"), name: f.get("name"), ocr: f.get("ocr"), alt: f.get("alt") });
+    });
 
     let timer;
     map.on("moveend", () => {
@@ -857,6 +927,21 @@ export default function MapMlView() {
     <Box sx={{ display: "flex", height: "100dvh", width: "100%", overflow: "hidden" }}>
       <Box sx={{ flex: 1, position: "relative" }}>
         <Box ref={elRef} sx={{ position: "absolute", inset: 0 }} />
+        {nameEdit && (
+          <NameEditPanel
+            key={`${nameEdit.kind}:${nameEdit.id}`}
+            item={nameEdit}
+            tag={sumTag}
+            onClose={() => setNameEdit(null)}
+            onSaved={(msg) => {
+              setNameEdit(null);
+              enqueueSnackbar(msg, { variant: "success" });
+              placeLayerRef.current?.getSource().updateParams({ _t: Date.now() });
+              textLayerRef.current?.getSource().updateParams({ _t: Date.now() });
+              reloadVectors();
+            }}
+          />
+        )}
         {view === "grid" && <ReviewGrid onSaved={loadRstats} />}
         {view === "sym" && <SymGrid />}
         {view === "pos" && <PlaceGrid />}
