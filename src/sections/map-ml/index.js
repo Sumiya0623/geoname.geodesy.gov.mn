@@ -52,6 +52,16 @@ import ReviewGrid from "./review-grid";
 import SymGrid from "./sym-grid";
 import PlaceGrid from "./place-grid";
 
+// Нэр илрүүлэх урсгал (region → locate) ажиллуулсан сумд. t* = тодруулгагүй (жинхэнэ шалгалт), lk* = тодруулгатай.
+const SUMS = [
+  { tag: "t56", label: "Дорнод, Булган (тодруулгагүй)", lon: 114.206, lat: 47.667 },
+  { tag: "t65", label: "Дорнод, Хөлөнбуйр (тодруулгагүй)", lon: 113.039, lat: 47.872 },
+  { tag: "lk42", label: "Сүхбаатар, Мөнххаан", lon: 112.256, lat: 47.124 },
+  { tag: "lk77", label: "Сүхбаатар, Уулбаян", lon: 112.39, lat: 46.57 },
+  { tag: "lk58", label: "Сүхбаатар, Асгат", lon: 113.912, lat: 46.105 },
+  { tag: "lk60", label: "Сүхбаатар, Баяндэлгэр", lon: 112.34, lat: 45.636 },
+];
+
 const GEOSERVER = process.env.NEXT_PUBLIC_GEOSERVER_URL;
 const BATCH = 1;
 const EDIT_ZOOM = 14; // үүнээс ойрт вектор (засах), холд WMS
@@ -189,6 +199,7 @@ export default function MapMlView() {
   const [showPlaces, setShowPlaces] = useState(true); // загварын олсон цэгэн нэр
   const symLayerRef = useRef(null);
   const [showSyms, setShowSyms] = useState(true); // тэмдэг илрүүлэгчийн олсон тэмдэг
+  const [sumTag, setSumTag] = useState(""); // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
 
   const [mode, setMode] = useState("select"); // select | box | symbol
   modeRef.current = mode;
@@ -671,6 +682,14 @@ export default function MapMlView() {
     placeLayerRef.current?.setVisible(showPlaces);
   }, [showPlaces]);
   useEffect(() => {
+    const cql = sumTag ? `tag='${sumTag}'` : undefined;
+    [placeLayerRef.current, symLayerRef.current].forEach((l) => l?.getSource().updateParams({ CQL_FILTER: cql }));
+    const s = SUMS.find((x) => x.tag === sumTag);
+    if (s && mapRef.current) {
+      mapRef.current.getView().animate({ center: fromLonLat([s.lon, s.lat]), zoom: 10, duration: 400 });
+    }
+  }, [sumTag]);
+  useEffect(() => {
     symLayerRef.current?.setVisible(showSyms);
   }, [showSyms]);
 
@@ -1029,6 +1048,24 @@ export default function MapMlView() {
           <Typography variant="overline" color="text.secondary">
             Давхарга
           </Typography>
+          <TextField
+            select
+            size="small"
+            fullWidth
+            label="Нэр илрүүлсэн сум"
+            value={sumTag}
+            onChange={(e) => setSumTag(e.target.value)}
+            SelectProps={{ native: true }}
+            InputLabelProps={{ shrink: true }}
+            sx={{ my: 1 }}
+          >
+            <option value="">Бүх сум</option>
+            {SUMS.map((x) => (
+              <option key={x.tag} value={x.tag}>
+                {x.label}
+              </option>
+            ))}
+          </TextField>
           <FormControlLabel
             control={<Switch size="small" checked={showBoxes} onChange={(e) => setShowBoxes(e.target.checked)} />}
             label={<Typography variant="body2">Бичвэрийн хүрээ (тасархай)</Typography>}
