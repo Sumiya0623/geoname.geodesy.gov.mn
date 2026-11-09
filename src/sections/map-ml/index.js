@@ -80,6 +80,11 @@ export const CLASSES = [
 const COLOR = Object.fromEntries(CLASSES.map((c) => [c.key, c.color]));
 
 const geojson = new GeoJSON({ dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
+const geojson3857 = new GeoJSON({ dataProjection: "EPSG:3857", featureProjection: "EPSG:3857" });
+// олсон нэрийн цэг — ойрын зумд чирж засах бариул (шар цагираг)
+const placeHandle = new Style({
+  image: new CircleStyle({ radius: 10, stroke: new Stroke({ color: "#ffd600", width: 2.5 }), fill: new Fill({ color: "rgba(255,214,0,0.12)" }) }),
+});
 
 function detStyle(feature, selected, curId) {
   const p = feature.getProperties();
@@ -204,7 +209,10 @@ export default function MapMlView() {
   const [showSyms, setShowSyms] = useState(true); // тэмдэг илрүүлэгчийн олсон тэмдэг
   const textLayerRef = useRef(null);
   const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
-  const [sumTag, setSumTag] = useState(""); // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
+  const [sumTag, setSumTag] = useState("");
+  const sumTagRef = useRef("");
+  const placeVecSrcRef = useRef(null);
+  const placeVecRef = useRef(null); // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
 
   const [mode, setMode] = useState("select"); // select | box | symbol
   modeRef.current = mode;
@@ -254,6 +262,16 @@ export default function MapMlView() {
           ? axiosInstance.get(endpoints.ml.detection(`bbox=${bbox}`))
           : Promise.resolve(null),
       ]);
+      if (view.getZoom() >= EDIT_ZOOM && placeVecSrcRef.current) {
+        const tq = sumTagRef.current ? `&tag=${encodeURIComponent(sumTagRef.current)}` : "";
+        axiosInstance
+          .get(`${endpoints.ml.nameRevInbox}?bbox=${bbox}${tq}`)
+          .then(({ data }) => {
+            placeVecSrcRef.current.clear();
+            placeVecSrcRef.current.addFeatures(geojson3857.readFeatures(data));
+          })
+          .catch(() => {});
+      }
       taskSrcRef.current.clear();
       const taskFeats = geojson.readFeatures(tasks.data);
       const shapes = tasks.data.features
@@ -620,6 +638,27 @@ export default function MapMlView() {
     map.addInteraction(modify);
     map.addInteraction(translate);
 
+    // Олсон нэрийн байрлалыг чирж засах (зум ≥ EDIT_ZOOM): шар цагираг → зөв тэмдгийн төв рүү чирнэ
+    const placeVecSrc = new VectorSource();
+    placeVecSrcRef.current = placeVecSrc;
+    const placeVec = new VectorLayer({ source: placeVecSrc, zIndex: 95, minZoom: EDIT_ZOOM, style: placeHandle });
+    placeVecRef.current = placeVec;
+    map.addLayer(placeVec);
+    const ptranslate = new Translate({ layers: [placeVec], hitTolerance: 6 });
+    ptranslate.on("translateend", (e) => {
+      const f = e.features.item(0);
+      if (!f) return;
+      const [x, y] = f.getGeometry().getCoordinates();
+      axiosInstance
+        .post(endpoints.ml.nameRevBatch, { items: [{ kind: "place", id: f.getId(), verdict: "pos", pos: [x, y] }] })
+        .then(() => {
+          enqueueSnackbar(`Байрлал хадгалсан: ${f.get("name")}`, { variant: "success" });
+          placeLayerRef.current?.getSource().updateParams({ _t: Date.now() });
+        })
+        .catch(() => enqueueSnackbar("Байрлал хадгалж чадсангүй", { variant: "error" }));
+    });
+    map.addInteraction(ptranslate);
+
     let timer;
     map.on("moveend", () => {
       setZoom(map.getView().getZoom());
@@ -704,11 +743,13 @@ export default function MapMlView() {
   }, [namesOnly]);
   useEffect(() => {
     placeLayerRef.current?.setVisible(showPlaces);
+    placeVecRef.current?.setVisible(showPlaces);
   }, [showPlaces]);
   useEffect(() => {
     textLayerRef.current?.setVisible(showTexts);
   }, [showTexts]);
   useEffect(() => {
+    sumTagRef.current = sumTag;
     const cql = sumTag ? `tag='${sumTag}'` : undefined;
     [placeLayerRef.current, symLayerRef.current, textLayerRef.current].forEach((l) => l?.getSource().updateParams({ CQL_FILTER: cql }));
     const s = SUMS.find((x) => x.tag === sumTag);
