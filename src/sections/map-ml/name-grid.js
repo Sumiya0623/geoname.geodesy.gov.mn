@@ -144,7 +144,7 @@ function Card({ item, tag, st, onChange }) {
   };
   const isText = item.kind === "text";
   const border =
-    st.verdict === "notname" ? "#9e9e9e" : st.verdict === "skip" ? "#bdbdbd" : st.verdict === "fixed" ? "#fb8c00" : "#43a047";
+    st.verdict === "notname" ? "#9e9e9e" : st.verdict === "later" ? "#8e24aa" : st.verdict === "skip" ? "#bdbdbd" : st.verdict === "fixed" ? "#fb8c00" : "#43a047";
   const box = item.box && {
     left: `${((item.box[0] - ex[0]) / W) * 100}%`,
     top: `${((ex[3] - item.box[3]) / W) * 100}%`,
@@ -253,6 +253,8 @@ function Card({ item, tag, st, onChange }) {
           <Typography variant="caption" sx={{ flex: 1 }} noWrap title={st.name || ""}>
             {st.verdict === "notname"
               ? "✗ нэр биш"
+              : st.verdict === "later"
+                ? "⤳ шугам/талбай — дараа"
               : st.verdict === "skip"
                 ? "— алгасна"
                 : `✓ ${st.name}${st.pos ? " · байрлал заасан" : ""}`}
@@ -263,6 +265,14 @@ function Card({ item, tag, st, onChange }) {
             onClick={() => onChange({ verdict: st.verdict === "notname" ? (isText ? "skip" : "ok") : "notname", ...(st.verdict === "notname" && !isText ? { name: item.name } : {}) })}
           >
             {st.verdict === "notname" ? "буцаах" : "Нэр биш"}
+          </Button>
+          <Button
+            size="small"
+            color="secondary"
+            title="Гуу, жалга, ам гэх мэт шугам/талбайн нэр — одоохондоо алгасна (устахгүй, сургалтад «нэр биш» гэж орохгүй)"
+            onClick={() => onChange({ verdict: st.verdict === "later" ? (isText ? "skip" : "ok") : "later", ...(st.verdict === "later" && !isText ? { name: item.name } : {}) })}
+          >
+            {st.verdict === "later" ? "буцаах" : "Шугам/талбай"}
           </Button>
           {(st.pos || st.verdict !== (isText ? "skip" : "ok")) && (
             <Button size="small" color="inherit" onClick={() => onChange(null)}>
@@ -370,7 +380,7 @@ export default function NameGrid({ tag }) {
         ))}
         {stats && (
           <Typography variant="caption" color="text.secondary">
-            Шалгасан: {stats.ok} зөв · {stats.fixed} зассан · {stats.notname} нэр биш · {stats.pos} байрлал заасан · үлдсэн{" "}
+            Шалгасан: {stats.ok} зөв · {stats.fixed} зассан · {stats.notname} нэр биш · {stats.later || 0} шугам/талбай · {stats.pos} байрлал заасан · үлдсэн{" "}
             {stats.todo}
           </Typography>
         )}

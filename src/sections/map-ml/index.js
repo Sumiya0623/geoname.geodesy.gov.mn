@@ -193,7 +193,7 @@ function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
       await axiosInstance.post(endpoints.ml.nameRevBatch, {
         items: [{ kind: item.kind, id: item.id, verdict, name, geoname_id: gid ?? null, pos: item.pos || null }],
       });
-      onSaved(verdict === "notname" ? "«Нэр биш» гэж тэмдэглэлээ" : `Хадгаллаа: ${name}`);
+      onSaved(verdict === "notname" ? "«Нэр биш» гэж тэмдэглэлээ" : verdict === "later" ? "Шугам/талбай — дараа шалгана" : `Хадгаллаа: ${name}`);
     } catch (e) {
       setBusy(false);
     }
@@ -234,6 +234,15 @@ function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
           )}
           <Button size="small" color="inherit" onClick={() => save("notname", null)} disabled={busy}>
             Нэр биш
+          </Button>
+          <Button
+            size="small"
+            color="secondary"
+            title="Гуу, жалга, ам гэх мэт шугам/талбайн нэр — одоохондоо алгасна (устахгүй)"
+            onClick={() => save("later", item.name || null)}
+            disabled={busy}
+          >
+            Шугам/талбай
           </Button>
           {!isText && (
             <Button size="small" variant="outlined" color="success" onClick={() => save("ok", item.name)} disabled={busy}>
