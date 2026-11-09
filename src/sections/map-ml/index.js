@@ -51,6 +51,7 @@ import { buildOlBaseLayer } from "src/sections/map/layers-wmts";
 import ReviewGrid from "./review-grid";
 import SymGrid from "./sym-grid";
 import PlaceGrid from "./place-grid";
+import NameGrid from "./name-grid";
 
 // Нэр илрүүлэх урсгал (region → locate) ажиллуулсан сумд. t* = тодруулгагүй (жинхэнэ шалгалт), lk* = тодруулгатай.
 const SUMS = [
@@ -219,7 +220,7 @@ export default function MapMlView() {
   const [view, setView] = useState("grid"); // grid = хүснэгтээр олноор нь шалгах (үндсэн)
   useEffect(() => {
     const v = new URLSearchParams(window.location.search).get("view");
-    if (v === "edit" || v === "review" || v === "grid" || v === "sym" || v === "pos") setView(v);
+    if (v === "edit" || v === "review" || v === "grid" || v === "sym" || v === "pos" || v === "names") setView(v);
   }, []);
   const [review, setReview] = useState(null);
   const [rstats, setRstats] = useState(null);
@@ -761,7 +762,7 @@ export default function MapMlView() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
-      if (view === "grid" || view === "sym" || view === "pos") return; // ReviewGrid / SymGrid өөрөө Enter-ийг барина
+      if (view === "grid" || view === "sym" || view === "pos" || view === "names") return; // ReviewGrid / SymGrid өөрөө Enter-ийг барина
       if (view === "review") {
         if (e.key === "y" || e.key === "Y" || e.key === "Enter" || e.key === "ArrowRight") answerReview(true);
         else if (e.key === "x" || e.key === "X" || e.key === "Backspace" || e.key === "Delete") answerReview(false);
@@ -794,7 +795,7 @@ export default function MapMlView() {
       setMode("select");
       loadRstats();
       if (mapRef.current) loadReview();
-    } else if (view === "grid" || view === "sym" || view === "pos") {
+    } else if (view === "grid" || view === "sym" || view === "pos" || view === "names") {
       setMode("select");
       loadRstats();
       reviewSrcRef.current?.clear();
@@ -818,7 +819,8 @@ export default function MapMlView() {
         {view === "grid" && <ReviewGrid onSaved={loadRstats} />}
         {view === "sym" && <SymGrid />}
         {view === "pos" && <PlaceGrid />}
-        {view !== "grid" && view !== "sym" && view !== "pos" && zoom < EDIT_ZOOM && (
+        {view === "names" && <NameGrid tag={sumTag} />}
+        {view !== "grid" && view !== "sym" && view !== "pos" && view !== "names" && zoom < EDIT_ZOOM && (
           <Chip
             size="small"
             color="info"
@@ -851,6 +853,7 @@ export default function MapMlView() {
           <ToggleButton value="edit">Гараар засах</ToggleButton>
           <ToggleButton value="sym">Тэмдгийн төв</ToggleButton>
           <ToggleButton value="pos">Байрлал шалгах</ToggleButton>
+          <ToggleButton value="names">Нэр шалгах</ToggleButton>
         </ToggleButtonGroup>
 
         {view === "grid" && rstats && (

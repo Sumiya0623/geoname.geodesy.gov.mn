@@ -214,6 +214,10 @@ export const endpoints = {
     placePage: (n) => `/api/n/ml-place/page/?n=${n}`,
     placeStats: `/api/n/ml-place/stats/`,
     placeBatch: `/api/n/ml-place/batch/`,
+    nameRevPage: (tag, n, kind) => `/api/n/ml-namerev/page/?tag=${encodeURIComponent(tag)}&n=${n}&kind=${kind}`,
+    nameRevNames: (tag, q) => `/api/n/ml-namerev/names/?tag=${encodeURIComponent(tag)}&q=${encodeURIComponent(q)}`,
+    nameRevStats: (tag) => `/api/n/ml-namerev/stats/?tag=${encodeURIComponent(tag)}`,
+    nameRevBatch: `/api/n/ml-namerev/batch/`,
     reviewBatch: `/api/n/ml-review/batch/`,
   },
 
