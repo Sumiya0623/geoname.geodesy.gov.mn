@@ -1039,8 +1039,8 @@ export default function MapMlView() {
           <ToggleButton value="grid">Хүснэгтээр</ToggleButton>
           <ToggleButton value="review">Нэг нэгээр</ToggleButton>
           <ToggleButton value="edit">Гараар засах</ToggleButton>
-          <ToggleButton value="sym">Тэмдгийн төв</ToggleButton>
-          <ToggleButton value="pos">Байрлал шалгах</ToggleButton>
+          {/* «Тэмдгийн төв» (тодруулгын цэг, 679 тавьж зорилт биелсэн), «Байрлал шалгах» — «Нэр шалгах»-д нэгтгэгдсэн тул нуув.
+              ?view=sym / ?view=pos хаягаар нээгдсэн хэвээр. */}
           <ToggleButton value="names">Нэр шалгах</ToggleButton>
         </ToggleButtonGroup>
 
