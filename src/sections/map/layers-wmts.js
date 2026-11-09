@@ -228,8 +228,9 @@ export function buildOlBaseLayer(cfg) {
         params: {
           LAYERS: cfg.gs_layer,
           STYLES: p.styles || "",
-          FORMAT: "image/png",
-          TRANSPARENT: "true",
+          // params.live_format="image/jpeg" — скан растерт PNG-ээс 8–10× жижиг (сүлжээ удаан үед чухал)
+          FORMAT: p.live_format || "image/png",
+          TRANSPARENT: p.live_format === "image/jpeg" ? "false" : "true",
           TILED: "true",
           VERSION: "1.1.1",
           ...(p.cql ? { CQL_FILTER: p.cql } : {}),
