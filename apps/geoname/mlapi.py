@@ -545,7 +545,7 @@ class MlPlaceViewSet(_MissingTable):
 # Хүний баталсан нэр → тодруулга (core_recount): тусдаа төсөлд, «Суурин боловсруулалт» шатаар.
 # Дахин сургалтад (nameqc recountlab) баталгаат өгөгдөл болно. Холбоос: nameqc_namerev.recount_id
 ML_PROJECT_NAME = '1970 оны 1:100 000 зургаас гараар баталгаажуулсан нэр (nameqc)'
-ML_STEP_NAME = 'Суурин боловсруулалт'
+ML_STEP_NAME = 'Суурин судалгаа'
 
 
 def _sync_recount(c, kind, ref_id, uid, loc_wkt):
