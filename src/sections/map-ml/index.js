@@ -215,7 +215,7 @@ function NameEditPanel({ item, tag, onClose, onSaved }) {
             ))}
           </Stack>
         )}
-        <NameSearch tag={tag} initial={(item.ocr || item.name || "").split(" ")[0].slice(0, 5)} onPick={(c) => setPick(c)} />
+        <NameSearch tag={tag} initial={isText ? item.ocr || "" : ""} onPick={(c) => setPick(c)} />
         {pick && (
           <Typography variant="caption" color="success.main">
             Сонгосон: {pick.name}

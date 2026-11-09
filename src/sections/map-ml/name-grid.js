@@ -88,7 +88,7 @@ export function NameSearch({ tag, onPick, initial = "" }) {
         if (typeof v === "string") onPick({ id: null, name: v.trim() });
         else onPick({ id: v.id, name: v.name });
       }}
-      renderInput={(params) => <TextField {...params} placeholder="Өөр нэр хайх / бичих…" />}
+      renderInput={(params) => <TextField {...params} placeholder="Зөв нэрийг хайх / бичих…" />}
     />
   );
 }
