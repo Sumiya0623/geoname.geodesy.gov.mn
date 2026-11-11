@@ -336,7 +336,7 @@ export default function MapMlView() {
   // review = автомат шошгыг зөв/буруу гэж шалгах (үндсэн), edit = гараар засах
   // ?view=edit&lon=..&lat=..&z=.. — шууд газрын зураг дээр (жишээ: тодруулгагүй сумын туршилтын үр дүн)
   const qp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const [view, setView] = useState("grid"); // grid = хүснэгтээр олноор нь шалгах (үндсэн)
+  const [view, setView] = useState("names"); // names = нэрийн хүснэгт (цорын ганц хэсэг)
   useEffect(() => {
     const v = new URLSearchParams(window.location.search).get("view");
     if (v === "edit" || v === "review" || v === "grid" || v === "sym" || v === "pos" || v === "names") setView(v);
@@ -1034,21 +1034,8 @@ export default function MapMlView() {
           </Typography>
         </Stack>
 
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          fullWidth
-          value={view}
-          onChange={(e, v) => v && setView(v)}
-          sx={{ flexWrap: "wrap", "& .MuiToggleButton-root": { flex: "1 0 30%", fontSize: 12, px: 0.5 } }}
-        >
-          <ToggleButton value="grid">Хүснэгтээр</ToggleButton>
-          <ToggleButton value="review">Нэг нэгээр</ToggleButton>
-          <ToggleButton value="edit">Гараар засах</ToggleButton>
-          {/* «Тэмдгийн төв» (тодруулгын цэг, 679 тавьж зорилт биелсэн), «Байрлал шалгах» — «Нэр шалгах»-д нэгтгэгдсэн тул нуув.
-              ?view=sym / ?view=pos хаягаар нээгдсэн хэвээр. */}
-          <ToggleButton value="names">Нэр шалгах</ToggleButton>
-        </ToggleButtonGroup>
+        {/* Ганц хэсэг (хэрэглэгч 2026-11-11): «Нэг нэгээр», «Гараар засах», хуучин «Хүснэгтээр» хаагдсан —
+            бүх ажил нэрийн хүснэгтэд. Хуучин горимууд ?view=grid|review|edit хаягаар нээгдсэн хэвээр. */}
 
         {view === "grid" && rstats && (
           <Typography variant="caption" color="text.secondary" component="div">
