@@ -212,7 +212,7 @@ export default function NameClassTreeRow({
             <MenuItem
               onClick={() => {
                 window.open(
-                  `/dashboard/nameclass/${item.id}/style/`,
+                  `/settings/gis/nameclass/${item.id}/style/`,
                   "_blank",
                   "noopener,noreferrer"
                 );
