@@ -88,6 +88,9 @@ function collectLeafIds(node, acc) {
   return acc;
 }
 
+// модны «Ангилалгүй» (type_id IS NULL) мөрийн тусгай id
+const UNTYPED = -1;
+
 function TreeNode({
   node,
   level,
@@ -126,10 +129,7 @@ function TreeNode({
         onClick={() => onActivate?.(node)}
       >
         {hasKids ? (
-          <IconButton
-            sx={{ p: 0.25 }}
-            onClick={() => setOpen((v) => !v)}
-          >
+          <IconButton sx={{ p: 0.25 }} onClick={() => setOpen((v) => !v)}>
             {open ? (
               <ExpandMoreIcon sx={{ fontSize: 18 }} />
             ) : (
@@ -173,7 +173,7 @@ function TreeNode({
           }}
         />
         {/* Мөрийн 3 цэгийн цэс — Zoom / Feature table / Чанарын шалгалт */}
-        {onNodeMenu && (
+        {onNodeMenu && node.id !== UNTYPED && (
           <IconButton
             sx={{ p: 0.25, ml: 0.25 }}
             onClick={(e) => onNodeMenu(e.currentTarget, node)}
@@ -354,13 +354,22 @@ export default function RecountPanel({
         const res = await axiosInstance.get(endpoints.recount.typeTree(q));
         if (!active) return;
         const data = res?.data || {};
-        setRoots(data.results || []);
+        // ангилалгүй (type_id IS NULL) нэрсийг модонд тусдаа «Ангилалгүй» мөрөөр (id = UNTYPED)
+        const results = [...(data.results || [])];
+        if (data.draft_count > 0)
+          results.push({
+            id: UNTYPED,
+            name: "Ангилалгүй",
+            desc: "",
+            count: data.draft_count,
+            children: [],
+            child_count: 0,
+          });
+        setRoots(results);
         setLoaded(true);
         // шүүлтэд тохирсон БҮХ зангилаа сонгогдоно (мод + газрын зураг уялдана)
         const all = new Set();
-        (data.results || []).forEach((n) =>
-          collectIds(n, []).forEach((id) => all.add(id)),
-        );
+        results.forEach((n) => collectIds(n, []).forEach((id) => all.add(id)));
         setCheckedSet(all);
       } finally {
         if (active) setLoading(false);
@@ -398,15 +407,17 @@ export default function RecountPanel({
     }
     // Мод дээр ангилал байгаа ч НЭГ Ч сонгоогүй бол юу ч харуулахгүй
     const hasAnyLeaf = roots.some((n) => collectLeafIds(n, []).length > 0);
-    if (hasAnyLeaf && leafIds.length === 0) {
+    const typedIds = leafIds.filter((id) => id !== UNTYPED);
+    const hasUntypedNode = roots.some((n) => n.id === UNTYPED);
+    // ангилалгүй мөр модонд байвал түүний чагтаар, байхгүй бол (хуучнаар) үргэлж харуулна
+    const showUntyped = hasUntypedNode ? checkedSet.has(UNTYPED) : true;
+    if (hasAnyLeaf && typedIds.length === 0 && !showUntyped) {
       onCql?.("1=0");
       return;
     }
     const typeOr = [];
-    if (leafIds.length) typeOr.push(`type_id IN (${leafIds.join(",")})`);
-    // Draft‑ууд (type_id IS NULL) нь ангилалгүй тул үргэлж type‑д тэнцэнэ —
-    // тэдгээрийг Төлөв (status "шинэ"/"батлагдаагүй") шүүлт удирдана.
-    typeOr.push("type_id IS NULL");
+    if (typedIds.length) typeOr.push(`type_id IN (${typedIds.join(",")})`);
+    if (showUntyped) typeOr.push("type_id IS NULL");
     const conds = [`(${typeOr.join(" OR ")})`];
     if (sf.name.trim()) conds.push(`name ILIKE '%${esc(sf.name.trim())}%'`);
     if (sf.number.trim())
@@ -424,7 +435,7 @@ export default function RecountPanel({
       conds.push(`(${parts.join(" OR ")})`);
     }
     onCql?.(conds.join(" AND "));
-  }, [loaded, roots, leafIds, sf, statusChecked, statuses, onCql]);
+  }, [loaded, roots, leafIds, checkedSet, sf, statusChecked, statuses, onCql]);
 
   const toggleStatus = (id, on) => {
     setStatusChecked((prev) => {
