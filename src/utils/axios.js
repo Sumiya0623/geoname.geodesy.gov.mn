@@ -179,7 +179,8 @@ export const endpoints = {
     addOrder: (id) => `/api/n/geoname/${id}/add-order/`,
     // Баримт ↔ нэр холбох (маягтын toolbar): баримт хайх, холбоотой нэрс,
     // бөөнөөр холбох/салгах
-    orderSearch: (request_body) => `/api/n/geoname/order-search/?${request_body}`,
+    orderSearch: (request_body) =>
+      `/api/n/geoname/order-search/?${request_body}`,
     orderNames: (id) => `/api/n/geoname/order-names/?order=${id}`,
     orderLinked: `/api/n/geoname/order-linked/`,
     attachOrder: `/api/n/geoname/attach-order/`,
@@ -202,6 +203,7 @@ export const endpoints = {
     confirmArea: `/api/n/ml-detection/confirm-area/`,
     task: (request_body) => `/api/n/ml-task/?${request_body}`,
     taskNext: (request_body) => `/api/n/ml-task/next/?${request_body}`,
+    taskRecount: (bbox) => `/api/n/ml-task/recount/?bbox=${bbox}`,
     taskStats: (request_body) => `/api/n/ml-task/stats/?${request_body}`,
     taskItem: (id) => `/api/n/ml-task/${id}/`,
     reviewNext: (request_body) => `/api/n/ml-review/next/?${request_body}`,
@@ -214,9 +216,12 @@ export const endpoints = {
     placePage: (n) => `/api/n/ml-place/page/?n=${n}`,
     placeStats: `/api/n/ml-place/stats/`,
     placeBatch: `/api/n/ml-place/batch/`,
-    nameRevPage: (tag, n, kind) => `/api/n/ml-namerev/page/?tag=${encodeURIComponent(tag)}&n=${n}&kind=${kind}`,
-    nameRevNames: (tag, q) => `/api/n/ml-namerev/names/?tag=${encodeURIComponent(tag)}&q=${encodeURIComponent(q)}`,
-    nameRevStats: (tag) => `/api/n/ml-namerev/stats/?tag=${encodeURIComponent(tag)}`,
+    nameRevPage: (tag, n, kind) =>
+      `/api/n/ml-namerev/page/?tag=${encodeURIComponent(tag)}&n=${n}&kind=${kind}`,
+    nameRevNames: (tag, q) =>
+      `/api/n/ml-namerev/names/?tag=${encodeURIComponent(tag)}&q=${encodeURIComponent(q)}`,
+    nameRevStats: (tag) =>
+      `/api/n/ml-namerev/stats/?tag=${encodeURIComponent(tag)}`,
     nameRevBatch: `/api/n/ml-namerev/batch/`,
     nameRevInbox: `/api/n/ml-namerev/inbox/`,
     nameRevNext: `/api/n/ml-namerev/next/`,

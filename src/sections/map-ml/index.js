@@ -21,7 +21,15 @@ import Modify from "ol/interaction/Modify";
 import Translate from "ol/interaction/Translate";
 import { click } from "ol/events/condition";
 import { fromLonLat, transformExtent } from "ol/proj";
-import { Fill, Style, Stroke, Text, Circle as CircleStyle, RegularShape } from "ol/style";
+import { bbox as bboxStrategy } from "ol/loadingstrategy";
+import {
+  Fill,
+  Style,
+  Stroke,
+  Text,
+  Circle as CircleStyle,
+  RegularShape,
+} from "ol/style";
 import { useRef, useState, useEffect, useCallback } from "react";
 
 import {
@@ -55,8 +63,18 @@ import NameGrid, { NameSearch } from "./name-grid";
 
 // Нэр илрүүлэх урсгал (region → locate) ажиллуулсан сумд. t* = тодруулгагүй (жинхэнэ шалгалт), lk* = тодруулгатай.
 const SUMS = [
-  { tag: "t56", label: "Дорнод, Булган (тодруулгагүй)", lon: 114.206, lat: 47.667 },
-  { tag: "t65", label: "Дорнод, Хөлөнбуйр (тодруулгагүй)", lon: 113.039, lat: 47.872 },
+  {
+    tag: "t56",
+    label: "Дорнод, Булган (тодруулгагүй)",
+    lon: 114.206,
+    lat: 47.667,
+  },
+  {
+    tag: "t65",
+    label: "Дорнод, Хөлөнбуйр (тодруулгагүй)",
+    lon: 113.039,
+    lat: 47.872,
+  },
   // бүс бүрээс 2 аймаг × 1 сум — нийт нутагт гар шалгалт (~1000 нэр)
   { tag: "t350", label: "Ховд, Эрдэнэбүрэн", lon: 91.194, lat: 48.462 },
   { tag: "t361", label: "Увс, Ховд", lon: 91.056, lat: 49.407 },
@@ -87,14 +105,30 @@ export const CLASSES = [
 ];
 const COLOR = Object.fromEntries(CLASSES.map((c) => [c.key, c.color]));
 
-const geojson = new GeoJSON({ dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
-const geojson3857 = new GeoJSON({ dataProjection: "EPSG:3857", featureProjection: "EPSG:3857" });
+const geojson = new GeoJSON({
+  dataProjection: "EPSG:4326",
+  featureProjection: "EPSG:3857",
+});
+const geojson3857 = new GeoJSON({
+  dataProjection: "EPSG:3857",
+  featureProjection: "EPSG:3857",
+});
 // олсон нэрийн цэг — ойрын зумд чирж засах бариул (шар цагираг)
 const placeRing = new Style({
-  image: new CircleStyle({ radius: 10, stroke: new Stroke({ color: "#ffd600", width: 2.5 }), fill: new Fill({ color: "rgba(255,214,0,0.12)" }) }),
+  image: new CircleStyle({
+    radius: 10,
+    stroke: new Stroke({ color: "#ffd600", width: 2.5 }),
+    fill: new Fill({ color: "rgba(255,214,0,0.12)" }),
+  }),
 });
 const textHandle = new Style({
-  image: new RegularShape({ points: 4, radius: 8, angle: Math.PI / 4, stroke: new Stroke({ color: "#546e7a", width: 2 }), fill: new Fill({ color: "rgba(84,110,122,0.15)" }) }),
+  image: new RegularShape({
+    points: 4,
+    radius: 8,
+    angle: Math.PI / 4,
+    stroke: new Stroke({ color: "#546e7a", width: 2 }),
+    fill: new Fill({ color: "rgba(84,110,122,0.15)" }),
+  }),
 });
 const placeHandle = (f) => (f.get("kind") === "text" ? textHandle : placeRing);
 
@@ -107,7 +141,10 @@ function detStyle(feature, selected, curId) {
         radius: selected ? 12 : 9,
         radius2: 0,
         angle: Math.PI / 4,
-        stroke: new Stroke({ color: selected ? "#ffd600" : "#e53935", width: 3 }),
+        stroke: new Stroke({
+          color: selected ? "#ffd600" : "#e53935",
+          width: 3,
+        }),
       }),
     });
   }
@@ -155,18 +192,32 @@ function detStyle(feature, selected, curId) {
 function taskStyle(feature, currentId) {
   const p = feature.getProperties();
   const current = p.id === currentId;
-  const color = current ? "#e53935" : p.status === "done" ? "#00c853" : p.status === "skip" ? "#9e9e9e" : "#ff6d00";
+  const color = current
+    ? "#e53935"
+    : p.status === "done"
+      ? "#00c853"
+      : p.status === "skip"
+        ? "#9e9e9e"
+        : "#ff6d00";
   // Шугаман (ам, гол) / талбайн (нуур) нэрийн жинхэнэ хэлбэр
   if (p.isShape) {
     return new Style({
-      stroke: new Stroke({ color, width: current ? 3 : 1.5, lineDash: current ? undefined : [6, 4] }),
-      fill: new Fill({ color: current ? "rgba(229,57,53,0.08)" : "rgba(0,0,0,0)" }),
+      stroke: new Stroke({
+        color,
+        width: current ? 3 : 1.5,
+        lineDash: current ? undefined : [6, 4],
+      }),
+      fill: new Fill({
+        color: current ? "rgba(229,57,53,0.08)" : "rgba(0,0,0,0)",
+      }),
     });
   }
   return new Style({
     image: new CircleStyle({
       radius: current ? 11 : 7,
-      fill: new Fill({ color: current ? "rgba(229,57,53,0.15)" : "rgba(0,0,0,0)" }),
+      fill: new Fill({
+        color: current ? "rgba(229,57,53,0.15)" : "rgba(0,0,0,0)",
+      }),
       stroke: new Stroke({ color, width: current ? 4 : 2.5 }),
     }),
   });
@@ -187,7 +238,13 @@ function rotatedBox(coords, geom) {
     const ny = dx / len;
     const c = pts[2];
     const h = c ? (c[0] - a[0]) * nx + (c[1] - a[1]) * ny : 0;
-    ring = [a, b, [b[0] + nx * h, b[1] + ny * h], [a[0] + nx * h, a[1] + ny * h], a];
+    ring = [
+      a,
+      b,
+      [b[0] + nx * h, b[1] + ny * h],
+      [a[0] + nx * h, a[1] + ny * h],
+      a,
+    ];
   }
   const g = geom || new Polygon([ring]);
   g.setCoordinates([ring]);
@@ -202,48 +259,112 @@ function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
     setBusy(true);
     try {
       await axiosInstance.post(endpoints.ml.nameRevBatch, {
-        items: [{ kind: item.kind, id: item.id, verdict, name, geoname_id: gid ?? null, pos: item.pos || null }],
+        items: [
+          {
+            kind: item.kind,
+            id: item.id,
+            verdict,
+            name,
+            geoname_id: gid ?? null,
+            pos: item.pos || null,
+          },
+        ],
       });
-      onSaved(verdict === "notname" ? "«Нэр биш» гэж тэмдэглэлээ" : verdict === "later" ? "Шугам/талбай — дараа шалгана" : `Хадгаллаа: ${name}`);
+      onSaved(
+        verdict === "notname"
+          ? "«Нэр биш» гэж тэмдэглэлээ"
+          : verdict === "later"
+            ? "Шугам/талбай — дараа шалгана"
+            : `Хадгаллаа: ${name}`,
+      );
     } catch (e) {
       setBusy(false);
     }
   };
-  const chips = [item.name, item.alt && !item.alt.startsWith("…") ? item.alt : null].filter(Boolean);
+  const chips = [
+    item.name,
+    item.alt && !item.alt.startsWith("…") ? item.alt : null,
+  ].filter(Boolean);
   return (
-    <Paper elevation={6} sx={{ position: "absolute", top: 12, right: 12, zIndex: 20, width: 340, p: 1.5 }}>
+    <Paper
+      elevation={6}
+      sx={{
+        position: "absolute",
+        top: 12,
+        right: 12,
+        zIndex: 20,
+        width: 340,
+        p: 1.5,
+      }}
+    >
       <Stack spacing={1}>
         <Typography variant="subtitle2">
           {isText ? `Бичвэр: «${item.ocr || ""}»` : `Олсон нэр: ${item.name}`}
         </Typography>
         {isText && (
-          <Typography variant="caption" color={item.pos ? "success.main" : "text.secondary"}>
-            {item.pos ? "✓ Байрлал заасан — нэрийг сонгоод хадгал" : "Байрлал: саарал ◇-г тэмдгийн төв рүү чирж заана"}
+          <Typography
+            variant="caption"
+            color={item.pos ? "success.main" : "text.secondary"}
+          >
+            {item.pos
+              ? "✓ Байрлал заасан — нэрийг сонгоод хадгал"
+              : "Байрлал: саарал ◇-г тэмдгийн төв рүү чирж заана"}
           </Typography>
         )}
         {chips.length > 0 && (
           <Stack direction="row" gap={0.5} flexWrap="wrap">
             {chips.map((c) => (
-              <Chip key={c} size="small" label={c} variant={pick?.name === c ? "filled" : "outlined"} color={pick?.name === c ? "success" : "default"} onClick={() => setPick({ name: c, id: null })} />
+              <Chip
+                key={c}
+                size="small"
+                label={c}
+                variant={pick?.name === c ? "filled" : "outlined"}
+                color={pick?.name === c ? "success" : "default"}
+                onClick={() => setPick({ name: c, id: null })}
+              />
             ))}
           </Stack>
         )}
-        <NameSearch tag={tag} initial={isText ? item.ocr || "" : ""} onPick={(c) => setPick(c)} />
+        <NameSearch
+          tag={tag}
+          initial={isText ? item.ocr || "" : ""}
+          onPick={(c) => setPick(c)}
+        />
         {pick && (
           <Typography variant="caption" color="success.main">
             Сонгосон: {pick.name}
           </Typography>
         )}
-        <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
-          <Button size="small" color="inherit" onClick={onClose} disabled={busy}>
+        <Stack
+          direction="row"
+          spacing={1}
+          justifyContent="flex-end"
+          flexWrap="wrap"
+        >
+          <Button
+            size="small"
+            color="inherit"
+            onClick={onClose}
+            disabled={busy}
+          >
             Хаах
           </Button>
           {tag && (
-            <Button size="small" color="inherit" onClick={onSkip} disabled={busy}>
+            <Button
+              size="small"
+              color="inherit"
+              onClick={onSkip}
+              disabled={busy}
+            >
               Алгасах →
             </Button>
           )}
-          <Button size="small" color="inherit" onClick={() => save("notname", null)} disabled={busy}>
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => save("notname", null)}
+            disabled={busy}
+          >
             Нэр биш
           </Button>
           <Button
@@ -256,11 +377,23 @@ function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
             Шугам/талбай
           </Button>
           {!isText && (
-            <Button size="small" variant="outlined" color="success" onClick={() => save("ok", item.name)} disabled={busy}>
+            <Button
+              size="small"
+              variant="outlined"
+              color="success"
+              onClick={() => save("ok", item.name)}
+              disabled={busy}
+            >
               Энэ нэр зөв
             </Button>
           )}
-          <Button size="small" variant="contained" color="success" disabled={busy || !pick} onClick={() => save("fixed", pick.name, pick.id)}>
+          <Button
+            size="small"
+            variant="contained"
+            color="success"
+            disabled={busy || !pick}
+            onClick={() => save("fixed", pick.name, pick.id)}
+          >
             Хадгалах
           </Button>
         </Stack>
@@ -270,8 +403,8 @@ function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
           </Typography>
         )}
         <Typography variant="caption" color="text.secondary">
-          Нэрийг хайх талбарт бичээд жагсаалтаас сонго (жагсаалтад байхгүй бол бүтэн бичээд Enter). Байрлалыг шар
-          цагирагийг чирж засна.
+          Нэрийг хайх талбарт бичээд жагсаалтаас сонго (жагсаалтад байхгүй бол
+          бүтэн бичээд Enter). Байрлалыг шар цагирагийг чирж засна.
         </Typography>
       </Stack>
     </Paper>
@@ -303,6 +436,8 @@ export default function MapMlView() {
   const [showPlaces, setShowPlaces] = useState(true); // загварын олсон цэгэн нэр
   const symLayerRef = useRef(null);
   const [showSyms, setShowSyms] = useState(true); // тэмдэг илрүүлэгчийн олсон тэмдэг
+  const [showRecount, setShowRecount] = useState(true); // тодруулгаар батлагдсан нэр (цэг/шугам/талбай)
+  const recountLayerRef = useRef(null);
   const textLayerRef = useRef(null);
   const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
   const [sumTag, setSumTag] = useState("");
@@ -320,20 +455,37 @@ export default function MapMlView() {
       const ex = [...skippedRef.current].join(",");
       try {
         const { data } = await axiosInstance.get(
-          `${endpoints.ml.nameRevNext}?tag=${encodeURIComponent(sumTagRef.current)}&x=${c[0]}&y=${c[1]}&exclude=${ex}`
+          `${endpoints.ml.nameRevNext}?tag=${encodeURIComponent(sumTagRef.current)}&x=${c[0]}&y=${c[1]}&exclude=${ex}`,
         );
         if (!data.kind) {
           setNameEdit(null);
-          enqueueSnackbar("Энэ сумын бүх нэрийг шалгаж дууслаа", { variant: "success" });
+          enqueueSnackbar("Энэ сумын бүх нэрийг шалгаж дууслаа", {
+            variant: "success",
+          });
           return;
         }
-        map.getView().animate({ center: data.loc, zoom: Math.max(map.getView().getZoom(), 16), duration: 350 });
-        setNameEdit({ kind: data.kind, id: data.ref, name: data.name, ocr: data.ocr, alt: data.alt, pos: null, loc: data.loc, todo: data.todo });
+        map
+          .getView()
+          .animate({
+            center: data.loc,
+            zoom: Math.max(map.getView().getZoom(), 16),
+            duration: 350,
+          });
+        setNameEdit({
+          kind: data.kind,
+          id: data.ref,
+          name: data.name,
+          ocr: data.ocr,
+          alt: data.alt,
+          pos: null,
+          loc: data.loc,
+          todo: data.todo,
+        });
       } catch (e) {
         enqueueSnackbar("Дараагийнхыг ачаалж чадсангүй", { variant: "error" });
       }
     },
-    [enqueueSnackbar]
+    [enqueueSnackbar],
   ); // нэр илрүүлсэн сум — зөвхөн түүний нэр/тэмдгийг харуулна
 
   const [mode, setMode] = useState("select"); // select | box | symbol
@@ -346,11 +498,22 @@ export default function MapMlView() {
   const [zoom, setZoom] = useState(0);
   // review = автомат шошгыг зөв/буруу гэж шалгах (үндсэн), edit = гараар засах
   // ?view=edit&lon=..&lat=..&z=.. — шууд газрын зураг дээр (жишээ: тодруулгагүй сумын туршилтын үр дүн)
-  const qp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const qp =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : null;
   const [view, setView] = useState("names"); // names = нэрийн хүснэгт (цорын ганц хэсэг)
   useEffect(() => {
     const v = new URLSearchParams(window.location.search).get("view");
-    if (v === "edit" || v === "review" || v === "grid" || v === "sym" || v === "pos" || v === "names") setView(v);
+    if (
+      v === "edit" ||
+      v === "review" ||
+      v === "grid" ||
+      v === "sym" ||
+      v === "pos" ||
+      v === "names"
+    )
+      setView(v);
   }, []);
   const [review, setReview] = useState(null);
   const [rstats, setRstats] = useState(null);
@@ -364,10 +527,15 @@ export default function MapMlView() {
 
   const loadStats = useCallback(async () => {
     try {
-      const { data } = await axiosInstance.get(endpoints.ml.taskStats(`batch=${BATCH}`));
+      const { data } = await axiosInstance.get(
+        endpoints.ml.taskStats(`batch=${BATCH}`),
+      );
       setStats(data);
     } catch (e) {
-      enqueueSnackbar(e?.response?.data?.detail || "Статистик ачаалж чадсангүй", { variant: "error" });
+      enqueueSnackbar(
+        e?.response?.data?.detail || "Статистик ачаалж чадсангүй",
+        { variant: "error" },
+      );
     }
   }, [enqueueSnackbar]);
 
@@ -375,7 +543,11 @@ export default function MapMlView() {
     const map = mapRef.current;
     if (!map) return;
     const view = map.getView();
-    const ext = transformExtent(view.calculateExtent(map.getSize()), "EPSG:3857", "EPSG:4326");
+    const ext = transformExtent(
+      view.calculateExtent(map.getSize()),
+      "EPSG:3857",
+      "EPSG:4326",
+    );
     const bbox = ext.map((v) => v.toFixed(6)).join(",");
     try {
       const [tasks, dets] = await Promise.all([
@@ -385,7 +557,9 @@ export default function MapMlView() {
           : Promise.resolve(null),
       ]);
       if (view.getZoom() >= EDIT_ZOOM && placeVecSrcRef.current) {
-        const tq = sumTagRef.current ? `&tag=${encodeURIComponent(sumTagRef.current)}` : "";
+        const tq = sumTagRef.current
+          ? `&tag=${encodeURIComponent(sumTagRef.current)}`
+          : "";
         axiosInstance
           .get(`${endpoints.ml.nameRevInbox}?bbox=${bbox}${tq}`)
           .then(({ data }) => {
@@ -399,8 +573,17 @@ export default function MapMlView() {
       const shapes = tasks.data.features
         .filter((t) => t.properties.shape)
         .map((t) => {
-          const f = geojson.readFeature({ type: "Feature", geometry: t.properties.shape, properties: {} });
-          f.setProperties({ id: t.id, status: t.properties.status, isShape: true, shape: null });
+          const f = geojson.readFeature({
+            type: "Feature",
+            geometry: t.properties.shape,
+            properties: {},
+          });
+          f.setProperties({
+            id: t.id,
+            status: t.properties.status,
+            isShape: true,
+            shape: null,
+          });
           return f;
         });
       taskSrcRef.current.addFeatures([...shapes, ...taskFeats]);
@@ -417,7 +600,10 @@ export default function MapMlView() {
         }
       }
     } catch (e) {
-      enqueueSnackbar(e?.response?.data?.detail || "Давхарга ачаалж чадсангүй", { variant: "error" });
+      enqueueSnackbar(
+        e?.response?.data?.detail || "Давхарга ачаалж чадсангүй",
+        { variant: "error" },
+      );
     }
   }, [enqueueSnackbar]);
 
@@ -428,7 +614,13 @@ export default function MapMlView() {
   const goTo = useCallback((feature) => {
     if (!feature || !mapRef.current) return;
     const [lon, lat] = feature.geometry.coordinates;
-    mapRef.current.getView().animate({ center: fromLonLat([lon, lat]), zoom: TASK_ZOOM, duration: 400 });
+    mapRef.current
+      .getView()
+      .animate({
+        center: fromLonLat([lon, lat]),
+        zoom: TASK_ZOOM,
+        duration: 400,
+      });
   }, []);
 
   const nextTask = useCallback(
@@ -438,9 +630,13 @@ export default function MapMlView() {
         const { data } = await axiosInstance.get(endpoints.ml.taskNext(q));
         setTask(data);
         if (data && viewRef.current === "edit") goTo(data);
-        else enqueueSnackbar("Шошголох даалгавар дууссан", { variant: "success" });
+        else
+          enqueueSnackbar("Шошголох даалгавар дууссан", { variant: "success" });
       } catch (e) {
-        enqueueSnackbar(e?.response?.data?.detail || "Даалгавар ачаалж чадсангүй", { variant: "error" });
+        enqueueSnackbar(
+          e?.response?.data?.detail || "Даалгавар ачаалж чадсангүй",
+          { variant: "error" },
+        );
       }
     },
     [enqueueSnackbar, goTo],
@@ -448,7 +644,11 @@ export default function MapMlView() {
 
   const viewBbox = () => {
     const map = mapRef.current;
-    const ext = transformExtent(map.getView().calculateExtent(map.getSize()), "EPSG:3857", "EPSG:4326");
+    const ext = transformExtent(
+      map.getView().calculateExtent(map.getSize()),
+      "EPSG:3857",
+      "EPSG:4326",
+    );
     return ext.map((v) => v.toFixed(6)).join(",");
   };
 
@@ -457,16 +657,27 @@ export default function MapMlView() {
       if (!task) return;
       try {
         // «Дууссан» = дэлгэцэн дээрх бүх бичвэрийг шалгасан → үлдсэн загварын хүрээг баталгаажуулна
-        if (status === "done" && mapRef.current && mapRef.current.getView().getZoom() >= EDIT_ZOOM) {
-          const { data } = await axiosInstance.post(endpoints.ml.confirmArea, { bbox: viewBbox() });
-          if (data?.confirmed) enqueueSnackbar(`${data.confirmed} хүрээ баталгаажлаа`, { variant: "success" });
+        if (
+          status === "done" &&
+          mapRef.current &&
+          mapRef.current.getView().getZoom() >= EDIT_ZOOM
+        ) {
+          const { data } = await axiosInstance.post(endpoints.ml.confirmArea, {
+            bbox: viewBbox(),
+          });
+          if (data?.confirmed)
+            enqueueSnackbar(`${data.confirmed} хүрээ баталгаажлаа`, {
+              variant: "success",
+            });
           refreshWms();
         }
         await axiosInstance.patch(endpoints.ml.taskItem(task.id), { status });
         await loadStats();
         nextTask(task.id);
       } catch (e) {
-        enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", { variant: "error" });
+        enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", {
+          variant: "error",
+        });
       }
     },
     [task, loadStats, nextTask, enqueueSnackbar, refreshWms],
@@ -477,7 +688,10 @@ export default function MapMlView() {
   const saveFeature = useCallback(
     async (feature, patch) => {
       try {
-        const { data } = await axiosInstance.patch(endpoints.ml.detectionItem(feature.getId()), patch);
+        const { data } = await axiosInstance.patch(
+          endpoints.ml.detectionItem(feature.getId()),
+          patch,
+        );
         feature.setProperties(data.properties);
         feature.changed();
         setSelProps({ ...data.properties });
@@ -485,7 +699,9 @@ export default function MapMlView() {
         refreshWms();
         loadStats();
       } catch (e) {
-        enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", { variant: "error" });
+        enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", {
+          variant: "error",
+        });
       }
     },
     [enqueueSnackbar, refreshWms, loadStats],
@@ -537,7 +753,10 @@ export default function MapMlView() {
   const confirmSelected = useCallback(async () => {
     if (!selected) return;
     await saveFeature(selected, { status: "confirmed" });
-    enqueueSnackbar("Баталгаажлаа", { variant: "success", autoHideDuration: 1200 });
+    enqueueSnackbar("Баталгаажлаа", {
+      variant: "success",
+      autoHideDuration: 1200,
+    });
     clearSelection();
   }, [selected, saveFeature, enqueueSnackbar, clearSelection]);
 
@@ -551,7 +770,9 @@ export default function MapMlView() {
       refreshWms();
       loadStats();
     } catch (e) {
-      enqueueSnackbar(e?.response?.data?.detail || "Устгаж чадсангүй", { variant: "error" });
+      enqueueSnackbar(e?.response?.data?.detail || "Устгаж чадсангүй", {
+        variant: "error",
+      });
     }
   }, [selected, refreshWms, loadStats, enqueueSnackbar]);
 
@@ -562,25 +783,40 @@ export default function MapMlView() {
       const { data } = await axiosInstance.get(endpoints.ml.reviewStats);
       setRstats(data);
     } catch (e) {
-      enqueueSnackbar(e?.response?.data?.detail || "Статистик ачаалж чадсангүй", { variant: "error" });
+      enqueueSnackbar(
+        e?.response?.data?.detail || "Статистик ачаалж чадсангүй",
+        { variant: "error" },
+      );
     }
   }, [enqueueSnackbar]);
 
   const loadReview = useCallback(
     async (skip) => {
       try {
-        const { data } = await axiosInstance.get(endpoints.ml.reviewNext(skip ? `skip=${skip}` : ""));
+        const { data } = await axiosInstance.get(
+          endpoints.ml.reviewNext(skip ? `skip=${skip}` : ""),
+        );
         setReview(data);
         const src = reviewSrcRef.current;
         src?.clear();
         if (!data) {
-          enqueueSnackbar("Шалгах автомат шошго дууссан", { variant: "success" });
+          enqueueSnackbar("Шалгах автомат шошго дууссан", {
+            variant: "success",
+          });
           return;
         }
         src.addFeatures(geojson.readFeatures(data.boxes));
-        mapRef.current?.getView().fit(src.getExtent(), { padding: [160, 160, 160, 160], maxZoom: 17, duration: 300 });
+        mapRef.current
+          ?.getView()
+          .fit(src.getExtent(), {
+            padding: [160, 160, 160, 160],
+            maxZoom: 17,
+            duration: 300,
+          });
       } catch (e) {
-        enqueueSnackbar(e?.response?.data?.detail || "Ачаалж чадсангүй", { variant: "error" });
+        enqueueSnackbar(e?.response?.data?.detail || "Ачаалж чадсангүй", {
+          variant: "error",
+        });
       }
     },
     [enqueueSnackbar],
@@ -590,12 +826,16 @@ export default function MapMlView() {
     async (ok) => {
       if (!review) return;
       try {
-        await axiosInstance.put(endpoints.ml.reviewItem(review.recount_id), { ok });
+        await axiosInstance.put(endpoints.ml.reviewItem(review.recount_id), {
+          ok,
+        });
         loadRstats();
         refreshWms();
         loadReview();
       } catch (e) {
-        enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", { variant: "error" });
+        enqueueSnackbar(e?.response?.data?.detail || "Хадгалж чадсангүй", {
+          variant: "error",
+        });
       }
     },
     [review, loadRstats, refreshWms, loadReview, enqueueSnackbar],
@@ -641,7 +881,14 @@ export default function MapMlView() {
       source: new TileWMS({
         url: `${GEOSERVER}/geoname/wms`,
         // BUFFER: хөрш тайлын захад байгаа цэгийн нэрийг ч зурна (томруулахад нэр алга болохоос сэргийлнэ)
-        params: { LAYERS: "geoname:nameqc_place", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1", BUFFER: 256 },
+        params: {
+          LAYERS: "geoname:nameqc_place",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          TILED: "true",
+          VERSION: "1.1.1",
+          BUFFER: 256,
+        },
         serverType: "geoserver",
         crossOrigin: "anonymous",
       }),
@@ -653,7 +900,14 @@ export default function MapMlView() {
       zIndex: 88,
       source: new TileWMS({
         url: `${GEOSERVER}/geoname/wms`,
-        params: { LAYERS: "geoname:nameqc_text", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1", BUFFER: 256 },
+        params: {
+          LAYERS: "geoname:nameqc_text",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          TILED: "true",
+          VERSION: "1.1.1",
+          BUFFER: 256,
+        },
         serverType: "geoserver",
         crossOrigin: "anonymous",
       }),
@@ -664,7 +918,13 @@ export default function MapMlView() {
       zIndex: 85,
       source: new TileWMS({
         url: `${GEOSERVER}/geoname/wms`,
-        params: { LAYERS: "geoname:nameqc_symbol", FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1" },
+        params: {
+          LAYERS: "geoname:nameqc_symbol",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          TILED: "true",
+          VERSION: "1.1.1",
+        },
         serverType: "geoserver",
         crossOrigin: "anonymous",
       }),
@@ -677,7 +937,9 @@ export default function MapMlView() {
       zIndex: 60,
       minZoom: EDIT_ZOOM,
       style: (f) =>
-        namesOnlyRef.current && f.get("cls") !== "name" ? null : detStyle(f, false, currentRef.current?.id),
+        namesOnlyRef.current && f.get("cls") !== "name"
+          ? null
+          : detStyle(f, false, currentRef.current?.id),
     });
 
     const taskSrc = new VectorSource();
@@ -711,9 +973,21 @@ export default function MapMlView() {
 
     const map = new Map({
       target: elRef.current,
-      layers: [...baseLayers, wms, detLayer, taskLayer, reviewLayer, symLayer, textLayer, placeLayer],
+      layers: [
+        ...baseLayers,
+        wms,
+        detLayer,
+        taskLayer,
+        reviewLayer,
+        symLayer,
+        textLayer,
+        placeLayer,
+      ],
       view: new View({
-        center: fromLonLat([Number(qp?.get("lon")) || 113.5, Number(qp?.get("lat")) || 46.3]),
+        center: fromLonLat([
+          Number(qp?.get("lon")) || 113.5,
+          Number(qp?.get("lat")) || 46.3,
+        ]),
         zoom: Number(qp?.get("z")) || 8,
         maxZoom: 19,
       }),
@@ -730,8 +1004,16 @@ export default function MapMlView() {
     detLayerRef.current = detLayer;
     // Засах горимд хүрээн дээр нэг дарах = даалгаврын нэрд холбох/салгах (Shift+дарах = зөвхөн сонгох)
     map.on("singleclick", (e) => {
-      if (viewRef.current !== "edit" || modeRef.current !== "select" || e.originalEvent.shiftKey) return;
-      const f = map.forEachFeatureAtPixel(e.pixel, (x) => x, { layerFilter: (l) => l === detLayer, hitTolerance: 4 });
+      if (
+        viewRef.current !== "edit" ||
+        modeRef.current !== "select" ||
+        e.originalEvent.shiftKey
+      )
+        return;
+      const f = map.forEachFeatureAtPixel(e.pixel, (x) => x, {
+        layerFilter: (l) => l === detLayer,
+        hitTolerance: 4,
+      });
       if (f) linkRef.current?.(f);
     });
     select.on("select", () => {
@@ -752,7 +1034,9 @@ export default function MapMlView() {
           setSelProps({ ...data.properties });
           wms.getSource().updateParams({ _t: Date.now() });
         })
-        .catch(() => enqueueSnackbar("Геометр хадгалж чадсангүй", { variant: "error" }));
+        .catch(() =>
+          enqueueSnackbar("Геометр хадгалж чадсангүй", { variant: "error" }),
+        );
     };
     modify.on("modifyend", onGeomEdit);
     translate.on("translateend", onGeomEdit);
@@ -760,10 +1044,76 @@ export default function MapMlView() {
     map.addInteraction(modify);
     map.addInteraction(translate);
 
+    // Тодруулгаар (Recount) батлагдсан нэр — жинхэнэ геометрээр: талбай (нуур) цэнхэр, шугам (ам, гол) ягаан, цэг ногоон
+    const rcSrc = new VectorSource({
+      strategy: bboxStrategy,
+      loader: (extent, _res, _proj, success, failure) => {
+        const e = transformExtent(extent, "EPSG:3857", "EPSG:4326").map((v) =>
+          v.toFixed(5),
+        );
+        axiosInstance
+          .get(endpoints.ml.taskRecount(e.join(",")))
+          .then(({ data }) => {
+            const fs = new GeoJSON().readFeatures(data, {
+              featureProjection: "EPSG:3857",
+            });
+            rcSrc.addFeatures(fs);
+            success(fs);
+          })
+          .catch(() => failure());
+      },
+    });
+    const RC_COL = { Талбай: "#0277bd", Шугам: "#8e24aa", Цэг: "#2e7d32" };
+    const rcLayer = new VectorLayer({
+      source: rcSrc,
+      zIndex: 90,
+      minZoom: 10,
+      declutter: true,
+      style: (f) => {
+        const form = f.get("form") || "Цэг";
+        const col = RC_COL[form] || RC_COL.Цэг;
+        const text = new Text({
+          text: f.get("name") || "",
+          font: "bold 12px sans-serif",
+          fill: new Fill({ color: col }),
+          stroke: new Stroke({ color: "rgba(255,255,255,0.9)", width: 3 }),
+          offsetY: form === "Цэг" ? -14 : 0,
+          placement: form === "Шугам" ? "line" : "point",
+          overflow: true,
+        });
+        if (form === "Талбай")
+          return new Style({
+            fill: new Fill({ color: "rgba(2,119,189,0.15)" }),
+            stroke: new Stroke({ color: col, width: 2 }),
+            text,
+          });
+        if (form === "Шугам")
+          return new Style({
+            stroke: new Stroke({ color: col, width: 3, lineDash: [8, 5] }),
+            text,
+          });
+        return new Style({
+          image: new CircleStyle({
+            radius: 6,
+            fill: new Fill({ color: "#fff" }),
+            stroke: new Stroke({ color: col, width: 3 }),
+          }),
+          text,
+        });
+      },
+    });
+    recountLayerRef.current = rcLayer;
+    map.addLayer(rcLayer);
+
     // Олсон нэрийн байрлалыг чирж засах (зум ≥ EDIT_ZOOM): шар цагираг → зөв тэмдгийн төв рүү чирнэ
     const placeVecSrc = new VectorSource();
     placeVecSrcRef.current = placeVecSrc;
-    const placeVec = new VectorLayer({ source: placeVecSrc, zIndex: 95, minZoom: EDIT_ZOOM, style: placeHandle });
+    const placeVec = new VectorLayer({
+      source: placeVecSrc,
+      zIndex: 95,
+      minZoom: EDIT_ZOOM,
+      style: placeHandle,
+    });
     placeVecRef.current = placeVec;
     map.addLayer(placeVec);
     const ptranslate = new Translate({ layers: [placeVec], hitTolerance: 6 });
@@ -774,21 +1124,40 @@ export default function MapMlView() {
       if (f.get("kind") === "text") {
         // нэр болоогүй бичвэр: байрлал заасан → нэрийг нь сонгуулна (хадгалахад шинэ нэр энэ цэг дээр үүснэ)
         f.set("moved", true);
-        setNameEdit({ kind: "text", id: f.get("ref"), name: f.get("name"), ocr: f.get("ocr"), alt: null, pos: [x, y], loc: [x, y] });
+        setNameEdit({
+          kind: "text",
+          id: f.get("ref"),
+          name: f.get("name"),
+          ocr: f.get("ocr"),
+          alt: null,
+          pos: [x, y],
+          loc: [x, y],
+        });
         return;
       }
       axiosInstance
-        .post(endpoints.ml.nameRevBatch, { items: [{ kind: "place", id: f.get("ref"), verdict: "pos", pos: [x, y] }] })
+        .post(endpoints.ml.nameRevBatch, {
+          items: [
+            { kind: "place", id: f.get("ref"), verdict: "pos", pos: [x, y] },
+          ],
+        })
         .then(() => {
-          enqueueSnackbar(`Байрлал хадгалсан: ${f.get("name")}`, { variant: "success" });
+          enqueueSnackbar(`Байрлал хадгалсан: ${f.get("name")}`, {
+            variant: "success",
+          });
           placeLayerRef.current?.getSource().updateParams({ _t: Date.now() });
         })
-        .catch(() => enqueueSnackbar("Байрлал хадгалж чадсангүй", { variant: "error" }));
+        .catch(() =>
+          enqueueSnackbar("Байрлал хадгалж чадсангүй", { variant: "error" }),
+        );
     });
     map.addInteraction(ptranslate);
     // нэр засах: шар цагираг / саарал бичвэр дээр дарахад засах цонх
     map.on("singleclick", (e) => {
-      const f = map.forEachFeatureAtPixel(e.pixel, (x) => x, { layerFilter: (l) => l === placeVec, hitTolerance: 6 });
+      const f = map.forEachFeatureAtPixel(e.pixel, (x) => x, {
+        layerFilter: (l) => l === placeVec,
+        hitTolerance: 6,
+      });
       if (f) {
         setNameEdit({
           kind: f.get("kind"),
@@ -830,7 +1199,12 @@ export default function MapMlView() {
 
     const draw =
       mode === "box"
-        ? new Draw({ source: new VectorSource(), type: "LineString", maxPoints: 3, geometryFunction: rotatedBox })
+        ? new Draw({
+            source: new VectorSource(),
+            type: "LineString",
+            maxPoints: 3,
+            geometryFunction: rotatedBox,
+          })
         : new Draw({ source: new VectorSource(), type: "Point" });
     draw.on("drawend", async (e) => {
       const cur = currentRef.current;
@@ -842,7 +1216,10 @@ export default function MapMlView() {
         ...(cur ? { recount_id: cur.id } : {}),
       };
       try {
-        const { data } = await axiosInstance.post(endpoints.ml.detection(""), body);
+        const { data } = await axiosInstance.post(
+          endpoints.ml.detection(""),
+          body,
+        );
         const f = geojson.readFeature(data);
         detSrcRef.current.addFeature(f);
         refreshWms();
@@ -855,7 +1232,9 @@ export default function MapMlView() {
           setText("");
         }, 0);
       } catch (err) {
-        enqueueSnackbar(err?.response?.data?.detail || "Хадгалж чадсангүй", { variant: "error" });
+        enqueueSnackbar(err?.response?.data?.detail || "Хадгалж чадсангүй", {
+          variant: "error",
+        });
       }
     });
     map.addInteraction(draw);
@@ -882,7 +1261,9 @@ export default function MapMlView() {
   useEffect(() => {
     namesOnlyRef.current = namesOnly;
     detLayerRef.current?.changed();
-    wmsRef.current?.getSource().updateParams({ CQL_FILTER: namesOnly ? "cls='name'" : undefined });
+    wmsRef.current
+      ?.getSource()
+      .updateParams({ CQL_FILTER: namesOnly ? "cls='name'" : undefined });
   }, [namesOnly]);
   useEffect(() => {
     placeLayerRef.current?.setVisible(showPlaces);
@@ -894,21 +1275,36 @@ export default function MapMlView() {
   useEffect(() => {
     sumTagRef.current = sumTag;
     const cql = sumTag ? `tag='${sumTag}'` : undefined;
-    [placeLayerRef.current, symLayerRef.current, textLayerRef.current].forEach((l) => l?.getSource().updateParams({ CQL_FILTER: cql }));
+    [placeLayerRef.current, symLayerRef.current, textLayerRef.current].forEach(
+      (l) => l?.getSource().updateParams({ CQL_FILTER: cql }),
+    );
     const s = SUMS.find((x) => x.tag === sumTag);
     if (s && mapRef.current) {
-      mapRef.current.getView().animate({ center: fromLonLat([s.lon, s.lat]), zoom: 10, duration: 400 });
+      mapRef.current
+        .getView()
+        .animate({
+          center: fromLonLat([s.lon, s.lat]),
+          zoom: 10,
+          duration: 400,
+        });
     }
   }, [sumTag]);
   useEffect(() => {
     symLayerRef.current?.setVisible(showSyms);
   }, [showSyms]);
+  useEffect(() => {
+    recountLayerRef.current?.setVisible(showRecount);
+  }, [showRecount]);
 
   // Даалгаврын нэрийн үг бүр холбогдсон хүрээнд байгаа эсэх (✓/✗) + илүү/давхар холболтын анхааруулга.
   // linkTick нь хүрээ хадгалах/ачаалах бүрт дахин тооцоолуулна.
   const check = (() => {
     if (!task || linkTick < 0) return { words: [], extra: [], dup: [] };
-    const norm = (t) => (t || "").toLowerCase().replace(/[^\p{L}\d]+/gu, " ").trim();
+    const norm = (t) =>
+      (t || "")
+        .toLowerCase()
+        .replace(/[^\p{L}\d]+/gu, " ")
+        .trim();
     const pre = (x, y) => {
       let i = 0;
       while (i < x.length && i < y.length && x[i] === y[i]) i += 1;
@@ -919,7 +1315,9 @@ export default function MapMlView() {
     const extra = [];
     let blank = 0;
     (detSrcRef.current?.getFeatures() || [])
-      .filter((f) => f.get("recount_id") === task.id && f.get("kind") === "text")
+      .filter(
+        (f) => f.get("recount_id") === task.id && f.get("kind") === "text",
+      )
       .forEach((f) => {
         const toks = norm(f.get("text")).split(" ").filter(Boolean);
         if (!toks.length) {
@@ -945,11 +1343,30 @@ export default function MapMlView() {
   // Гарын товч
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
-      if (view === "grid" || view === "sym" || view === "pos" || view === "names") return; // ReviewGrid / SymGrid өөрөө Enter-ийг барина
+      if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA")
+        return;
+      if (
+        view === "grid" ||
+        view === "sym" ||
+        view === "pos" ||
+        view === "names"
+      )
+        return; // ReviewGrid / SymGrid өөрөө Enter-ийг барина
       if (view === "review") {
-        if (e.key === "y" || e.key === "Y" || e.key === "Enter" || e.key === "ArrowRight") answerReview(true);
-        else if (e.key === "x" || e.key === "X" || e.key === "Backspace" || e.key === "Delete") answerReview(false);
+        if (
+          e.key === "y" ||
+          e.key === "Y" ||
+          e.key === "Enter" ||
+          e.key === "ArrowRight"
+        )
+          answerReview(true);
+        else if (
+          e.key === "x" ||
+          e.key === "X" ||
+          e.key === "Backspace" ||
+          e.key === "Delete"
+        )
+          answerReview(false);
         else if (e.key === " ") {
           e.preventDefault();
           loadReview(review?.recount_id);
@@ -971,7 +1388,19 @@ export default function MapMlView() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setCls, rejectSelected, toggleLink, confirmSelected, clearSelection, selected, finishTask, view, answerReview, loadReview, review]);
+  }, [
+    setCls,
+    rejectSelected,
+    toggleLink,
+    confirmSelected,
+    clearSelection,
+    selected,
+    finishTask,
+    view,
+    answerReview,
+    loadReview,
+    review,
+  ]);
 
   // Шалгах горимд орох/гарах
   useEffect(() => {
@@ -979,7 +1408,12 @@ export default function MapMlView() {
       setMode("select");
       loadRstats();
       if (mapRef.current) loadReview();
-    } else if (view === "grid" || view === "sym" || view === "pos" || view === "names") {
+    } else if (
+      view === "grid" ||
+      view === "sym" ||
+      view === "pos" ||
+      view === "names"
+    ) {
       setMode("select");
       loadRstats();
       reviewSrcRef.current?.clear();
@@ -994,10 +1428,19 @@ export default function MapMlView() {
 
   // ---------------------------------------------------------------- UI
 
-  const pct = stats?.total ? Math.round(((stats.done + stats.skip) / stats.total) * 100) : 0;
+  const pct = stats?.total
+    ? Math.round(((stats.done + stats.skip) / stats.total) * 100)
+    : 0;
 
   return (
-    <Box sx={{ display: "flex", height: "100dvh", width: "100%", overflow: "hidden" }}>
+    <Box
+      sx={{
+        display: "flex",
+        height: "100dvh",
+        width: "100%",
+        overflow: "hidden",
+      }}
+    >
       <Box sx={{ flex: 1, position: "relative" }}>
         <Box ref={elRef} sx={{ position: "absolute", inset: 0 }} />
         {nameEdit && (
@@ -1014,9 +1457,14 @@ export default function MapMlView() {
               const from = nameEdit.loc;
               setNameEdit(null);
               enqueueSnackbar(msg, { variant: "success" });
-              placeLayerRef.current?.getSource().updateParams({ _t: Date.now() });
-              textLayerRef.current?.getSource().updateParams({ _t: Date.now() });
-              if (sumTagRef.current) goNext(from); // засмагц дараагийнх руу
+              placeLayerRef.current
+                ?.getSource()
+                .updateParams({ _t: Date.now() });
+              textLayerRef.current
+                ?.getSource()
+                .updateParams({ _t: Date.now() });
+              if (sumTagRef.current)
+                goNext(from); // засмагц дараагийнх руу
               else reloadVectors();
             }}
           />
@@ -1025,19 +1473,44 @@ export default function MapMlView() {
         {view === "sym" && <SymGrid />}
         {view === "pos" && <PlaceGrid />}
         {view === "names" && <NameGrid tag={sumTag} />}
-        {view !== "grid" && view !== "sym" && view !== "pos" && view !== "names" && zoom < EDIT_ZOOM && (
-          <Chip
-            size="small"
-            color="info"
-            label={`Засахын тулд ойртуулна уу (зум ${EDIT_ZOOM}+)`}
-            sx={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)" }}
-          />
-        )}
+        {view !== "grid" &&
+          view !== "sym" &&
+          view !== "pos" &&
+          view !== "names" &&
+          zoom < EDIT_ZOOM && (
+            <Chip
+              size="small"
+              color="info"
+              label={`Засахын тулд ойртуулна уу (зум ${EDIT_ZOOM}+)`}
+              sx={{
+                position: "absolute",
+                top: 12,
+                left: "50%",
+                transform: "translateX(-50%)",
+              }}
+            />
+          )}
       </Box>
 
-      <Paper square elevation={3} sx={{ width: 340, p: 2, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1.5 }}>
+      <Paper
+        square
+        elevation={3}
+        sx={{
+          width: 340,
+          p: 2,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 1.5,
+        }}
+      >
         <Stack direction="row" alignItems="center" spacing={1}>
-          <Button component={RouterLink} href="/dashboard/map" size="small" startIcon={<Iconify icon="eva:arrow-back-fill" />}>
+          <Button
+            component={RouterLink}
+            href="/dashboard/map"
+            size="small"
+            startIcon={<Iconify icon="eva:arrow-back-fill" />}
+          >
             Газрын зураг
           </Button>
           <Typography variant="subtitle1" sx={{ flex: 1, textAlign: "right" }}>
@@ -1050,8 +1523,8 @@ export default function MapMlView() {
 
         {view === "grid" && rstats && (
           <Typography variant="caption" color="text.secondary" component="div">
-            Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo} үлдсэн · машин өөрөө баталсан{" "}
-            {rstats.self || 0}
+            Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo}{" "}
+            үлдсэн · машин өөрөө баталсан {rstats.self || 0}
             {rstats.ok + rstats.bad > 0 &&
               ` · нарийвчлал ${Math.round((100 * rstats.ok) / (rstats.ok + rstats.bad))}%`}
           </Typography>
@@ -1060,9 +1533,13 @@ export default function MapMlView() {
         {view === "review" && (
           <Box>
             {rstats && (
-              <Typography variant="caption" color="text.secondary" component="div">
-                Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo} үлдсэн · машин өөрөө баталсан{" "}
-                {rstats.self || 0}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                component="div"
+              >
+                Шалгасан: {rstats.ok} зөв · {rstats.bad} буруу · {rstats.todo}{" "}
+                үлдсэн · машин өөрөө баталсан {rstats.self || 0}
                 {rstats.ok + rstats.bad > 0 &&
                   ` · нарийвчлал ${Math.round((100 * rstats.ok) / (rstats.ok + rstats.bad))}%`}
               </Typography>
@@ -1075,23 +1552,53 @@ export default function MapMlView() {
                 <Typography variant="h5" sx={{ mb: 1 }}>
                   {review.name}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Шар хүрээнд энэ нэр бичигдсэн үү? (машины олсон: {review.boxes.features.map((f) => f.properties.text).join(" / ")})
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2 }}
+                >
+                  Шар хүрээнд энэ нэр бичигдсэн үү? (машины олсон:{" "}
+                  {review.boxes.features
+                    .map((f) => f.properties.text)
+                    .join(" / ")}
+                  )
                 </Typography>
                 <Stack direction="row" spacing={1.5}>
-                  <Button fullWidth size="large" variant="contained" color="success" onClick={() => answerReview(true)}>
+                  <Button
+                    fullWidth
+                    size="large"
+                    variant="contained"
+                    color="success"
+                    onClick={() => answerReview(true)}
+                  >
                     ✓ Зөв
                   </Button>
-                  <Button fullWidth size="large" variant="contained" color="error" onClick={() => answerReview(false)}>
+                  <Button
+                    fullWidth
+                    size="large"
+                    variant="contained"
+                    color="error"
+                    onClick={() => answerReview(false)}
+                  >
                     ✗ Буруу
                   </Button>
                 </Stack>
-                <Button fullWidth size="small" sx={{ mt: 1 }} onClick={() => loadReview(review.recount_id)}>
+                <Button
+                  fullWidth
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={() => loadReview(review.recount_id)}
+                >
                   Мэдэхгүй, алгасах
                 </Button>
-                <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 2 }}>
-                  Товч: Y / Enter / → зөв · X / ⌫ буруу · Зай алгасах. Хүрээ нэрийн зарим хэсгийг л хамарсан ч нэр
-                  нь зөв бол «Зөв».
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  component="div"
+                  sx={{ mt: 2 }}
+                >
+                  Товч: Y / Enter / → зөв · X / ⌫ буруу · Зай алгасах. Хүрээ
+                  нэрийн зарим хэсгийг л хамарсан ч нэр нь зөв бол «Зөв».
                 </Typography>
               </Box>
             ) : (
@@ -1103,164 +1610,236 @@ export default function MapMlView() {
         )}
 
         {view === "edit" && (
-        <>
-        {stats && (
-          <Box>
-            <Stack direction="row" justifyContent="space-between">
-              <Typography variant="caption">
-                Даалгавар: {stats.done} дууссан · {stats.skip} алгассан · {stats.todo} үлдсэн
-              </Typography>
-              <Typography variant="caption">{pct}%</Typography>
-            </Stack>
-            <LinearProgress variant="determinate" value={pct} sx={{ mt: 0.5 }} />
-            <Typography variant="caption" color="text.secondary">
-              Хүрээ: {stats.detections?.confirmed || 0} баталгаажсан · {stats.detections?.pending || 0} хүлээгдэж буй ·{" "}
-              {stats.detections?.rejected || 0} татгалзсан
-            </Typography>
-          </Box>
-        )}
-
-        <Divider />
-
-        <Box>
-          <Typography variant="overline" color="text.secondary">
-            Одоогийн даалгавар
-          </Typography>
-          {task ? (
-            <>
-              <Typography variant="h6">{task.properties.name}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                {task.properties.type || "—"} · #{task.id}
-              </Typography>
-              <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mt: 1 }}>
-                {check.words.map((x, i) => (
-                  <Chip
-                    // eslint-disable-next-line react/no-array-index-key
-                    key={i}
-                    size="small"
-                    label={`${x.ok ? "✓" : "✗"} ${x.w}`}
-                    color={x.ok ? "success" : "default"}
-                    variant={x.ok ? "filled" : "outlined"}
-                  />
-                ))}
-              </Stack>
-              {check.dup.length > 0 && (
-                <Typography variant="caption" color="error.main" component="div">
-                  «{check.dup.join(", ")}» хоёр удаа холбогдсон — хажуудах өөр нэрийнхийг дарж салга.
+          <>
+            {stats && (
+              <Box>
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="caption">
+                    Даалгавар: {stats.done} дууссан · {stats.skip} алгассан ·{" "}
+                    {stats.todo} үлдсэн
+                  </Typography>
+                  <Typography variant="caption">{pct}%</Typography>
+                </Stack>
+                <LinearProgress
+                  variant="determinate"
+                  value={pct}
+                  sx={{ mt: 0.5 }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Хүрээ: {stats.detections?.confirmed || 0} баталгаажсан ·{" "}
+                  {stats.detections?.pending || 0} хүлээгдэж буй ·{" "}
+                  {stats.detections?.rejected || 0} татгалзсан
                 </Typography>
-              )}
-              {check.extra.length > 0 && (
-                <Typography variant="caption" color="warning.main" component="div">
-                  Нэрэнд үл хамаарах байж магадгүй: {check.extra.join(", ")} — нэрийн хэсэг биш бол дарж салга.
-                </Typography>
-              )}
-              {task.properties.shape && (
-                <Typography variant="caption" color="error.main" component="div">
-                  {task.properties.shape.type.includes("Line") ? "Шугаман" : "Талбайн"} нэр — улаан шугам/хүрээний дагуу,
-                  ихэвчлэн тэмдэггүй. Хэлбэрийн дагуух нэрийн мөр бүрийг хүрээлээд T. Цэг (S) тэмдэглэх шаардлагагүй.
-                </Typography>
-              )}
-              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                <Tooltip title="Нэрийн үгс бүгд ✓ бол (N)">
-                  <Button variant="contained" size="small" onClick={() => finishTask("done")}>
-                    ✓ Зөв, дараах (N)
-                  </Button>
-                </Tooltip>
-                <Tooltip title="Нэр харагдахгүй, эргэлзээтэй, хэцүү бол — дараа нь гараар">
-                  <Button size="small" onClick={() => finishTask("skip")}>
-                    Алгасах
-                  </Button>
-                </Tooltip>
-                <Tooltip title="Цэг рүү буцах">
-                  <Button size="small" onClick={() => goTo(task)}>
-                    <Iconify icon="mdi:crosshairs-gps" />
-                  </Button>
-                </Tooltip>
-              </Stack>
-            </>
-          ) : (
-            <Typography variant="body2">Даалгавар алга</Typography>
-          )}
-        </Box>
-
-        <Divider />
-
-        <Box sx={{ bgcolor: "action.hover", borderRadius: 1, p: 1.25 }}>
-          <Typography variant="body2" component="div">
-            <b>1.</b> Нэрийн үг бүр дээр <b>дар</b> → тод улаан ✓ болно. Буруу бол дахин дарж салга.
-            <br />
-            <b>2.</b> Үг хүрээгүй бол <b>B</b> дараад хүрээл (өөрөө холбогдоно).
-            <br />
-            <b>3.</b> Дээрх үгс бүгд ✓ бол <b>N</b>. Эргэлзвэл «Алгасах».
-          </Typography>
-          <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>
-            Бичвэрийн алдаа, хүрээ бага зэрэг өргөн, тойрог тэмдгээс зөрсөн — эдгээрийг тоохгүй.
-          </Typography>
-        </Box>
-
-        <ToggleButtonGroup size="small" exclusive fullWidth value={mode} onChange={(e, v) => v && setMode(v)}>
-          <ToggleButton value="select">Сонгох</ToggleButton>
-          <ToggleButton value="box">Хүрээ (B)</ToggleButton>
-          <ToggleButton value="symbol">Тэмдэг (S)</ToggleButton>
-        </ToggleButtonGroup>
-        {mode === "box" && (
-          <Typography variant="caption" color="text.secondary">
-            Бичвэрийн доод шугамын эхэнд, төгсгөлд нь товшоод, 3 дахь товшилтоор өндрийг заана. Нэг мөр = нэг хүрээ (сийрэг үсэгтэй ч). Олон мөртэй нэрийн мөр бүрийг тусад нь.
-          </Typography>
-        )}
-
-        <Button size="small" color="inherit" onClick={() => setShowAdv((v) => !v)} sx={{ alignSelf: "flex-start" }}>
-          {showAdv ? "▾ Нарийвчилсан засвар нуух" : "▸ Нарийвчилсан засвар (ангилал, бичвэр, устгах)"}
-        </Button>
-
-        {showAdv && selected && selProps && (
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              Сонгосон {selProps.kind === "symbol" ? "тэмдэг" : "хүрээ"} #{selProps.id} · {selProps.status} · {selProps.source}
-            </Typography>
-            {selProps.kind === "text" && (
-              <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ my: 1 }}>
-                {CLASSES.filter((c) => c.key !== "unknown").map((c) => (
-                  <Chip
-                    key={c.key}
-                    label={`${c.hot} ${c.label}`}
-                    onClick={() => setCls(c.key)}
-                    variant={selProps.cls === c.key ? "filled" : "outlined"}
-                    sx={{
-                      borderColor: c.color,
-                      color: selProps.cls === c.key ? "#fff" : c.color,
-                      bgcolor: selProps.cls === c.key ? c.color : "transparent",
-                    }}
-                  />
-                ))}
-              </Stack>
+              </Box>
             )}
-            <TextField
-              fullWidth
-              size="small"
-              label="Бичвэр (заавал биш — зөвхөн өөр бичигдсэн бол)"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onBlur={() => text !== (selProps.text || "") && saveFeature(selected, { text })}
-              onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
-            />
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Tooltip title="Энэ бичвэр нь одоогийн даалгаврын нэр (T)">
-                <Button size="small" variant={selProps.recount_id ? "contained" : "outlined"} color="error" onClick={toggleLink}>
-                  {selProps.recount_id ? "Даалгаврын нэр ✓" : "Даалгаврын нэр"}
-                </Button>
-              </Tooltip>
-              <Button size="small" onClick={confirmSelected}>
-                Батлах ↵
-              </Button>
-              <Button size="small" color="inherit" onClick={rejectSelected}>
-                Устгах ⌫
-              </Button>
-            </Stack>
-          </Box>
-        )}
 
-        </>
+            <Divider />
+
+            <Box>
+              <Typography variant="overline" color="text.secondary">
+                Одоогийн даалгавар
+              </Typography>
+              {task ? (
+                <>
+                  <Typography variant="h6">{task.properties.name}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {task.properties.type || "—"} · #{task.id}
+                  </Typography>
+                  <Stack
+                    direction="row"
+                    flexWrap="wrap"
+                    gap={0.75}
+                    sx={{ mt: 1 }}
+                  >
+                    {check.words.map((x, i) => (
+                      <Chip
+                        // eslint-disable-next-line react/no-array-index-key
+                        key={i}
+                        size="small"
+                        label={`${x.ok ? "✓" : "✗"} ${x.w}`}
+                        color={x.ok ? "success" : "default"}
+                        variant={x.ok ? "filled" : "outlined"}
+                      />
+                    ))}
+                  </Stack>
+                  {check.dup.length > 0 && (
+                    <Typography
+                      variant="caption"
+                      color="error.main"
+                      component="div"
+                    >
+                      «{check.dup.join(", ")}» хоёр удаа холбогдсон — хажуудах
+                      өөр нэрийнхийг дарж салга.
+                    </Typography>
+                  )}
+                  {check.extra.length > 0 && (
+                    <Typography
+                      variant="caption"
+                      color="warning.main"
+                      component="div"
+                    >
+                      Нэрэнд үл хамаарах байж магадгүй: {check.extra.join(", ")}{" "}
+                      — нэрийн хэсэг биш бол дарж салга.
+                    </Typography>
+                  )}
+                  {task.properties.shape && (
+                    <Typography
+                      variant="caption"
+                      color="error.main"
+                      component="div"
+                    >
+                      {task.properties.shape.type.includes("Line")
+                        ? "Шугаман"
+                        : "Талбайн"}{" "}
+                      нэр — улаан шугам/хүрээний дагуу, ихэвчлэн тэмдэггүй.
+                      Хэлбэрийн дагуух нэрийн мөр бүрийг хүрээлээд T. Цэг (S)
+                      тэмдэглэх шаардлагагүй.
+                    </Typography>
+                  )}
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                    <Tooltip title="Нэрийн үгс бүгд ✓ бол (N)">
+                      <Button
+                        variant="contained"
+                        size="small"
+                        onClick={() => finishTask("done")}
+                      >
+                        ✓ Зөв, дараах (N)
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Нэр харагдахгүй, эргэлзээтэй, хэцүү бол — дараа нь гараар">
+                      <Button size="small" onClick={() => finishTask("skip")}>
+                        Алгасах
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Цэг рүү буцах">
+                      <Button size="small" onClick={() => goTo(task)}>
+                        <Iconify icon="mdi:crosshairs-gps" />
+                      </Button>
+                    </Tooltip>
+                  </Stack>
+                </>
+              ) : (
+                <Typography variant="body2">Даалгавар алга</Typography>
+              )}
+            </Box>
+
+            <Divider />
+
+            <Box sx={{ bgcolor: "action.hover", borderRadius: 1, p: 1.25 }}>
+              <Typography variant="body2" component="div">
+                <b>1.</b> Нэрийн үг бүр дээр <b>дар</b> → тод улаан ✓ болно.
+                Буруу бол дахин дарж салга.
+                <br />
+                <b>2.</b> Үг хүрээгүй бол <b>B</b> дараад хүрээл (өөрөө
+                холбогдоно).
+                <br />
+                <b>3.</b> Дээрх үгс бүгд ✓ бол <b>N</b>. Эргэлзвэл «Алгасах».
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                component="div"
+                sx={{ mt: 0.5 }}
+              >
+                Бичвэрийн алдаа, хүрээ бага зэрэг өргөн, тойрог тэмдгээс зөрсөн
+                — эдгээрийг тоохгүй.
+              </Typography>
+            </Box>
+
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              fullWidth
+              value={mode}
+              onChange={(e, v) => v && setMode(v)}
+            >
+              <ToggleButton value="select">Сонгох</ToggleButton>
+              <ToggleButton value="box">Хүрээ (B)</ToggleButton>
+              <ToggleButton value="symbol">Тэмдэг (S)</ToggleButton>
+            </ToggleButtonGroup>
+            {mode === "box" && (
+              <Typography variant="caption" color="text.secondary">
+                Бичвэрийн доод шугамын эхэнд, төгсгөлд нь товшоод, 3 дахь
+                товшилтоор өндрийг заана. Нэг мөр = нэг хүрээ (сийрэг үсэгтэй
+                ч). Олон мөртэй нэрийн мөр бүрийг тусад нь.
+              </Typography>
+            )}
+
+            <Button
+              size="small"
+              color="inherit"
+              onClick={() => setShowAdv((v) => !v)}
+              sx={{ alignSelf: "flex-start" }}
+            >
+              {showAdv
+                ? "▾ Нарийвчилсан засвар нуух"
+                : "▸ Нарийвчилсан засвар (ангилал, бичвэр, устгах)"}
+            </Button>
+
+            {showAdv && selected && selProps && (
+              <Box>
+                <Typography variant="overline" color="text.secondary">
+                  Сонгосон {selProps.kind === "symbol" ? "тэмдэг" : "хүрээ"} #
+                  {selProps.id} · {selProps.status} · {selProps.source}
+                </Typography>
+                {selProps.kind === "text" && (
+                  <Stack
+                    direction="row"
+                    flexWrap="wrap"
+                    gap={0.75}
+                    sx={{ my: 1 }}
+                  >
+                    {CLASSES.filter((c) => c.key !== "unknown").map((c) => (
+                      <Chip
+                        key={c.key}
+                        label={`${c.hot} ${c.label}`}
+                        onClick={() => setCls(c.key)}
+                        variant={selProps.cls === c.key ? "filled" : "outlined"}
+                        sx={{
+                          borderColor: c.color,
+                          color: selProps.cls === c.key ? "#fff" : c.color,
+                          bgcolor:
+                            selProps.cls === c.key ? c.color : "transparent",
+                        }}
+                      />
+                    ))}
+                  </Stack>
+                )}
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Бичвэр (заавал биш — зөвхөн өөр бичигдсэн бол)"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onBlur={() =>
+                    text !== (selProps.text || "") &&
+                    saveFeature(selected, { text })
+                  }
+                  onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
+                />
+                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                  <Tooltip title="Энэ бичвэр нь одоогийн даалгаврын нэр (T)">
+                    <Button
+                      size="small"
+                      variant={selProps.recount_id ? "contained" : "outlined"}
+                      color="error"
+                      onClick={toggleLink}
+                    >
+                      {selProps.recount_id
+                        ? "Даалгаврын нэр ✓"
+                        : "Даалгаврын нэр"}
+                    </Button>
+                  </Tooltip>
+                  <Button size="small" onClick={confirmSelected}>
+                    Батлах ↵
+                  </Button>
+                  <Button size="small" color="inherit" onClick={rejectSelected}>
+                    Устгах ⌫
+                  </Button>
+                </Stack>
+              </Box>
+            )}
+          </>
         )}
 
         <Divider />
@@ -1288,36 +1867,127 @@ export default function MapMlView() {
             ))}
           </TextField>
           {sumTag && (
-            <Button size="small" variant="outlined" fullWidth sx={{ mb: 1 }} onClick={() => goNext()}>
+            <Button
+              size="small"
+              variant="outlined"
+              fullWidth
+              sx={{ mb: 1 }}
+              onClick={() => goNext()}
+            >
               ▶ Нэрийг дараалан шалгах (ойрын шалгаагүйгээс)
             </Button>
           )}
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            component="div"
+            sx={{ mt: 1, fontWeight: 600 }}
+          >
+            Батлагдсан (үнэн)
+          </Typography>
           <FormControlLabel
-            control={<Switch size="small" checked={showBoxes} onChange={(e) => setShowBoxes(e.target.checked)} />}
-            label={<Typography variant="body2">Бичвэрийн хүрээ (тасархай)</Typography>}
+            control={
+              <Switch
+                size="small"
+                checked={showRecount}
+                onChange={(e) => setShowRecount(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                Тодруулсан нэр (Recount):{" "}
+                <span style={{ color: "#2e7d32" }}>● цэг</span> ·{" "}
+                <span style={{ color: "#8e24aa" }}>┅ шугам</span> ·{" "}
+                <span style={{ color: "#0277bd" }}>▭ талбай</span>
+              </Typography>
+            }
+          />
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            component="div"
+            sx={{ mt: 1, fontWeight: 600 }}
+          >
+            Машины үр дүн
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showBoxes}
+                onChange={(e) => setShowBoxes(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                Илрүүлсэн бичвэр — үг бүрийн тасархай хүрээ
+              </Typography>
+            }
           />
           <FormControlLabel
             sx={{ pl: 3 }}
             disabled={!showBoxes}
-            control={<Switch size="small" checked={namesOnly} onChange={(e) => setNamesOnly(e.target.checked)} />}
-            label={<Typography variant="body2">Зөвхөн нэрийн хүрээ (тоо, бусдыг нуух)</Typography>}
+            control={
+              <Switch
+                size="small"
+                checked={namesOnly}
+                onChange={(e) => setNamesOnly(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                Өндрийн тоо, бусад бичвэрийн хүрээг нуух
+              </Typography>
+            }
           />
           <FormControlLabel
-            control={<Switch size="small" checked={showPlaces} onChange={(e) => setShowPlaces(e.target.checked)} />}
-            label={<Typography variant="body2">Загварын олсон нэр (цэг)</Typography>}
+            control={
+              <Switch
+                size="small"
+                checked={showPlaces}
+                onChange={(e) => setShowPlaces(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                Таамагласан нэр — жагсаалттай тулгасан (улаан)
+              </Typography>
+            }
           />
           <FormControlLabel
-            control={<Switch size="small" checked={showTexts} onChange={(e) => setShowTexts(e.target.checked)} />}
-            label={<Typography variant="body2">Нэр болоогүй бичвэр («уншилт» → таамаг?)</Typography>}
+            control={
+              <Switch
+                size="small"
+                checked={showTexts}
+                onChange={(e) => setShowTexts(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                Тулгаж чадаагүй бичвэр — «уншсан» → таамаг? (саарал)
+              </Typography>
+            }
           />
           <FormControlLabel
-            control={<Switch size="small" checked={showSyms} onChange={(e) => setShowSyms(e.target.checked)} />}
-            label={<Typography variant="body2">Загварын олсон тэмдэг (□)</Typography>}
+            control={
+              <Switch
+                size="small"
+                checked={showSyms}
+                onChange={(e) => setShowSyms(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                Олсон тэмдэг — □ худаг, толгой, овоо
+              </Typography>
+            }
           />
           <Typography variant="caption" color="text.secondary" component="div">
-            Цэг: ● дүүрэн — тэмдэг (⊙) дээр буусан · ○ хөндий — тэмдэг олдоогүй, бичвэрийн эхэнд. Өнгө: улаан —
-            сумын/хөршийн бүртгэлтэй · ягаан — өөр нэгжийнх · улбар шар — эргэлзээтэй («нэр ? нөгөө нэр»).
-            Тэмдэг: хөх □ — худаг, бор □ — толгой/уул/овоо; доорх тоо — загварын итгэл (0–1).
+            Цэг: ● дүүрэн — тэмдэг (⊙) дээр буусан · ○ хөндий — тэмдэг олдоогүй,
+            бичвэрийн эхэнд. Өнгө: улаан — сумын/хөршийн бүртгэлтэй · ягаан —
+            өөр нэгжийнх · улбар шар — эргэлзээтэй («нэр ? нөгөө нэр»). Тэмдэг:
+            хөх □ — худаг, бор □ — толгой/уул/овоо; доорх тоо — загварын итгэл
+            (0–1).
           </Typography>
         </Box>
 
@@ -1329,17 +1999,30 @@ export default function MapMlView() {
           </Typography>
           {CLASSES.map((c) => (
             <Stack key={c.key} direction="row" alignItems="center" spacing={1}>
-              <Box sx={{ width: 18, height: 10, border: `2px solid ${c.color}` }} />
+              <Box
+                sx={{ width: 18, height: 10, border: `2px solid ${c.color}` }}
+              />
               <Typography variant="caption">{c.label}</Typography>
             </Stack>
           ))}
-          <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-            Тасархай — урьдчилсан (машин), бүтэн — баталгаажсан. Тойрог: улаан — одоогийн даалгавар, улбар шар —
-            шошгоогүй, ногоон — дууссан. Нэр нь цэгийн аль ч талд, ямар ч зайд байж болно.
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            component="div"
+            sx={{ mt: 1 }}
+          >
+            Тасархай — урьдчилсан (машин), бүтэн — баталгаажсан. Тойрог: улаан —
+            одоогийн даалгавар, улбар шар — шошгоогүй, ногоон — дууссан. Нэр нь
+            цэгийн аль ч талд, ямар ч зайд байж болно.
           </Typography>
-          <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-            Нарийвчилсан: Shift+дарах = зөвхөн сонгох · 1–4 ангилал · ⌫ устгах · S тэмдэг тавих.
-            N дарахад дэлгэцэн дээрх үлдсэн хүрээ баталгаажна.
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            component="div"
+            sx={{ mt: 1 }}
+          >
+            Нарийвчилсан: Shift+дарах = зөвхөн сонгох · 1–4 ангилал · ⌫ устгах ·
+            S тэмдэг тавих. N дарахад дэлгэцэн дээрх үлдсэн хүрээ баталгаажна.
           </Typography>
         </Box>
       </Paper>
