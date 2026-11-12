@@ -637,15 +637,19 @@ class MlNameReviewViewSet(_MissingTable):
         rows = _rows("""
             WITH it AS (
                 SELECT 'place'::text AS kind, p.id, p.unit_id, p.name, p.alt, p.type_name AS type, p.how, p.doubt,
-                       p.reg, p.ocr, p.geoname_id, p.box_ids, p.geom
+                       p.reg, p.ocr, p.geoname_id, p.box_ids, p.geom, p.shape
                   FROM nameqc_place p WHERE p.tag = %s
                    -- бичвэрээс хүн үүсгэсэн / тодруулгаар шошгологдсон / «нэр биш» нэр дахин гарахгүй
                    AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount', 'later', 'unreg')
                 UNION ALL
-                SELECT 'text', t.id, t.unit_id, t.guess, NULL, NULL, 'text', true, NULL, t.ocr, NULL, t.box_ids, t.geom
+                SELECT 'text', t.id, t.unit_id, t.guess, NULL, NULL, 'text', true, NULL, t.ocr, NULL, t.box_ids, t.geom,
+                       NULL::geometry
                   FROM nameqc_text t WHERE t.tag = %s)
             SELECT it.kind, it.id, it.unit_id, it.name, it.alt, it.type, it.how, it.doubt, it.reg, it.ocr, it.geoname_id,
                    ST_X(ST_Transform(it.geom, 3857)) AS x, ST_Y(ST_Transform(it.geom, 3857)) AS y,
+                   -- талбайн нэрийн (нуур) урьдчилан ялгасан полигон: хамгийн том хэсгийн гадна хүрээ
+                   (SELECT ST_AsGeoJSON(ST_Transform(ST_ExteriorRing(dp.geom), 3857), 1) FROM ST_Dump(it.shape) dp
+                     ORDER BY ST_Area(dp.geom) DESC LIMIT 1) AS shape,
                    ST_XMin(b.e) AS bx0, ST_YMin(b.e) AS by0, ST_XMax(b.e) AS bx1, ST_YMax(b.e) AS by1
               FROM it
               LEFT JOIN nameqc_namerev r ON r.kind = it.kind AND r.ref_id = it.id
@@ -666,6 +670,7 @@ class MlNameReviewViewSet(_MissingTable):
             box = [it['bx0'], it['by0'], it['bx1'], it['by1']] if it['bx0'] is not None else None
             out.append({'kind': it['kind'], 'id': it['id'], 'name': it['name'], 'type': it['type'], 'how': it['how'],
                         'doubt': it['doubt'], 'ocr': it['ocr'], 'loc': [it['x'], it['y']], 'box': box,
+                        'shape': json.loads(it['shape'])['coordinates'][:-1] if it['shape'] else None,
                         'cands': cands[:6]})
         return Response(out)
 
