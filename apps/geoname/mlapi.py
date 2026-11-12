@@ -225,6 +225,25 @@ class MlTaskViewSet(_MissingTable):
         return Response(_fc(rows))
 
     @action(detail=False, methods=['get'])
+    def recount(self, request):
+        """Тодруулгаар (Recount) баталгаажсан нэрс — жинхэнэ геометрээр (цэг/шугам/талбай). bbox заавал.
+        → GeoJSON: {id, name, type, form: Цэг|Шугам|Талбай}"""
+        bbox = _bbox(request)
+        if not bbox:
+            return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
+        rows = _rows(f"""
+            SELECT r.id, COALESCE(g.name, r.draft) AS name, k.name AS type,
+                   CASE WHEN ST_Dimension(r.loc) = 2 THEN 'Талбай' WHEN ST_Dimension(r.loc) = 1 THEN 'Шугам'
+                        ELSE COALESCE(NULLIF(k.desc, ''), 'Цэг') END AS form,
+                   ST_AsGeoJSON(ST_SimplifyPreserveTopology(r.loc, 0.00005), 6) AS geojson
+              FROM core_recount r
+              LEFT JOIN core_geoname g ON g.id = r.name_id
+              LEFT JOIN core_constant k ON k.id = COALESCE(r.type_id, g.type_id)
+             WHERE r.loc && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND COALESCE(g.name, r.draft) IS NOT NULL
+             LIMIT {MAX_FEATURES}""", bbox)
+        return Response(_fc(rows))
+
+    @action(detail=False, methods=['get'])
     def next(self, request):
         """Дараагийн todo даалгавар (ord дарааллаар). after=<recount_id> өгвөл түүний дараахыг."""
         batch = self._batch(request)
