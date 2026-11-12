@@ -280,15 +280,16 @@ function Card({ item, tag, st, onChange }) {
                   <polyline points={pts} fill="none" {...sty} />
                 );
               })()}
-              {st.geom.pts.map((p, i) => (
-                <circle
-                  key={i}
-                  cx={p[0] - ex[0]}
-                  cy={ex[3] - p[1]}
-                  r={W / 120}
-                  fill="#2962ff"
-                />
-              ))}
+              {st.geom.pts.length <= 40 &&
+                st.geom.pts.map((p, i) => (
+                  <circle
+                    key={i}
+                    cx={p[0] - ex[0]}
+                    cy={ex[3] - p[1]}
+                    r={W / 120}
+                    fill="#2962ff"
+                  />
+                ))}
             </svg>
           )}
           {/* загварын байрлал */}
@@ -541,7 +542,11 @@ const init = (it) =>
         name: it.name,
         geoname_id: it.cands[0]?.id ?? null,
         pos: null,
-        geom: null,
+        // талбайн нэр (нуур): урьдчилан ялгасан цэнхэр дүүргэлтийн полигон — зөвшөөрөх эсвэл дахин зурна
+        geom:
+          it.shape && it.shape.length >= 3
+            ? { t: "area", pts: it.shape }
+            : null,
       }
     : { verdict: "skip", name: null, geoname_id: null, pos: null, geom: null };
 
