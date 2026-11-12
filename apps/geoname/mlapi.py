@@ -612,6 +612,17 @@ def _sync_recount(c, kind, ref_id, uid, loc_wkt, create=False):
     c.execute("UPDATE nameqc_namerev SET recount_id = %s WHERE id = %s", [rc.id, rev_id])
 
 
+def _keep_ocr(c, kind, rid):
+    """Шалгалтын үед загварын уншилтыг (ocr, таамаг) namerev-д хуулна — бичвэр батлагдмагц nameqc_text-ээс устдаг тул
+    «яагаад нэртэй тулгагдсангүй» гэдгийг дараа нь шинжлэхэд хэрэгтэй."""
+    if kind == 'place':
+        c.execute("""UPDATE nameqc_namerev r SET ocr = coalesce(r.ocr, p.ocr), guess = coalesce(r.guess, p.name)
+                       FROM nameqc_place p WHERE p.id = r.ref_id AND r.kind = 'place' AND r.ref_id = %s""", [rid])
+    else:
+        c.execute("""UPDATE nameqc_namerev r SET ocr = coalesce(r.ocr, t.ocr), guess = coalesce(r.guess, t.guess)
+                       FROM nameqc_text t WHERE t.id = r.ref_id AND r.kind = 'text' AND r.ref_id = %s""", [rid])
+
+
 class MlNameReviewViewSet(_MissingTable):
     """«Нэр шалгах»: загварын олсон нэр (nameqc_place) ба нэр болоогүй бичвэр (nameqc_text)-ийг хүн шалгана —
     тэмдгийн төв (байрлал) дээр товшиж, нэрийг батлах / сонгох / бичих / «нэр биш». Үр дүн → nameqc_namerev
@@ -814,6 +825,7 @@ class MlNameReviewViewSet(_MissingTable):
                                   VALUES (%s, %s, %s, %s, %s, %s, %s)
                                   ON CONFLICT (kind, ref_id) DO UPDATE SET verdict = EXCLUDED.verdict, name = EXCLUDED.name,
                                       user_id = EXCLUDED.user_id, created = now()""", [kind, rid, row[0], verdict, name, row[1], uid])
+                    _keep_ocr(c, kind, rid)
                     if kind == 'place':
                         c.execute("UPDATE nameqc_place SET review = %s WHERE id = %s", [verdict, rid])
                     done += 1
@@ -857,6 +869,7 @@ class MlNameReviewViewSet(_MissingTable):
                           [kind, rid, tag, verdict, name, gid, *pg[1], bool(pos), box_ids, uid])
                 c.execute("UPDATE nameqc_namerev SET shape = ST_GeomFromText(%s, 4326) WHERE kind = %s AND ref_id = %s",
                           [shape_wkt, kind, rid])
+                _keep_ocr(c, kind, rid)
                 # газрын зураг дээр шууд тусгах
                 if kind == 'place':
                     if verdict == 'notname':
