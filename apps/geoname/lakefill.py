@@ -99,7 +99,8 @@ def _rdp(pts, eps):
     a, b = p[0], p[-1]
     ab = b - a
     n = np.hypot(*ab)
-    d = np.abs(np.cross(ab, p - a)) / n if n > 0 else np.hypot(*(p - a).T)
+    # 2D вектор үржвэр гараар (numpy ≥ 2.5 np.cross-д 2D-г хориглодог)
+    d = np.abs(ab[0] * (p[:, 1] - a[1]) - ab[1] * (p[:, 0] - a[0])) / n if n > 0 else np.hypot(*(p - a).T)
     i = int(np.argmax(d))
     if d[i] > eps:
         return _rdp(pts[:i + 1], eps)[:-1] + _rdp(pts[i:], eps)
