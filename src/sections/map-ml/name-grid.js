@@ -6,6 +6,7 @@
 //  • Олсон нэрийн карт анхдагчаар «зөв» (загварын нэр); бичвэрийн карт сонгоогүй бол алгасна.
 //  • Жагсаалтад (бүртгэлд) байхгүй нэр → «Бүртгэлгүй» (алгасна, тодруулга үүсэхгүй).
 //  • Шугам/талбайн нэр (гуу, жалга, ам …) → «Шугам» / «Талбай» товчоор зураг дээр цэг цэгээр зурна → тодруулгын геометр.
+//  • Нуур, тойром → «Нуур (товш)»: нуурын голд нэг товшиход цэнхэр дүүргэлтийн хилийг өнгөөр нь үүсгэнэ.
 // Хадгалсан бүхэн → nameqc_namerev = дараагийн сургалтын цэвэр шошго (тэмдгийн төв + нэр-хүрээ).
 
 import { useRef, useState, useEffect, useCallback } from "react";
@@ -112,6 +113,8 @@ export function NameSearch({ tag, onPick, initial = "" }) {
 }
 
 function Card({ item, tag, st, onChange }) {
+  const { enqueueSnackbar } = useSnackbar();
+  const [lakeBusy, setLakeBusy] = useState(false);
   // харагдац: дугуйгаар томруулах/жижигрүүлэх, чирж хөдөлгөх; хөдөлгөөгүй товшилт = тэмдгийн төв
   const [ex, setEx] = useState(() => extentOf(item));
   const [drag, setDrag] = useState(null); // {x0, y0, dx, dy}
@@ -164,6 +167,24 @@ function Card({ item, tag, st, onChange }) {
       const fx = (e.clientX - r.left) / r.width;
       const fy = (e.clientY - r.top) / r.height;
       const p = [ex[0] + fx * W, ex[3] - fy * W];
+      if (drawing === "lake") {
+        // нуурын голд товшсон цэгээс цэнхэр дүүргэлтийг өнгөөр нь мэдэрч хилийг үүсгэнэ (backend lakefill)
+        setLakeBusy(true);
+        axiosInstance
+          .get(endpoints.ml.nameRevLake(p[0].toFixed(2), p[1].toFixed(2)))
+          .then(({ data }) => {
+            onChange({ geom: { t: "area", pts: data.pts } });
+            setDrawing(null);
+          })
+          .catch((err) =>
+            enqueueSnackbar(
+              err?.detail || "Нуурын дүүргэлт олдсонгүй — нуурын дотор товшино уу",
+              { variant: "warning" },
+            ),
+          )
+          .finally(() => setLakeBusy(false));
+        return;
+      }
       if (drawing) {
         const pts = st.geom && st.geom.t === drawing ? st.geom.pts : [];
         onChange({ geom: { t: drawing, pts: [...pts, p] } });
@@ -410,13 +431,16 @@ function Card({ item, tag, st, onChange }) {
         {drawing ? (
           <Stack direction="row" spacing={0.5} alignItems="center">
             <Typography variant="caption" color="primary" sx={{ flex: 1 }}>
-              {drawing === "area" ? "Талбай" : "Шугам"}: зураг дээр цэг цэгээр
-              товш
+              {drawing === "lake"
+                ? lakeBusy
+                  ? "Нуурын хилийг тодорхойлж байна…"
+                  : "Нуур: нуурын ГОЛД нэг товш — хилийг өнгөөр нь үүсгэнэ"
+                : `${drawing === "area" ? "Талбай" : "Шугам"}: зураг дээр цэг цэгээр товш`}
             </Typography>
             <Button
               size="small"
               color="inherit"
-              disabled={!st.geom?.pts.length}
+              disabled={drawing === "lake" || !st.geom?.pts.length}
               onClick={() =>
                 onChange({
                   geom:
@@ -462,6 +486,17 @@ function Card({ item, tag, st, onChange }) {
               }}
             >
               Талбай
+            </Button>
+            <Button
+              size="small"
+              color="primary"
+              title="Нуур, тойром, цөөрөм: голд нь нэг товшиход цэнхэр дүүргэлтийн хилийг автоматаар зурна"
+              onClick={() => {
+                onChange({ geom: null });
+                setDrawing("lake");
+              }}
+            >
+              Нуур (товш)
             </Button>
             <Button
               size="small"
@@ -542,11 +577,9 @@ const init = (it) =>
         name: it.name,
         geoname_id: it.cands[0]?.id ?? null,
         pos: null,
-        // талбайн нэр (нуур): урьдчилан ялгасан цэнхэр дүүргэлтийн полигон — зөвшөөрөх эсвэл дахин зурна
-        geom:
-          it.shape && it.shape.length >= 3
-            ? { t: "area", pts: it.shape }
-            : null,
+        // автомат урьдчилсан полигон (areaseg) цэнхэр БИЧИГ дээр буудаг тул ашиглахгүй (хэрэглэгч 2026-11-13) —
+        // нуурыг «Нуур (товш)»-оор нэг товшиж зурна
+        geom: null,
       }
     : { verdict: "skip", name: null, geoname_id: null, pos: null, geom: null };
 

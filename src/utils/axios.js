@@ -225,6 +225,7 @@ export const endpoints = {
     nameRevBatch: `/api/n/ml-namerev/batch/`,
     nameRevInbox: `/api/n/ml-namerev/inbox/`,
     nameRevNext: `/api/n/ml-namerev/next/`,
+    nameRevLake: (x, y) => `/api/n/ml-namerev/lake/?x=${x}&y=${y}`,
     reviewBatch: `/api/n/ml-review/batch/`,
   },
 
