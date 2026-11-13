@@ -37,19 +37,16 @@ def _mask(img, seed):
     hsv = np.asarray(img.convert('HSV')).astype(np.int16)
     h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
     sx, sy = seed
-    win = hsv[max(0, sy - 4):sy + 5, max(0, sx - 4):sx + 5].reshape(-1, 3)
-    h0, s0, v0 = np.median(win, 0)
-    if s0 < 22 and v0 > 215:
+    # товшсон цэгийн өнгө: 21×21 орчны ӨНГӨТЭЙ пикселүүд (торлог дүүргэлтийн цагаан зураасыг хасна)
+    win = hsv[max(0, sy - 10):sy + 11, max(0, sx - 10):sx + 11].reshape(-1, 3)
+    col = win[(win[:, 1] > 25) & (win[:, 2] < 238)]
+    if len(col) < 0.15 * len(win):
         return None                                  # цагаан цаас дээр товшсон — нуурын дотор биш
-    water = (h >= H_LO) & (h <= H_HI) & (s >= S_LO) & (s <= S_HI) & (v >= V_LO) & (v <= V_HI)
-    if not (H_LO <= h0 <= H_HI and S_LO <= s0 <= S_HI and V_LO <= v0 <= V_HI):
-        # товшсон цэгийн өнгө стандарт усны мужид биш (бараан/өөр өнгийн дүүргэлт) → тухайн өнгөнд ойрыг авна
-        dh = np.minimum(np.abs(h - h0), 256 - np.abs(h - h0))
-        water = (dh <= 14) & (np.abs(s - s0) <= 35) & (np.abs(v - v0) <= 40)
-    # НЯГТ: 15×15 орчны цэнхэр пикселийн хувь. Нуурын торлог/цэгэн дүүргэлт ≥ 50%, намгийн босоо зураас, үсэг
-    # (нимгэн) ~30% → тасарна (хэрэглэгч 2026-11-13: «хүрээ хэт мэдрэмтгий»). Нягтын зураг гөлгөр тул хил ч гөлгөр.
-    m = Image.fromarray((water * 255).astype(np.uint8)).filter(ImageFilter.BoxBlur(7))
-    m = Image.fromarray(((np.asarray(m) >= 128) * 255).astype(np.uint8))
+    # Цэнхэр (цайвараас бараан хүртэл) — нуурын дүүргэлт нь НЯГТ торлог/цул, намгийн зураас ХОЛ зайтай
+    # (хэрэглэгч 2026-11-13) → 15×15 орчны ≥ 55% цэнхэр бол нуур; холтой зураас, үсэг тэнцэхгүй.
+    blue = (h >= 125) & (h <= 178) & (s >= 18) & (v >= 80) & (v <= 245)
+    m = Image.fromarray((blue * 255).astype(np.uint8)).filter(ImageFilter.BoxBlur(7))
+    m = Image.fromarray(((np.asarray(m) >= 140) * 255).astype(np.uint8))
     m = m.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.MinFilter(9))      # бичвэр/шугамын цоорхой нөхөх
     return m
 
@@ -130,7 +127,7 @@ def lake_at(x, y):
         comp = None
         if m is not None:
             # нууртай залгаа нарийн цухуйлт (намгийн зураас) тасална; жижиг нуур алга болвол нээлтгүйг авна
-            mo = m.filter(ImageFilter.MinFilter(13)).filter(ImageFilter.MaxFilter(13))
+            mo = m.filter(ImageFilter.MinFilter(19)).filter(ImageFilter.MaxFilter(19))
             comp = _component(mo, seed, search=12)
             if comp is None:
                 comp = _component(m, seed)
