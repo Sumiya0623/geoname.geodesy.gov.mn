@@ -17,6 +17,7 @@ pyproj
 
 # report
 Pillow
+numpy              # нуурын талбайг товшилтоор (apps/geoname/lakefill.py)
 pdfkit
 pypdf
 # sudo apt install -y wkhtmltopdf-0.12.5

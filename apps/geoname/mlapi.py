@@ -632,6 +632,7 @@ class MlNameReviewViewSet(_MissingTable):
       GET  /api/n/ml-namerev/names/?tag=t56&q=улаан   → [{id, name, type}]
       POST /api/n/ml-namerev/batch/  {"items":[{kind,id,verdict:ok|fixed|notname,name,geoname_id,pos:[x,y]|null}]}
       GET  /api/n/ml-namerev/stats/?tag=t56
+      GET  /api/n/ml-namerev/lake/?x=..&y=..     → нуурын хил (товшсон цэгээс өнгөөр)
     """
     permission_classes = [IsAuthenticated]
 
@@ -757,6 +758,22 @@ class MlNameReviewViewSet(_MissingTable):
                            AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)
                          LIMIT 3000""", [*b, tag, tag, *b, tag, tag])
         return Response(_fc(rows))
+
+    @action(detail=False, methods=['get'])
+    def lake(self, request):
+        """Нуурын дотор товшсон цэг (x, y EPSG:3857) → цэнхэр дүүргэлтийн хил (талбай) [[x, y], …] EPSG:3857."""
+        try:
+            x, y = float(request.query_params.get('x')), float(request.query_params.get('y'))
+        except (TypeError, ValueError):
+            return Response({'detail': 'x, y'}, status=http.HTTP_400_BAD_REQUEST)
+        from .lakefill import lake_at
+        try:
+            pts = lake_at(x, y)
+        except Exception as e:                       # WMS алдаа гэх мэт
+            return Response({'detail': str(e)[:200]}, status=http.HTTP_502_BAD_GATEWAY)
+        if not pts:
+            return Response({'detail': 'Нуурын дүүргэлт олдсонгүй — нуурын дотор товшино уу'}, status=http.HTTP_404_NOT_FOUND)
+        return Response({'pts': pts})
 
     @action(detail=False, methods=['get'])
     def names(self, request):
