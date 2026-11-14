@@ -418,7 +418,7 @@ export default function MapMlView() {
   const [sumTag, setSumTag] = useState("");
   const [sums, setSums] = useState([]);
   const [showConfirmed, setShowConfirmed] = useState(false); // батлагдсан (Recount/хүн) таамгийг тусад нь
-  useEffect(() => {
+  const reloadSums = useCallback(() => {
     axiosInstance
       .get(endpoints.ml.nameRevTags)
       .then(({ data }) => setSums(data))
@@ -486,6 +486,10 @@ export default function MapMlView() {
       ? new URLSearchParams(window.location.search)
       : null;
   const [view, setView] = useState("names"); // names = нэрийн хүснэгт (цорын ганц хэсэг)
+  // шалгах үлдэгдлийн тоог хэсэг солих / нэр шалгахаас буцах бүрт шинэчилнэ
+  useEffect(() => {
+    reloadSums();
+  }, [reloadSums, view, sumTag]);
   useEffect(() => {
     const v = new URLSearchParams(window.location.search).get("view");
     if (
@@ -1876,14 +1880,29 @@ export default function MapMlView() {
             sx={{ my: 1 }}
           >
             <option value="">Бүх хэсэг</option>
-            {sums.map((x) => (
-              <option key={x.tag} value={x.tag}>
-                {x.aimag ? `${x.aimag}, ` : ""}
-                {x.unit || x.tag} · {x.tag}
-                {x.new ? ` · шинэ ${x.new}` : ""}
-                {x.done ? ` · батлагдсан ${x.done}` : ""}
-              </option>
-            ))}
+            <optgroup label="Шалгах үлдсэн">
+              {sums
+                .filter((x) => x.todo > 0)
+                .map((x) => (
+                  <option key={x.tag} value={x.tag}>
+                    {x.aimag ? `${x.aimag}, ` : ""}
+                    {x.unit || x.tag} — шалгах {x.todo}
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label="Шалгаж дууссан">
+              {sums
+                .filter((x) => !x.todo)
+                .map((x) => (
+                  <option key={x.tag} value={x.tag}>
+                    ✓ {x.aimag ? `${x.aimag}, ` : ""}
+                    {x.unit || x.tag}
+                    {x.tag.startsWith("sb") || x.tag.startsWith("lk")
+                      ? ` (Recount-аар ${x.done})`
+                      : ` (${x.done})`}
+                  </option>
+                ))}
+            </optgroup>
           </TextField>
           {sumTag && (
             <Button
