@@ -918,6 +918,20 @@ class MlNameReviewViewSet(_MissingTable):
         return Response({'saved': done})
 
     @action(detail=False, methods=['get'])
+    def tags(self, request):
+        """Таамагтай хэсгүүд (шошго) — map-ml-ийн «сум» сонголт: шинэ (шалгаагүй) ба батлагдсан тоо, шинэ таамгийн төв."""
+        return Response(_rows("""
+            SELECT p.tag, max(u.unit) AS unit, max(a.unit) AS aimag,
+                   count(*) FILTER (WHERE p.review IS NULL) AS new, count(*) FILTER (WHERE p.review IS NOT NULL) AS done,
+                   max(p.created)::date::text AS created,
+                   ST_X(ST_Centroid(ST_Collect(COALESCE(p.geom, p.geom_label)) FILTER (WHERE p.review IS NULL))) AS lon,
+                   ST_Y(ST_Centroid(ST_Collect(COALESCE(p.geom, p.geom_label)) FILTER (WHERE p.review IS NULL))) AS lat,
+                   ST_X(ST_Centroid(ST_Collect(p.geom))) AS lon_all, ST_Y(ST_Centroid(ST_Collect(p.geom))) AS lat_all
+              FROM nameqc_place p LEFT JOIN core_adminunit u ON u.id = p.unit_id
+              LEFT JOIN core_adminunit a ON a.id = u.parent_id
+             GROUP BY p.tag ORDER BY count(*) FILTER (WHERE p.review IS NULL) > 0 DESC, max(a.unit), max(u.unit)""", []))
+
+    @action(detail=False, methods=['get'])
     def stats(self, request):
         tag = request.query_params.get('tag') or ''
         r = _rows("""SELECT count(*) FILTER (WHERE verdict = 'ok') AS ok, count(*) FILTER (WHERE verdict = 'fixed') AS fixed,
