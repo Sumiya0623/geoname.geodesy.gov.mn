@@ -919,17 +919,27 @@ class MlNameReviewViewSet(_MissingTable):
 
     @action(detail=False, methods=['get'])
     def tags(self, request):
-        """Таамагтай хэсгүүд (шошго) — map-ml-ийн «сум» сонголт: шинэ (шалгаагүй) ба батлагдсан тоо, шинэ таамгийн төв."""
+        """Таамагтай хэсгүүд (шошго) — map-ml-ийн «хэсэг» сонголт. todo = шалгаагүй үлдсэн (stats-ийн todo-той ижил:
+        хүн/Recount шийдвэргүй, namerev-д ороогүй нэр + бичвэр); todo = 0 бол «шалгаж дууссан»."""
         return Response(_rows("""
+            WITH p AS (
+              SELECT p.tag, p.unit_id, p.geom, p.review,
+                     (COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount', 'later', 'unreg') AND NOT EXISTS
+                       (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id)) AS todo
+                FROM nameqc_place p),
+            t AS (
+              SELECT t.tag, count(*) AS n FROM nameqc_text t WHERE NOT EXISTS
+                (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id) GROUP BY t.tag)
             SELECT p.tag, max(u.unit) AS unit, max(a.unit) AS aimag,
+                   count(*) FILTER (WHERE p.todo) + COALESCE(max(t.n), 0) AS todo,
                    count(*) FILTER (WHERE p.review IS NULL) AS new, count(*) FILTER (WHERE p.review IS NOT NULL) AS done,
-                   max(p.created)::date::text AS created,
-                   ST_X(ST_Centroid(ST_Collect(COALESCE(p.geom, p.geom_label)) FILTER (WHERE p.review IS NULL))) AS lon,
-                   ST_Y(ST_Centroid(ST_Collect(COALESCE(p.geom, p.geom_label)) FILTER (WHERE p.review IS NULL))) AS lat,
+                   ST_X(ST_Centroid(ST_Collect(p.geom) FILTER (WHERE p.todo))) AS lon,
+                   ST_Y(ST_Centroid(ST_Collect(p.geom) FILTER (WHERE p.todo))) AS lat,
                    ST_X(ST_Centroid(ST_Collect(p.geom))) AS lon_all, ST_Y(ST_Centroid(ST_Collect(p.geom))) AS lat_all
-              FROM nameqc_place p LEFT JOIN core_adminunit u ON u.id = p.unit_id
+              FROM p LEFT JOIN t ON t.tag = p.tag LEFT JOIN core_adminunit u ON u.id = p.unit_id
               LEFT JOIN core_adminunit a ON a.id = u.parent_id
-             GROUP BY p.tag ORDER BY count(*) FILTER (WHERE p.review IS NULL) > 0 DESC, max(a.unit), max(u.unit)""", []))
+             WHERE p.tag ~ '^(n|t|sb|lk)[0-9]+$'          -- туршилтын шошго (a0, s0, b0 …) жагсаалтад гарахгүй
+             GROUP BY p.tag ORDER BY max(a.unit), max(u.unit)""", []))
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
