@@ -61,33 +61,7 @@ import SymGrid from "./sym-grid";
 import PlaceGrid from "./place-grid";
 import NameGrid, { NameSearch } from "./name-grid";
 
-// Нэр илрүүлэх урсгал (region → locate) ажиллуулсан сумд. t* = тодруулгагүй (жинхэнэ шалгалт), lk* = тодруулгатай.
-const SUMS = [
-  {
-    tag: "t56",
-    label: "Дорнод, Булган (тодруулгагүй)",
-    lon: 114.206,
-    lat: 47.667,
-  },
-  {
-    tag: "t65",
-    label: "Дорнод, Хөлөнбуйр (тодруулгагүй)",
-    lon: 113.039,
-    lat: 47.872,
-  },
-  // бүс бүрээс 2 аймаг × 1 сум — нийт нутагт гар шалгалт (~1000 нэр)
-  { tag: "t350", label: "Ховд, Эрдэнэбүрэн", lon: 91.194, lat: 48.462 },
-  { tag: "t361", label: "Увс, Ховд", lon: 91.056, lat: 49.407 },
-  { tag: "t257", label: "Архангай, Жаргалант", lon: 100.732, lat: 48.661 },
-  { tag: "t195", label: "Өвөрхангай, Гучин-Ус", lon: 102.395, lat: 45.275 },
-  { tag: "t289", label: "Хөвсгөл, Улаан Уул", lon: 98.733, lat: 50.881 },
-  { tag: "t129", label: "Сэлэнгэ, Хүдэр", lon: 107.595, lat: 49.734 },
-  { tag: "t325", label: "Говь-Алтай, Халиун", lon: 96.027, lat: 45.976 },
-  { tag: "t164", label: "Өмнөговь, Ханхонгор", lon: 104.635, lat: 43.642 },
-  { tag: "t83", label: "Хэнтий, Дархан", lon: 109.478, lat: 46.536 },
-  { tag: "t47", label: "Дорноговь, Даланжаргалан", lon: 108.96, lat: 45.995 },
-  // тодруулгатай сумд (Сүхбаатар, Баянтэс …) нэр+байрлал нь тодруулгаар автоматаар шошгологдоно — гараар шалгахгүй
-];
+// Нэр илрүүлсэн хэсгүүд (шошго) — backend /api/n/ml-namerev/tags/-аас (шинэ таамаг ба батлагдсаны тоо)
 
 const GEOSERVER = process.env.NEXT_PUBLIC_GEOSERVER_URL;
 const BATCH = 1;
@@ -433,6 +407,7 @@ export default function MapMlView() {
   const [namesOnly, setNamesOnly] = useState(true); // зөвхөн «нэр» ангиллын хүрээ (өндрийн тоо, бусдыг нуух)
   const namesOnlyRef = useRef(true);
   const placeLayerRef = useRef(null);
+  const confLayerRef = useRef(null);
   const [showPlaces, setShowPlaces] = useState(true); // загварын олсон цэгэн нэр
   const symLayerRef = useRef(null);
   const [showSyms, setShowSyms] = useState(true); // тэмдэг илрүүлэгчийн олсон тэмдэг
@@ -441,6 +416,14 @@ export default function MapMlView() {
   const textLayerRef = useRef(null);
   const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
   const [sumTag, setSumTag] = useState("");
+  const [sums, setSums] = useState([]);
+  const [showConfirmed, setShowConfirmed] = useState(false); // батлагдсан (Recount/хүн) таамгийг тусад нь
+  useEffect(() => {
+    axiosInstance
+      .get(endpoints.ml.nameRevTags)
+      .then(({ data }) => setSums(data))
+      .catch(() => {});
+  }, []);
   const sumTagRef = useRef("");
   const placeVecSrcRef = useRef(null);
   const placeVecRef = useRef(null);
@@ -888,6 +871,7 @@ export default function MapMlView() {
           TILED: "true",
           VERSION: "1.1.1",
           BUFFER: 256,
+          CQL_FILTER: "review IS NULL", // зөвхөн шинэ (шалгаагүй) таамаг
         },
         serverType: "geoserver",
         crossOrigin: "anonymous",
@@ -895,6 +879,27 @@ export default function MapMlView() {
     });
 
     placeLayerRef.current = placeLayer;
+    // Батлагдсан таамаг (Recount-аар автоматаар / хүн шалгасан) — шинэ таамгаас тусад нь, анхдагчаар нуусан
+    const confLayer = new TileLayer({
+      zIndex: 89,
+      visible: false,
+      opacity: 0.55,
+      source: new TileWMS({
+        url: `${GEOSERVER}/geoname/wms`,
+        params: {
+          LAYERS: "geoname:nameqc_place",
+          FORMAT: "image/png",
+          TRANSPARENT: "true",
+          TILED: "true",
+          VERSION: "1.1.1",
+          BUFFER: 256,
+          CQL_FILTER: "review IS NOT NULL",
+        },
+        serverType: "geoserver",
+        crossOrigin: "anonymous",
+      }),
+    });
+    confLayerRef.current = confLayer;
     // Нэр болоогүй бичвэр (nameqc_text): «чөлөөт уншилт» → жагсаалтаас хамгийн ойр нэр? — саарал налуу
     const textLayer = new TileLayer({
       zIndex: 88,
@@ -981,6 +986,7 @@ export default function MapMlView() {
         reviewLayer,
         symLayer,
         textLayer,
+        confLayer,
         placeLayer,
       ],
       view: new View({
@@ -1275,20 +1281,30 @@ export default function MapMlView() {
   useEffect(() => {
     sumTagRef.current = sumTag;
     const cql = sumTag ? `tag='${sumTag}'` : undefined;
-    [placeLayerRef.current, symLayerRef.current, textLayerRef.current].forEach(
+    [symLayerRef.current, textLayerRef.current].forEach(
       (l) => l?.getSource().updateParams({ CQL_FILTER: cql }),
     );
-    const s = SUMS.find((x) => x.tag === sumTag);
-    if (s && mapRef.current) {
-      mapRef.current
-        .getView()
-        .animate({
-          center: fromLonLat([s.lon, s.lat]),
-          zoom: 10,
-          duration: 400,
-        });
+    const and = (c) => (sumTag ? `${c} AND tag='${sumTag}'` : c);
+    placeLayerRef.current
+      ?.getSource()
+      .updateParams({ CQL_FILTER: and("review IS NULL") });
+    confLayerRef.current
+      ?.getSource()
+      .updateParams({ CQL_FILTER: and("review IS NOT NULL") });
+    const s = sums.find((x) => x.tag === sumTag);
+    const lon = s?.lon ?? s?.lon_all;
+    const lat = s?.lat ?? s?.lat_all;
+    if (s && lon != null && mapRef.current) {
+      mapRef.current.getView().animate({
+        center: fromLonLat([lon, lat]),
+        zoom: 11,
+        duration: 400,
+      });
     }
-  }, [sumTag]);
+  }, [sumTag, sums]);
+  useEffect(() => {
+    confLayerRef.current?.setVisible(showConfirmed);
+  }, [showConfirmed]);
   useEffect(() => {
     symLayerRef.current?.setVisible(showSyms);
   }, [showSyms]);
@@ -1852,17 +1868,20 @@ export default function MapMlView() {
             select
             size="small"
             fullWidth
-            label="Нэр илрүүлсэн сум"
+            label="Нэр илрүүлсэн хэсэг"
             value={sumTag}
             onChange={(e) => setSumTag(e.target.value)}
             SelectProps={{ native: true }}
             InputLabelProps={{ shrink: true }}
             sx={{ my: 1 }}
           >
-            <option value="">Бүх сум</option>
-            {SUMS.map((x) => (
+            <option value="">Бүх хэсэг</option>
+            {sums.map((x) => (
               <option key={x.tag} value={x.tag}>
-                {x.label}
+                {x.aimag ? `${x.aimag}, ` : ""}
+                {x.unit || x.tag} · {x.tag}
+                {x.new ? ` · шинэ ${x.new}` : ""}
+                {x.done ? ` · батлагдсан ${x.done}` : ""}
               </option>
             ))}
           </TextField>
@@ -1950,7 +1969,21 @@ export default function MapMlView() {
             }
             label={
               <Typography variant="body2">
-                Таамагласан нэр — жагсаалттай тулгасан (улаан)
+                Шинэ таамаг — сүүлийн ажиллуулалт, шалгаагүй (улаан)
+              </Typography>
+            }
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showConfirmed}
+                onChange={(e) => setShowConfirmed(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                Батлагдсан таамаг — Recount/хүн шалгасан (бүдэг)
               </Typography>
             }
           />

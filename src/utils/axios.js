@@ -223,6 +223,7 @@ export const endpoints = {
     nameRevStats: (tag) =>
       `/api/n/ml-namerev/stats/?tag=${encodeURIComponent(tag)}`,
     nameRevBatch: `/api/n/ml-namerev/batch/`,
+    nameRevTags: `/api/n/ml-namerev/tags/`,
     nameRevInbox: `/api/n/ml-namerev/inbox/`,
     nameRevNext: `/api/n/ml-namerev/next/`,
     nameRevLake: (x, y) => `/api/n/ml-namerev/lake/?x=${x}&y=${y}`,
