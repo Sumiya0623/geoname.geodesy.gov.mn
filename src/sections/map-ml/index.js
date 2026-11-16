@@ -30,7 +30,7 @@ import {
   Circle as CircleStyle,
   RegularShape,
 } from "ol/style";
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useMemo, useState, useEffect, useCallback } from "react";
 
 import {
   Box,
@@ -59,6 +59,7 @@ import { buildOlBaseLayer } from "src/sections/map/layers-wmts";
 import ReviewGrid from "./review-grid";
 import SymGrid from "./sym-grid";
 import PlaceGrid from "./place-grid";
+import SumTree from "./sum-tree";
 import NameGrid, { NameSearch } from "./name-grid";
 
 // Нэр илрүүлсэн хэсгүүд (шошго) — backend /api/n/ml-namerev/tags/-аас (шинэ таамаг ба батлагдсаны тоо)
@@ -417,6 +418,11 @@ export default function MapMlView() {
   const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
   const [sumTag, setSumTag] = useState("");
   const [sums, setSums] = useState([]);
+  // зүүн самбар: харуулах сумууд (null = шалгах шаардлагатай БҮХ хэсэг) ба суурь зураг
+  const [shown, setShown] = useState(null);
+  const [baseKey, setBaseKey] = useState(DEFAULT_BASE);
+  const baseLayersRef = useRef([]);
+  const manualSums = useMemo(() => sums.filter((x) => x.todo > 0 && !x.auto), [sums]);
   const [showConfirmed, setShowConfirmed] = useState(false); // батлагдсан (Recount/хүн) таамгийг тусад нь
   const reloadSums = useCallback(() => {
     axiosInstance
@@ -841,6 +847,7 @@ export default function MapMlView() {
       L.setVisible(cfg === def);
       return L;
     });
+    baseLayersRef.current = baseLayers;
 
     const wms = new TileLayer({
       zIndex: 40,
@@ -1284,11 +1291,15 @@ export default function MapMlView() {
   }, [showTexts]);
   useEffect(() => {
     sumTagRef.current = sumTag;
-    const cql = sumTag ? `tag='${sumTag}'` : undefined;
+    // идэвхтэй сум > чагталсан сумууд > шалгах шаардлагатай бүх хэсэг (Recount-тай/дууссан сумын үлдэгдлийг харуулахгүй)
+    let act = manualSums.map((x) => x.tag);
+    if (shown) act = act.filter((t) => shown.has(t));
+    if (sumTag) act = [sumTag];
+    const cql = act.length ? `tag IN (${act.map((t) => `'${t}'`).join(",")})` : "1=0";
     [symLayerRef.current, textLayerRef.current].forEach(
       (l) => l?.getSource().updateParams({ CQL_FILTER: cql }),
     );
-    const and = (c) => (sumTag ? `${c} AND tag='${sumTag}'` : c);
+    const and = (c) => `${c} AND ${cql}`;
     placeLayerRef.current
       ?.getSource()
       .updateParams({ CQL_FILTER: and("review IS NULL") });
@@ -1305,7 +1316,10 @@ export default function MapMlView() {
         duration: 400,
       });
     }
-  }, [sumTag, sums]);
+  }, [sumTag, sums, shown, manualSums]);
+  useEffect(() => {
+    baseLayersRef.current.forEach((L) => L.setVisible(L.get("key") === baseKey));
+  }, [baseKey, baseCfgs]);
   useEffect(() => {
     confLayerRef.current?.setVisible(showConfirmed);
   }, [showConfirmed]);
@@ -1461,6 +1475,46 @@ export default function MapMlView() {
         overflow: "hidden",
       }}
     >
+      <Paper
+        square
+        elevation={3}
+        sx={{ width: 290, p: 1.5, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1 }}
+      >
+        <TextField
+          select
+          size="small"
+          fullWidth
+          label="Суурь зураг"
+          value={baseKey}
+          onChange={(e) => setBaseKey(e.target.value)}
+          SelectProps={{ native: true }}
+          InputLabelProps={{ shrink: true }}
+        >
+          {baseCfgs
+            .filter((c) => (c.layer_type || "base") === "base")
+            .map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label || c.name || c.key}
+              </option>
+            ))}
+        </TextField>
+        <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.5 }}>
+          Шалгах хэсэг — {manualSums.reduce((n, x) => n + x.todo, 0)} мөр
+        </Typography>
+        <SumTree
+          sums={manualSums}
+          checked={shown || new Set(manualSums.map((x) => x.tag))}
+          onToggle={(tags, on) =>
+            setShown((prev) => {
+              const n = new Set(prev || manualSums.map((x) => x.tag));
+              tags.forEach((t) => (on ? n.add(t) : n.delete(t)));
+              return n;
+            })
+          }
+          active={sumTag}
+          onPick={setSumTag}
+        />
+      </Paper>
       <Box sx={{ flex: 1, position: "relative" }}>
         <Box ref={elRef} sx={{ position: "absolute", inset: 0 }} />
         {nameEdit && (
@@ -1868,28 +1922,6 @@ export default function MapMlView() {
           <Typography variant="overline" color="text.secondary">
             Давхарга
           </Typography>
-          <TextField
-            select
-            size="small"
-            fullWidth
-            label="Нэр илрүүлсэн хэсэг"
-            value={sumTag}
-            onChange={(e) => setSumTag(e.target.value)}
-            SelectProps={{ native: true }}
-            InputLabelProps={{ shrink: true }}
-            sx={{ my: 1 }}
-          >
-            <option value="">Бүх хэсэг</option>
-            {/* зөвхөн шалгах шаардлагатай хэсэг (Recount-тай сум, шалгаж дууссаныг харуулахгүй — хэрэглэгч 2026-11-16) */}
-            {sums
-              .filter((x) => x.todo > 0 && !x.auto)
-              .map((x) => (
-                <option key={x.tag} value={x.tag}>
-                  {x.aimag ? `${x.aimag}, ` : ""}
-                  {x.unit || x.tag} — шалгах {x.todo}
-                </option>
-              ))}
-          </TextField>
           {sumTag && (
             <Button
               size="small"
