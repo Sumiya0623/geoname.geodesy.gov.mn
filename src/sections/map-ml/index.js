@@ -1185,7 +1185,42 @@ export default function MapMlView() {
           pos: f.get("moved") ? f.getGeometry().getCoordinates() : null,
           loc: f.getGeometry().getCoordinates(),
         });
+        return;
       }
+      // Ямар ч зумд (хэрэглэгч 2026-11-16): таамгийн/бичвэрийн WMS цэг дээр дарахад GetFeatureInfo-гоор засах цонх
+      const res = map.getView().getResolution();
+      const tryLayer = (layer, kind) => {
+        if (!layer || !layer.getVisible()) return Promise.resolve(false);
+        const url = layer.getSource().getFeatureInfoUrl(e.coordinate, res, "EPSG:3857", {
+          INFO_FORMAT: "application/json",
+          FEATURE_COUNT: 1,
+          BUFFER: 10,
+        });
+        if (!url) return Promise.resolve(false);
+        return fetch(url)
+          .then((r) => r.json())
+          .then((j) => {
+            const ft = j?.features?.[0];
+            if (!ft) return false;
+            const p = ft.properties || {};
+            const id = Number(String(ft.id || "").split(".").pop()) || p.id;
+            if (!id) return false;
+            setNameEdit({
+              kind,
+              id,
+              name: kind === "text" ? p.guess || null : p.name,
+              ocr: p.ocr,
+              alt: p.alt || null,
+              pos: null,
+              loc: e.coordinate,
+            });
+            return true;
+          })
+          .catch(() => false);
+      };
+      tryLayer(placeLayerRef.current, "place").then(
+        (ok) => ok || tryLayer(textLayerRef.current, "text"),
+      );
     });
 
     let timer;
