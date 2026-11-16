@@ -1880,39 +1880,15 @@ export default function MapMlView() {
             sx={{ my: 1 }}
           >
             <option value="">Бүх хэсэг</option>
-            <optgroup label="Шалгах үлдсэн">
-              {sums
-                .filter((x) => x.todo > 0 && !x.auto)
-                .map((x) => (
-                  <option key={x.tag} value={x.tag}>
-                    {x.aimag ? `${x.aimag}, ` : ""}
-                    {x.unit || x.tag} — шалгах {x.todo}
-                  </option>
-                ))}
-            </optgroup>
-            <optgroup label="Recount-тай — автоматаар шалгагдана (гараар шалгах шаардлагагүй)">
-              {sums
-                .filter((x) => x.todo > 0 && x.auto)
-                .map((x) => (
-                  <option key={x.tag} value={x.tag}>
-                    ⚙ {x.aimag ? `${x.aimag}, ` : ""}
-                    {x.unit || x.tag} — Recount-тай таараагүй {x.todo}
-                  </option>
-                ))}
-            </optgroup>
-            <optgroup label="Шалгаж дууссан">
-              {sums
-                .filter((x) => !x.todo)
-                .map((x) => (
-                  <option key={x.tag} value={x.tag}>
-                    ✓ {x.aimag ? `${x.aimag}, ` : ""}
-                    {x.unit || x.tag}
-                    {x.tag.startsWith("sb") || x.tag.startsWith("lk")
-                      ? ` (Recount-аар ${x.done})`
-                      : ` (${x.done})`}
-                  </option>
-                ))}
-            </optgroup>
+            {/* зөвхөн шалгах шаардлагатай хэсэг (Recount-тай сум, шалгаж дууссаныг харуулахгүй — хэрэглэгч 2026-11-16) */}
+            {sums
+              .filter((x) => x.todo > 0 && !x.auto)
+              .map((x) => (
+                <option key={x.tag} value={x.tag}>
+                  {x.aimag ? `${x.aimag}, ` : ""}
+                  {x.unit || x.tag} — шалгах {x.todo}
+                </option>
+              ))}
           </TextField>
           {sumTag && (
             <Button
