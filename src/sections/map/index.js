@@ -2839,15 +2839,17 @@ function Map2() {
   useEffect(() => {
     const map = mapObjRef.current;
     if (!map || !mapReady || !mlState) return undefined;
+    // хавтангүй нэг зураг (ImageWMS): хавтангийн хил дээр нэрийн шошго тасрахгүй (хэрэглэгч 2026-11-16 «Гу…», «Холбоо т…»)
     const mk = (name, z, opacity = 1) =>
-      new TileLayer({
+      new ImageLayer({
         zIndex: z,
         opacity,
-        source: new TileWMS({
+        source: new ImageWMS({
           url: `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms`,
-          params: { LAYERS: name, FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1", CQL_FILTER: "1=0" },
+          params: { LAYERS: name, FORMAT: "image/png", TRANSPARENT: "true", VERSION: "1.1.1", CQL_FILTER: "1=0" },
           serverType: "geoserver",
           crossOrigin: "anonymous",
+          ratio: 1.2,
         }),
       });
     const L = {
