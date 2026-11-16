@@ -573,12 +573,12 @@ def _sync_recount(c, kind, ref_id, uid, loc_wkt, create=False):
     create=False үед ШИНЭ тодруулга үүсгэхгүй — зөвхөн «Хадгалаад дараагийнх» (хүснэгт, recount=true) үүсгэнэ;
     газрын зургийн засвар зөвхөн сургалтын шошго (nameqc_namerev), өмнө үүссэн тодруулгыг л тааруулна."""
     from core.models import Constant, GeoName, Project, ReCount
-    c.execute("SELECT id, verdict, name, geoname_id, recount_id FROM nameqc_namerev WHERE kind = %s AND ref_id = %s",
+    c.execute("SELECT id, verdict, name, geoname_id, recount_id, tag FROM nameqc_namerev WHERE kind = %s AND ref_id = %s",
               [kind, ref_id])
     row = c.fetchone()
     if not row:
         return
-    rev_id, verdict, name, gid, rc_id = row
+    rev_id, verdict, name, gid, rc_id, rtag = row
     rc = ReCount.objects.filter(id=rc_id).first() if rc_id else None
     if verdict == 'notname':
         if rc:
@@ -600,8 +600,10 @@ def _sync_recount(c, kind, ref_id, uid, loc_wkt, create=False):
     gn = GeoName.objects.filter(id=gid).first() if gid else None
     if rc is None:
         # дугаараар (nameqc) хайна — нэрийг нь хэрэглэгч өөрчилж болно
-        proj = Project.objects.filter(dugaar='nameqc').order_by('id').first() or \
-            Project.objects.create(name=ML_PROJECT_NAME, dugaar='nameqc', percent='')
+        # w<сум> = УСЗҮЙ-МАШИН СУРГАЛТ (тусдаа төсөл, хэрэглэгч 2026-11-16), бусад = Машин сургалт
+        dg, pname = ('hydro', 'УСЗҮЙ-МАШИН СУРГАЛТ') if (rtag or '').startswith('w') else ('nameqc', ML_PROJECT_NAME)
+        proj = Project.objects.filter(dugaar=dg).order_by('id').first() or \
+            Project.objects.create(name=pname, dugaar=dg, percent='')
         step = Constant.objects.filter(key='RECOUNT_STEPS', name=ML_STEP_NAME).first()
         rc = ReCount(project=proj, step=step)
     rc.name = gn
@@ -767,6 +769,20 @@ class MlNameReviewViewSet(_MissingTable):
                            AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)
                          LIMIT 3000""", [*b, tag, tag, *b, tag, tag])
         return Response(_fc(rows))
+
+    @action(detail=False, methods=['get'])
+    def area(self, request):
+        """Усзүйн нуурын урьдчилсан хил (nameqc_place.area) → {'pts': [[x, y], …] EPSG:3857} эсвэл {}."""
+        try:
+            pid = int(request.query_params.get('id'))
+        except (TypeError, ValueError):
+            return Response({})
+        r = _rows("""SELECT ST_AsGeoJSON(ST_Transform(area, 3857)) AS g FROM nameqc_place WHERE id = %s AND area IS NOT NULL""", [pid])
+        if not r or not r[0]['g']:
+            return Response({})
+        import json as _json
+        ring = _json.loads(r[0]['g'])['coordinates'][0][:-1]
+        return Response({'pts': [[round(x, 2), round(y, 2)] for x, y in ring]})
 
     @action(detail=False, methods=['get'])
     def lake(self, request):
@@ -940,6 +956,7 @@ class MlNameReviewViewSet(_MissingTable):
               SELECT t.tag, count(*) AS n FROM nameqc_text t WHERE NOT EXISTS
                 (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id) GROUP BY t.tag)
             SELECT p.tag, max(u.unit) AS unit, max(a.unit) AS aimag,
+                   CASE WHEN p.tag LIKE 'w%%' THEN 'hydro' ELSE 'nameqc' END AS project,
                    -- Recount-аар бүрэн тодруулсан сум (≥100 цэг): гар шалгалт хэрэггүй (хэрэглэгч 2026-11-09/16)
                    (SELECT count(*) FROM (SELECT 1 FROM core_recount rc, core_adminunit uu WHERE uu.id = max(p.unit_id)
                       AND ST_Intersects(rc.loc, uu.geom) LIMIT 100) z) >= 100 AS auto,
@@ -950,7 +967,7 @@ class MlNameReviewViewSet(_MissingTable):
                    ST_X(ST_Centroid(ST_Collect(p.geom))) AS lon_all, ST_Y(ST_Centroid(ST_Collect(p.geom))) AS lat_all
               FROM p LEFT JOIN t ON t.tag = p.tag LEFT JOIN core_adminunit u ON u.id = p.unit_id
               LEFT JOIN core_adminunit a ON a.id = u.parent_id
-             WHERE p.tag ~ '^(n|t|sb|lk)[0-9]+$'          -- туршилтын шошго (a0, s0, b0 …) жагсаалтад гарахгүй
+             WHERE p.tag ~ '^(n|t|sb|lk|w)[0-9]+$'        -- туршилтын шошго (a0, s0, b0 …) жагсаалтад гарахгүй; w = усзүй
              GROUP BY p.tag ORDER BY max(a.unit), max(u.unit)""", []))
 
     @action(detail=False, methods=['get'])
