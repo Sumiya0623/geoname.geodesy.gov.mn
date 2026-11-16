@@ -900,6 +900,13 @@ class MlNameReviewViewSet(_MissingTable):
                     if w:
                         c.execute("SELECT ST_AsText(ST_Multi(ST_MakeValid(ST_Transform(ST_GeomFromText(%s, 3857), 4326))))", [w])
                         shape_wkt = c.fetchone()[0]
+                if not shape_wkt and kind == 'place' and verdict in ('ok', 'fixed'):
+                    # УСЗҮЙ: хүн дүрс зураагүй ч машины гаргасан нуурын хил (nameqc_place.area) байвал түүнийг ашиглана
+                    # (картын «дараалан шалгах» урьдчилсан хилийг ачаалдаггүй — 2026-11-16)
+                    c.execute("""SELECT ST_AsText(ST_Multi(area)) FROM nameqc_place WHERE id = %s AND area IS NOT NULL
+                                   AND type_name IN ('Нуур', 'Усан сан', 'Цөөрөм', 'Бүрд', 'Намаг')""", [rid])
+                    _a = c.fetchone()
+                    shape_wkt = _a[0] if _a else None
                 pg = ("ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326)", [float(pos[0]), float(pos[1])]) \
                     if pos else ("NULL", [])
                 c.execute(f"""INSERT INTO nameqc_namerev (kind, ref_id, tag, verdict, name, geoname_id, pos, pos_moved,
