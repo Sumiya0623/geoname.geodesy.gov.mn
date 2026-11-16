@@ -229,7 +229,7 @@ function rotatedBox(coords, geom) {
   return g;
 }
 
-export function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
+export function NameEditPanel({ item, tag, onClose, onSaved, onSkip, recount = false, onGeomTool }) {
   const [pick, setPick] = useState(null);
   const [busy, setBusy] = useState(false);
   const isText = item.kind === "text";
@@ -245,8 +245,11 @@ export function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
             name,
             geoname_id: gid ?? null,
             pos: item.pos || null,
+            geom:
+              item.geom && item.geom.pts?.length >= (item.geom.t === "area" ? 3 : 2) ? item.geom : null,
           },
         ],
+        ...(recount ? { recount: true } : {}),   // үндсэн газрын зургаас — «Машин сургалт» тодруулга үүсгэнэ
       });
       onSaved(
         verdict === "notname"
@@ -345,6 +348,24 @@ export function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
           >
             Нэр биш
           </Button>
+          {onGeomTool && (
+            <Stack direction="row" spacing={0.5} sx={{ width: "100%", flexWrap: "wrap" }}>
+              <Button size="small" variant="outlined" onClick={() => onGeomTool("lake")} disabled={busy}>
+                Нуур (товш)
+              </Button>
+              <Button size="small" variant="outlined" onClick={() => onGeomTool("area")} disabled={busy}>
+                Талбай зурах
+              </Button>
+              <Button size="small" variant="outlined" onClick={() => onGeomTool("line")} disabled={busy}>
+                Шугам зурах
+              </Button>
+              {item.geom && (
+                <Button size="small" color="inherit" onClick={() => onGeomTool(null)}>
+                  ✓ {item.geom.t === "area" ? "талбай" : "шугам"} ({item.geom.pts.length}) ✕
+                </Button>
+              )}
+            </Stack>
+          )}
           <Button
             size="small"
             color="secondary"

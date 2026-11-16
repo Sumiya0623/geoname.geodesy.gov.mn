@@ -50,6 +50,7 @@ import "ol-layerswitcher/dist/ol-layerswitcher.css";
 import TileLayer from "ol/layer/Tile";
 import ImageLayer from "ol/layer/Image";
 import VectorLayer from "ol/layer/Vector";
+import Translate from "ol/interaction/Translate";
 import RegularShape from "ol/style/RegularShape";
 import ImageWMS from "ol/source/ImageWMS";
 import OSM from "ol/source/OSM";
@@ -2831,6 +2832,9 @@ function Map2() {
   // Тодруулалт → «Машин» (нэр таних ML, map-ml-ийг нэгтгэсэн — хэрэглэгч 2026-11-16)
   const [mlState, setMlState] = useState(null); // {tags, layers, reload} | null
   const [mlEdit, setMlEdit] = useState(null);
+  const [mlDraw, setMlDraw] = useState(null); // null | "lake" | "area" | "line" — засах цонхны дүрс зурах горим
+  const mlDrawRef = useRef(null);
+  mlDrawRef.current = mlDraw;
   const mlLayersRef = useRef(null);
   useEffect(() => {
     const map = mapObjRef.current;
@@ -2855,7 +2859,7 @@ function Map2() {
     Object.values(L).forEach((l) => map.addLayer(l));
     mlLayersRef.current = L;
     const onClick = async (evt) => {
-      if (drawInteractionRef.current) return;
+      if (drawInteractionRef.current || mlDrawRef.current) return;
       const res = map.getView().getResolution();
       const tryL = async (layer, kind) => {
         if (!layer.getVisible()) return false;
@@ -2872,6 +2876,9 @@ function Map2() {
           const pr = ft.properties || {};
           const id = Number(String(ft.id || "").split(".").pop()) || pr.id;
           if (!id) return false;
+          let at = evt.coordinate;
+          const gc = ft.geometry?.type === "Point" ? ft.geometry.coordinates : null;
+          if (gc) at = Math.abs(gc[0]) <= 180 && Math.abs(gc[1]) <= 90 ? fromLonLat(gc) : gc;
           setMlEdit({
             kind,
             id,
@@ -2880,7 +2887,7 @@ function Map2() {
             ocr: pr.ocr,
             alt: pr.alt || null,
             pos: null,
-            loc: evt.coordinate,
+            loc: at,
           });
           return true;
         } catch (e) {
@@ -2897,6 +2904,79 @@ function Map2() {
       setMlEdit(null);
     };
   }, [mapReady, !!mlState]); // eslint-disable-line react-hooks/exhaustive-deps
+  // байрлал засах: засах цонх нээлттэй үед нэрийн цэг дээр шар цагираг — чирж зөв тэмдэг рүү (хадгалахад pos-оор очно)
+  const mlEditKey = mlEdit ? `${mlEdit.kind}:${mlEdit.id}` : null;
+  useEffect(() => {
+    const map = mapObjRef.current;
+    if (!map || !mlEdit?.loc) return undefined;
+    const f = new Feature(new Point(mlEdit.loc));
+    const lyr = new VectorLayer({
+      source: new VectorSource({ features: [f] }),
+      zIndex: 900,
+      style: new Style({
+        image: new CircleStyle({
+          radius: 11,
+          stroke: new Stroke({ color: "#ffd600", width: 3 }),
+          fill: new Fill({ color: "rgba(255,214,0,0.18)" }),
+        }),
+      }),
+    });
+    const tr = new Translate({ layers: [lyr], hitTolerance: 8 });
+    tr.on("translateend", () => {
+      const xy = f.getGeometry().getCoordinates();
+      setMlEdit((m) => (m ? { ...m, pos: xy } : m));
+    });
+    map.addLayer(lyr);
+    map.addInteraction(tr);
+    return () => {
+      map.removeInteraction(tr);
+      map.removeLayer(lyr);
+    };
+  }, [mlEditKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // нэрийн дүрс (шугам/талбай) — нуур: нэг товшилтоор backend lakefill; талбай/шугам: Draw
+  useEffect(() => {
+    const map = mapObjRef.current;
+    if (!map || !mlDraw) return undefined;
+    if (mlDraw === "lake") {
+      const once = (evt) => {
+        const [x, y] = evt.coordinate;
+        axiosInstance
+          .get(endpoints.ml.nameRevLake(x.toFixed(2), y.toFixed(2)))
+          .then(({ data }) => setMlEdit((m) => (m ? { ...m, geom: { t: "area", pts: data.pts } } : m)))
+          .catch((err) => legalSnack(err?.detail || "Нуурын дүүргэлт олдсонгүй — нуурын дотор товшино уу", { variant: "warning" }))
+          .finally(() => setMlDraw(null));
+      };
+      map.once("singleclick", once);
+      return () => map.un("singleclick", once);
+    }
+    const src = new VectorSource();
+    const dr = new Draw({ source: src, type: mlDraw === "area" ? "Polygon" : "LineString" });
+    dr.on("drawend", (e) => {
+      const g = e.feature.getGeometry();
+      const pts = mlDraw === "area" ? g.getCoordinates()[0].slice(0, -1) : g.getCoordinates();
+      setMlEdit((m) => (m ? { ...m, geom: { t: mlDraw, pts } } : m));
+      setTimeout(() => setMlDraw(null), 0);
+    });
+    map.addInteraction(dr);
+    return () => map.removeInteraction(dr);
+  }, [mlDraw]); // eslint-disable-line react-hooks/exhaustive-deps
+  // зурсан дүрсийг харуулах
+  useEffect(() => {
+    const map = mapObjRef.current;
+    const gm = mlEdit?.geom;
+    if (!map || !gm?.pts?.length) return undefined;
+    const geom = gm.t === "area" ? new Polygon([[...gm.pts, gm.pts[0]]]) : new LineString(gm.pts);
+    const lyr = new VectorLayer({
+      source: new VectorSource({ features: [new Feature(geom)] }),
+      zIndex: 899,
+      style: new Style({
+        stroke: new Stroke({ color: "#0277bd", width: 3 }),
+        fill: new Fill({ color: "rgba(2,119,189,0.15)" }),
+      }),
+    });
+    map.addLayer(lyr);
+    return () => map.removeLayer(lyr);
+  }, [mlEdit?.geom]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const L = mlLayersRef.current;
     if (!L || !mlState) return;
@@ -4968,9 +5048,15 @@ function Map2() {
             key={`${mlEdit.kind}:${mlEdit.id}`}
             item={mlEdit}
             tag={mlEdit.tag}
-            onClose={() => setMlEdit(null)}
+            recount
+            onGeomTool={(t) => (t ? setMlDraw(t) : setMlEdit((m) => ({ ...m, geom: null })))}
+            onClose={() => {
+              setMlDraw(null);
+              setMlEdit(null);
+            }}
             onSkip={() => setMlEdit(null)}
             onSaved={(msg) => {
+              setMlDraw(null);
               setMlEdit(null);
               legalSnack(msg, { variant: "success" });
               const L = mlLayersRef.current;
