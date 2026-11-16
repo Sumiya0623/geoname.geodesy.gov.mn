@@ -563,7 +563,7 @@ class MlPlaceViewSet(_MissingTable):
 
 # Хүний баталсан нэр → тодруулга (core_recount): тусдаа төсөлд, «Суурин боловсруулалт» шатаар.
 # Дахин сургалтад (nameqc recountlab) баталгаат өгөгдөл болно. Холбоос: nameqc_namerev.recount_id
-ML_PROJECT_NAME = '1970 оны 1:100 000 зургаас гараар баталгаажуулсан нэр (nameqc)'
+ML_PROJECT_NAME = 'Машин сургалт'   # хэрэглэгч 2026-11-16 (өмнө нь «1970 оны 1:100 000 зургаас гараар баталгаажуулсан нэр (nameqc)»)
 ML_STEP_NAME = 'Суурин судалгаа'
 
 
@@ -599,7 +599,9 @@ def _sync_recount(c, kind, ref_id, uid, loc_wkt, create=False):
         return
     gn = GeoName.objects.filter(id=gid).first() if gid else None
     if rc is None:
-        proj, _ = Project.objects.get_or_create(name=ML_PROJECT_NAME, defaults={'dugaar': 'nameqc', 'percent': ''})
+        # дугаараар (nameqc) хайна — нэрийг нь хэрэглэгч өөрчилж болно
+        proj = Project.objects.filter(dugaar='nameqc').order_by('id').first() or \
+            Project.objects.create(name=ML_PROJECT_NAME, dugaar='nameqc', percent='')
         step = Constant.objects.filter(key='RECOUNT_STEPS', name=ML_STEP_NAME).first()
         rc = ReCount(project=proj, step=step)
     rc.name = gn
