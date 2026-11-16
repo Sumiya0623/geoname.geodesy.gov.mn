@@ -611,6 +611,13 @@ def _sync_recount(c, kind, ref_id, uid, loc_wkt, create=False):
         rc.loc = loc
     rc.user_id = uid
     rc.save()
+    if rc.loc:   # баталгаа байрлах сумыг төсөлд нэмнэ — төслийн самбар зөвхөн бүртгэлтэй сумдаа харуулдаг (2026-11-16)
+        c.execute("""INSERT INTO core_project_units (project_id, adminunit_id)
+                     SELECT %s, s.id FROM core_adminunit s
+                      WHERE s.parent_id IS NOT NULL AND s.level_id IN (SELECT id FROM core_constant WHERE name = 'Сум/Дүүрэг')
+                        AND ST_Intersects(s.geom, ST_GeomFromText(%s, 4326))
+                        AND NOT EXISTS (SELECT 1 FROM core_project_units pu WHERE pu.project_id = %s AND pu.adminunit_id = s.id)""",
+                  [rc.project_id, rc.loc.wkt, rc.project_id])
     c.execute("UPDATE nameqc_namerev SET recount_id = %s WHERE id = %s", [rc.id, rev_id])
 
 
