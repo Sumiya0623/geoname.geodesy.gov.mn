@@ -2851,6 +2851,7 @@ function Map2() {
         }),
       });
     const L = {
+      lakes: mk("geoname:nameqc_place_area", 719), // УСЗҮЙ: нуурын гөлгөр хил
       syms: mk("geoname:nameqc_symbol", 720),
       texts: mk("geoname:nameqc_text", 721),
       confirmed: mk("geoname:nameqc_place", 722, 0.55),
@@ -2994,6 +2995,7 @@ function Map2() {
     const t = mlState.tags || [];
     const cql = t.length ? `tag IN (${t.map((x) => `'${x}'`).join(",")})` : "1=0";
     L.syms.getSource().updateParams({ CQL_FILTER: cql });
+    L.lakes.getSource().updateParams({ CQL_FILTER: cql });
     L.texts.getSource().updateParams({ CQL_FILTER: cql });
     L.places.getSource().updateParams({ CQL_FILTER: `review IS NULL AND ${cql}` });
     L.confirmed.getSource().updateParams({ CQL_FILTER: `review IS NOT NULL AND ${cql}` });

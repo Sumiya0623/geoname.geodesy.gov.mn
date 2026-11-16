@@ -30,7 +30,7 @@ export default function MlPanel({ onState, onFlyTo }) {
   const [sums, setSums] = useState([]);
   const [shown, setShown] = useState(null); // null = бүгд
   const [active, setActive] = useState("");
-  const [layers, setLayers] = useState({ places: true, texts: true, syms: false, confirmed: false });
+  const [layers, setLayers] = useState({ places: true, texts: true, syms: false, confirmed: false, lakes: true });
   const [grid, setGrid] = useState(false);
   const [proj, setProj] = useState("nameqc"); // nameqc = Машин сургалт, hydro = УСЗҮЙ-МАШИН СУРГАЛТ (тусдаа)
 
@@ -135,6 +135,7 @@ export default function MlPanel({ onState, onFlyTo }) {
         {sw("texts", "Тулгаж чадаагүй бичвэр (саарал)")}
         {sw("syms", "Олсон тэмдэг")}
         {sw("confirmed", "Батлагдсан таамаг (бүдэг)")}
+        {proj === "hydro" && sw("lakes", "Нуурын хил (цэнхэр)")}
         <Typography variant="caption" color="text.secondary">
           Газрын зураг дээр цэг/бичвэр дээр дарж нэрийг засна.
         </Typography>
