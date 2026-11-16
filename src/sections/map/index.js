@@ -1461,7 +1461,7 @@ function Map2() {
             // geoname_view‑тэй ижил баганатай (type_id/type_l1/l2/name) тул тохирно.
             // geoname_types (geoname_types_full БИШ) — учир нь бүх төрлийн жинхэнэ
             // icon (уул г.м.) энд бий; "_full" нь синкгүй тул icon дутуу (ногоон дугуй).
-            STYLES: "geoname_types",
+            STYLES: "recount_types", // geoname_types + ElseFilter нөөц дүрэм (72 төрөлд тэмдэг байхгүй байсан — 2026-11-16)
             ...(filterData.cql_filter
               ? { CQL_FILTER: filterData.cql_filter }
               : {}),
