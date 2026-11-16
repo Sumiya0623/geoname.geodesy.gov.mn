@@ -33,6 +33,24 @@ def _wms(bbox, size=SIZE):
     return Image.open(BytesIO(r.content)).convert('RGB')
 
 
+def _flood(free, seed):
+    """free (bool H×W) дээр seed-ээс 4 хөршөөр дүүргэнэ → bool маск. (Pillow 12 ImageDraw.floodfill ажиллахгүй болсон.)"""
+    from collections import deque
+    H, W = free.shape
+    sx, sy = seed
+    out = np.zeros((H, W), bool)
+    if not free[sy, sx]:
+        return out
+    q = deque([(sy, sx)]); out[sy, sx] = True
+    while q:
+        y, x = q.popleft()
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if 0 <= ny < H and 0 <= nx < W and free[ny, nx] and not out[ny, nx]:
+                out[ny, nx] = True
+                q.append((ny, nx))
+    return out
+
+
 def _mask(img, seed):
     hsv = np.asarray(img.convert('HSV')).astype(np.int16)
     h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
@@ -60,9 +78,7 @@ def _component(m, seed, search=30):
             return None
         k = np.argmin((xs + max(0, sx - search) - sx) ** 2 + (ys + max(0, sy - search) - sy) ** 2)
         sx, sy = int(xs[k] + max(0, sx - search)), int(ys[k] + max(0, sy - search))
-    m2 = m.copy()
-    ImageDraw.floodfill(m2, (sx, sy), 77)
-    comp = np.asarray(m2) == 77
+    comp = _flood(np.asarray(m) >= 128, (sx, sy))
     return comp if comp.sum() >= 200 else None
 
 
@@ -116,6 +132,28 @@ def _chaikin(pts, it=2):
     return [tuple(v) for v in p]
 
 
+def _outline_component(img, seed):
+    """Өнгө харгалзахгүй: товшсон цэгээс БАРААН эргийн шугам хүртэл дүүргэнэ (хэрэглэгч 2026-11-16: сканы өнгө гажгаас
+    саарал/ногоовтор торлог нуур — цэнхэр маск олдохгүй). Хаалт = бараан пиксел (тод хүрээ), бага зэрэг тэлсэн."""
+    g = np.asarray(img.convert('L')).astype(np.int16)
+    bar = (g < 160).astype(np.uint8) * 255
+    # зөвхөн ЗУЗААН бараан шугам (нуурын эрэг ~4–6 px) — торлог дүүргэлтийн цэг, торын нимгэн шугам хаалт биш (нээлт)
+    b = Image.fromarray(bar).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    b = b.filter(ImageFilter.MaxFilter(3))                             # эргийн шугамын жижиг цоорхой нөхөх
+    a = np.asarray(b) >= 128
+    sx, sy = seed
+    if a[sy, sx]:
+        ys, xs = np.nonzero(~a[max(0, sy - 8):sy + 9, max(0, sx - 8):sx + 9])
+        if not len(xs):
+            return None                                               # шугам дээр товшсон
+        sx, sy = int(xs[0] + max(0, sx - 8)), int(ys[0] + max(0, sy - 8))
+    comp = _flood(~a, (sx, sy))
+    if comp.sum() < 200:
+        return None
+    # эргийн шугамын тэлэлтийг буцааж нэмнэ (хил эргийн шугамын дунд)
+    return np.asarray(Image.fromarray((comp * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))) >= 128
+
+
 def lake_at(x, y):
     """(x, y) EPSG:3857 — нуурын дотор товшсон цэг. Буцаах: [[x, y], …] EPSG:3857 эсвэл None."""
     half = HALF
@@ -132,12 +170,18 @@ def lake_at(x, y):
             comp = _component(mo, seed, search=12)
             if comp is None:
                 comp = _component(m, seed)
+        by_outline = False
+        if comp is None:
+            comp = _outline_component(img, seed)    # цэнхэр олдсонгүй — бараан эргийн шугамаар
+            by_outline = comp is not None
         if comp is None or comp.mean() > 0.6:      # бараг бүх цонх — дэвсгэр дүүрсэн, нуур биш
             return None
         touches = comp[0].any() or comp[-1].any() or comp[:, 0].any() or comp[:, -1].any()
         if touches and half < 4 * HALF:
             half *= 2                               # нуур цонхноос том — цонхыг тэлж дахин
             continue
+        if touches and by_outline:
+            return None                             # эргийн шугам хаалттай биш — дүүргэлт гадагш гоожсон
         break
     # арзгар хил (хэрэглэгч 2026-11-13): маскийг Гауссаар зөөлрүүлж → мөрдөх → хялбаршуулах → Chaikin
     sm = Image.fromarray((comp * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(4))
