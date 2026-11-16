@@ -931,6 +931,9 @@ class MlNameReviewViewSet(_MissingTable):
               SELECT t.tag, count(*) AS n FROM nameqc_text t WHERE NOT EXISTS
                 (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id) GROUP BY t.tag)
             SELECT p.tag, max(u.unit) AS unit, max(a.unit) AS aimag,
+                   -- Recount-аар бүрэн тодруулсан сум (≥100 цэг): гар шалгалт хэрэггүй (хэрэглэгч 2026-11-09/16)
+                   (SELECT count(*) FROM (SELECT 1 FROM core_recount rc, core_adminunit uu WHERE uu.id = max(p.unit_id)
+                      AND ST_Intersects(rc.loc, uu.geom) LIMIT 100) z) >= 100 AS auto,
                    count(*) FILTER (WHERE p.todo) + COALESCE(max(t.n), 0) AS todo,
                    count(*) FILTER (WHERE p.review IS NULL) AS new, count(*) FILTER (WHERE p.review IS NOT NULL) AS done,
                    ST_X(ST_Centroid(ST_Collect(p.geom) FILTER (WHERE p.todo))) AS lon,
