@@ -1882,11 +1882,21 @@ export default function MapMlView() {
             <option value="">Бүх хэсэг</option>
             <optgroup label="Шалгах үлдсэн">
               {sums
-                .filter((x) => x.todo > 0)
+                .filter((x) => x.todo > 0 && !x.auto)
                 .map((x) => (
                   <option key={x.tag} value={x.tag}>
                     {x.aimag ? `${x.aimag}, ` : ""}
                     {x.unit || x.tag} — шалгах {x.todo}
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label="Recount-тай — автоматаар шалгагдана (гараар шалгах шаардлагагүй)">
+              {sums
+                .filter((x) => x.todo > 0 && x.auto)
+                .map((x) => (
+                  <option key={x.tag} value={x.tag}>
+                    ⚙ {x.aimag ? `${x.aimag}, ` : ""}
+                    {x.unit || x.tag} — Recount-тай таараагүй {x.todo}
                   </option>
                 ))}
             </optgroup>
