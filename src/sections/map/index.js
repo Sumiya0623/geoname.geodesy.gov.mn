@@ -2933,6 +2933,17 @@ function Map2() {
       map.removeLayer(lyr);
     };
   }, [mlEditKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // УСЗҮЙ: нуурын урьдчилсан гөлгөр хил (nameqc_place.area) — засах цонх нээгдэхэд дүрсээр харуулна (батлахад хадгалагдана)
+  useEffect(() => {
+    if (!mlEdit || mlEdit.kind !== "place" || mlEdit.geom || !String(mlEdit.tag || "").startsWith("w")) return;
+    axiosInstance
+      .get(endpoints.ml.nameRevArea(mlEdit.id))
+      .then(({ data }) => {
+        if (data?.pts?.length >= 3)
+          setMlEdit((m) => (m && m.id === mlEdit.id && !m.geom ? { ...m, geom: { t: "area", pts: data.pts } } : m));
+      })
+      .catch(() => {});
+  }, [mlEditKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // нэрийн дүрс (шугам/талбай) — нуур: нэг товшилтоор backend lakefill; талбай/шугам: Draw
   useEffect(() => {
     const map = mapObjRef.current;

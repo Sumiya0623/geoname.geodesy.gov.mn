@@ -10,7 +10,9 @@ import {
   Divider,
   IconButton,
   Typography,
+  ToggleButton,
   FormControlLabel,
+  ToggleButtonGroup,
 } from "@mui/material";
 import { Close as CloseIcon } from "@mui/icons-material";
 
@@ -30,6 +32,7 @@ export default function MlPanel({ onState, onFlyTo }) {
   const [active, setActive] = useState("");
   const [layers, setLayers] = useState({ places: true, texts: true, syms: false, confirmed: false });
   const [grid, setGrid] = useState(false);
+  const [proj, setProj] = useState("nameqc"); // nameqc = Машин сургалт, hydro = УСЗҮЙ-МАШИН СУРГАЛТ (тусдаа)
 
   const reload = useCallback(() => {
     axiosInstance
@@ -41,7 +44,10 @@ export default function MlPanel({ onState, onFlyTo }) {
     reload();
   }, [reload]);
 
-  const manual = useMemo(() => sums.filter((x) => x.todo > 0 && !x.auto), [sums]);
+  const manual = useMemo(
+    () => sums.filter((x) => x.todo > 0 && !x.auto && (x.project || "nameqc") === proj),
+    [sums, proj],
+  );
   const tags = useMemo(() => {
     if (active) return [active];
     const all = manual.map((x) => x.tag);
@@ -79,6 +85,22 @@ export default function MlPanel({ onState, onFlyTo }) {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <Box sx={{ px: 1.5, pt: 1 }}>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          fullWidth
+          value={proj}
+          onChange={(_e, v) => {
+            if (!v) return;
+            setProj(v);
+            setActive("");
+            setShown(null);
+          }}
+          sx={{ mb: 0.5, "& .MuiToggleButton-root": { py: 0.25, fontSize: 12 } }}
+        >
+          <ToggleButton value="nameqc">Машин сургалт</ToggleButton>
+          <ToggleButton value="hydro">УСЗҮЙ</ToggleButton>
+        </ToggleButtonGroup>
         <Typography variant="overline" color="text.secondary">
           Шалгах хэсэг — {manual.reduce((n, x) => n + x.todo, 0)} мөр
         </Typography>
