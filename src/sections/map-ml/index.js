@@ -35,8 +35,11 @@ import { useRef, useMemo, useState, useEffect, useCallback } from "react";
 import {
   Box,
   Chip,
+  Menu,
   Stack,
   Paper,
+  MenuItem,
+  IconButton,
   Button,
   Switch,
   Divider,
@@ -421,6 +424,7 @@ export default function MapMlView() {
   // зүүн самбар: харуулах сумууд (null = шалгах шаардлагатай БҮХ хэсэг) ба суурь зураг
   const [shown, setShown] = useState(null);
   const [baseKey, setBaseKey] = useState(DEFAULT_BASE);
+  const [baseMenu, setBaseMenu] = useState(null);
   const baseLayersRef = useRef([]);
   const manualSums = useMemo(() => sums.filter((x) => x.todo > 0 && !x.auto), [sums]);
   const [showConfirmed, setShowConfirmed] = useState(false); // батлагдсан (Recount/хүн) таамгийг тусад нь
@@ -1510,48 +1514,33 @@ export default function MapMlView() {
         overflow: "hidden",
       }}
     >
-      <Paper
-        square
-        elevation={3}
-        sx={{ width: 290, p: 1.5, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1 }}
-      >
-        <TextField
-          select
-          size="small"
-          fullWidth
-          label="Суурь зураг"
-          value={baseKey}
-          onChange={(e) => setBaseKey(e.target.value)}
-          SelectProps={{ native: true }}
-          InputLabelProps={{ shrink: true }}
-        >
+      <Box sx={{ flex: 1, position: "relative" }}>
+        <Box ref={elRef} sx={{ position: "absolute", inset: 0 }} />
+        {/* суурь зураг — үндсэн газрын зураг шиг баруун дээд буланд (хэрэглэгч 2026-11-16) */}
+        <Tooltip title="Суурь зураг" placement="left">
+          <IconButton
+            onClick={(e) => setBaseMenu(e.currentTarget)}
+            sx={{ position: "absolute", top: 12, right: 12, zIndex: 5, bgcolor: "#fff", boxShadow: 2, "&:hover": { bgcolor: "#f5f5f5" } }}
+          >
+            <Iconify icon="eva:layers-fill" sx={{ color: "#0d47a1" }} />
+          </IconButton>
+        </Tooltip>
+        <Menu anchorEl={baseMenu} open={!!baseMenu} onClose={() => setBaseMenu(null)}>
           {baseCfgs
             .filter((c) => (c.layer_type || "base") === "base")
             .map((c) => (
-              <option key={c.key} value={c.key}>
+              <MenuItem
+                key={c.key}
+                selected={c.key === baseKey}
+                onClick={() => {
+                  setBaseKey(c.key);
+                  setBaseMenu(null);
+                }}
+              >
                 {c.label || c.name || c.key}
-              </option>
+              </MenuItem>
             ))}
-        </TextField>
-        <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.5 }}>
-          Шалгах хэсэг — {manualSums.reduce((n, x) => n + x.todo, 0)} мөр
-        </Typography>
-        <SumTree
-          sums={manualSums}
-          checked={shown || new Set(manualSums.map((x) => x.tag))}
-          onToggle={(tags, on) =>
-            setShown((prev) => {
-              const n = new Set(prev || manualSums.map((x) => x.tag));
-              tags.forEach((t) => (on ? n.add(t) : n.delete(t)));
-              return n;
-            })
-          }
-          active={sumTag}
-          onPick={setSumTag}
-        />
-      </Paper>
-      <Box sx={{ flex: 1, position: "relative" }}>
-        <Box ref={elRef} sx={{ position: "absolute", inset: 0 }} />
+        </Menu>
         {nameEdit && (
           <NameEditPanel
             key={`${nameEdit.kind}:${nameEdit.id}`}
@@ -1605,7 +1594,8 @@ export default function MapMlView() {
         square
         elevation={3}
         sx={{
-          width: 340,
+          order: -1, // үндсэн газрын зураг шиг зүүн талд «Удирдлага»
+          width: 400,
           p: 2,
           overflowY: "auto",
           display: "flex",
@@ -1626,6 +1616,23 @@ export default function MapMlView() {
             Нэр таних (ML)
           </Typography>
         </Stack>
+        <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.5 }}>
+          Шалгах хэсэг — {manualSums.reduce((n, x) => n + x.todo, 0)} мөр
+        </Typography>
+        <SumTree
+          sums={manualSums}
+          checked={shown || new Set(manualSums.map((x) => x.tag))}
+          onToggle={(tags, on) =>
+            setShown((prev) => {
+              const n = new Set(prev || manualSums.map((x) => x.tag));
+              tags.forEach((t) => (on ? n.add(t) : n.delete(t)));
+              return n;
+            })
+          }
+          active={sumTag}
+          onPick={setSumTag}
+        />
+        <Divider />
 
         {/* Ганц хэсэг (хэрэглэгч 2026-11-11): «Нэг нэгээр», «Гараар засах», хуучин «Хүснэгтээр» хаагдсан —
             бүх ажил нэрийн хүснэгтэд. Хуучин горимууд ?view=grid|review|edit хаягаар нээгдсэн хэвээр. */}
