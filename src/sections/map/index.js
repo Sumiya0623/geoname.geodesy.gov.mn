@@ -99,6 +99,7 @@ import { createLegalOverlay } from "./legal-overlay";
 import { useGetGeoserver, useGetBaseLayers } from "src/api/map";
 import Iconify from "src/components/iconify";
 import Scrollbar from "src/components/scrollbar";
+import { NameEditPanel } from "src/sections/map-ml";
 import { useSnackbar } from "src/components/snackbar";
 import { useMenuPermissions } from "src/hooks/use-menu-permissions";
 import LegalNewEditForm from "src/sections/council/legal/legal-new-edit-form";
@@ -2827,6 +2828,86 @@ function Map2() {
   const [panelTab, setPanelTab] = useState(null);
   // Дарсан ЗЗ нэгж / хүсэлтийн мэдээлэл (GetFeatureInfo‑гоор)
   const [tabInfo, setTabInfo] = useState(null);
+  // Тодруулалт → «Машин» (нэр таних ML, map-ml-ийг нэгтгэсэн — хэрэглэгч 2026-11-16)
+  const [mlState, setMlState] = useState(null); // {tags, layers, reload} | null
+  const [mlEdit, setMlEdit] = useState(null);
+  const mlLayersRef = useRef(null);
+  useEffect(() => {
+    const map = mapObjRef.current;
+    if (!map || !mapReady || !mlState) return undefined;
+    const mk = (name, z, opacity = 1) =>
+      new TileLayer({
+        zIndex: z,
+        opacity,
+        source: new TileWMS({
+          url: `${process.env.NEXT_PUBLIC_GEOSERVER_URL}/geoname/wms`,
+          params: { LAYERS: name, FORMAT: "image/png", TRANSPARENT: "true", TILED: "true", VERSION: "1.1.1", CQL_FILTER: "1=0" },
+          serverType: "geoserver",
+          crossOrigin: "anonymous",
+        }),
+      });
+    const L = {
+      syms: mk("geoname:nameqc_symbol", 720),
+      texts: mk("geoname:nameqc_text", 721),
+      confirmed: mk("geoname:nameqc_place", 722, 0.55),
+      places: mk("geoname:nameqc_place", 723),
+    };
+    Object.values(L).forEach((l) => map.addLayer(l));
+    mlLayersRef.current = L;
+    const onClick = async (evt) => {
+      if (drawInteractionRef.current) return;
+      const res = map.getView().getResolution();
+      const tryL = async (layer, kind) => {
+        if (!layer.getVisible()) return false;
+        const url = layer.getSource().getFeatureInfoUrl(evt.coordinate, res, "EPSG:3857", {
+          INFO_FORMAT: "application/json",
+          FEATURE_COUNT: 1,
+          BUFFER: 10,
+        });
+        if (!url) return false;
+        try {
+          const j = await (await fetch(url)).json();
+          const ft = j?.features?.[0];
+          if (!ft) return false;
+          const pr = ft.properties || {};
+          const id = Number(String(ft.id || "").split(".").pop()) || pr.id;
+          if (!id) return false;
+          setMlEdit({
+            kind,
+            id,
+            tag: pr.tag,
+            name: kind === "text" ? pr.guess || null : pr.name,
+            ocr: pr.ocr,
+            alt: pr.alt || null,
+            pos: null,
+            loc: evt.coordinate,
+          });
+          return true;
+        } catch (e) {
+          return false;
+        }
+      };
+      if (!(await tryL(L.places, "place"))) await tryL(L.texts, "text");
+    };
+    map.on("singleclick", onClick);
+    return () => {
+      map.un("singleclick", onClick);
+      Object.values(L).forEach((l) => map.removeLayer(l));
+      mlLayersRef.current = null;
+      setMlEdit(null);
+    };
+  }, [mapReady, !!mlState]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const L = mlLayersRef.current;
+    if (!L || !mlState) return;
+    const t = mlState.tags || [];
+    const cql = t.length ? `tag IN (${t.map((x) => `'${x}'`).join(",")})` : "1=0";
+    L.syms.getSource().updateParams({ CQL_FILTER: cql });
+    L.texts.getSource().updateParams({ CQL_FILTER: cql });
+    L.places.getSource().updateParams({ CQL_FILTER: `review IS NULL AND ${cql}` });
+    L.confirmed.getSource().updateParams({ CQL_FILTER: `review IS NOT NULL AND ${cql}` });
+    Object.entries(mlState.layers || {}).forEach(([k, v]) => L[k]?.setVisible(!!v));
+  }, [mlState]);
   const TAB_WMS = useMemo(
     () => ({
       // Шийдвэрийн сан: ЗЗ нэгжийн хил + нийт тоо, дээр нь төрлөөр өнгөт цэг
@@ -4869,6 +4950,7 @@ function Map2() {
           setSearchPointState={setSearchPointState}
           scaleDenom={scaleDenom}
           onRecountCql={setRecountCql}
+          onMlState={setMlState}
           onProjectAreas={setProjectAreas}
           // Идэвхтэй таб — Шийдвэр/Хүсэлт табд харгалзах WMS давхарга асна
           onTabChange={setPanelTab}
@@ -4880,6 +4962,22 @@ function Map2() {
             тоо (эсвэл хүсэлтийн товч мэдээлэл) */}
         {tabInfo && (
           <TabInfoCard info={tabInfo} onClose={() => setTabInfo(null)} />
+        )}
+        {mlEdit && (
+          <NameEditPanel
+            key={`${mlEdit.kind}:${mlEdit.id}`}
+            item={mlEdit}
+            tag={mlEdit.tag}
+            onClose={() => setMlEdit(null)}
+            onSkip={() => setMlEdit(null)}
+            onSaved={(msg) => {
+              setMlEdit(null);
+              legalSnack(msg, { variant: "success" });
+              const L = mlLayersRef.current;
+              if (L) Object.values(L).forEach((l) => l.getSource().updateParams({ _t: Date.now() }));
+              mlState?.reload?.();
+            }}
+          />
         )}
         <Box
           sx={{

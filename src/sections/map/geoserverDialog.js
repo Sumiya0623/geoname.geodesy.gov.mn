@@ -54,6 +54,7 @@ import WorkMapDialog from "../../sections/champaign/workmap/work-map-dialog";
 import NameCategoryTree from "./NameCategoryTree";
 import RecountPanel from "./RecountPanel";
 import RecountUnitTree from "./RecountUnitTree";
+import MlPanel from "./MlPanel";
 import LegalUnitTree from "./LegalUnitTree";
 import RequestPanel from "./RequestPanel";
 import AdvancedSearch from "./AdvancedSearch";
@@ -134,6 +135,8 @@ function GeoserverDialog({
   geonameSeedUnit,
   scaleDenom,
   onRecountCql,
+  // Тодруулалт → «Машин» горим (нэр таних ML): {tags, layers} эсвэл null
+  onMlState,
   // Ангиллын мөрийн 3 цэгийн цэс (Zoom/Feature table/Чанар) — map боловсруулна
   onNodeAction,
   // Панелийн өргөн өөрчлөгдөхөд эцэгт мэдэгдэнэ (доод хүснэгт мөрөө тааруулна)
@@ -206,6 +209,7 @@ function GeoserverDialog({
   );
   // Төслийн зураг дээр «Нэрийн сан» таб байхгүй — бүх үйлдэл «Тодруулалт» дотор
   const [tab, setTab] = useState("layers");
+  const [recMode, setRecMode] = useState("manual"); // Тодруулалт: manual = Гараар (Recount), ml = Машин
   const [addOpen, setAddOpen] = useState(false);
 
   // Идэвхтэй табыг эцэгт мэдэгдэнэ (панель нээлттэй үед л)
@@ -907,13 +911,28 @@ function GeoserverDialog({
                     >
                       <UnitTreeIcon sx={{ fontSize: 18 }} />
                       Тодруулалтын сан
+                      <Box sx={{ flex: 1 }} />
+                      <ToggleButtonGroup
+                        size="small"
+                        exclusive
+                        value={recMode}
+                        onChange={(_e, v) => v && setRecMode(v)}
+                        sx={{ "& .MuiToggleButton-root": { py: 0.1, px: 1, fontSize: 12 } }}
+                      >
+                        <ToggleButton value="manual">Гараар</ToggleButton>
+                        <ToggleButton value="ml">Машин</ToggleButton>
+                      </ToggleButtonGroup>
                     </Typography>
                   </Box>
                   <Box sx={{ flex: 1, minHeight: 0 }}>
-                    <RecountUnitTree
-                      onCql={handleRecountHighlight}
-                      onFlyTo={onFlyTo}
-                    />
+                    {recMode === "ml" ? (
+                      <MlPanel onState={onMlState || (() => {})} onFlyTo={onFlyTo} />
+                    ) : (
+                      <RecountUnitTree
+                        onCql={handleRecountHighlight}
+                        onFlyTo={onFlyTo}
+                      />
+                    )}
                   </Box>
                 </Box>
               )}

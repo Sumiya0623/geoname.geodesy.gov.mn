@@ -229,7 +229,7 @@ function rotatedBox(coords, geom) {
   return g;
 }
 
-function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
+export function NameEditPanel({ item, tag, onClose, onSaved, onSkip }) {
   const [pick, setPick] = useState(null);
   const [busy, setBusy] = useState(false);
   const isText = item.kind === "text";
