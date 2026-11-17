@@ -25,6 +25,8 @@ import {
 import { useSnackbar } from "src/components/snackbar";
 import axiosInstance, { endpoints } from "src/utils/axios";
 
+import IssueMenu, { issueLabel } from "./issue-menu";
+
 const GEOSERVER = process.env.NEXT_PUBLIC_GEOSERVER_URL;
 const PAGE = 9; // 3×3
 const IMG = 520;
@@ -417,7 +419,7 @@ function Card({ item, tag, st, onChange }) {
           {st.verdict === "notname"
             ? "✗ нэр биш"
             : st.verdict === "later"
-              ? "⏭ алгасна (дахин гарахгүй)"
+              ? `⚠ ${issueLabel(st.reason)} — алгасна (дахин гарахгүй)`
               : st.verdict === "unreg"
                 ? `⊘ бүртгэлгүй — алгасна${st.name ? ` («${st.name}»)` : ""}`
                 : st.verdict === "skip"
@@ -533,24 +535,28 @@ function Card({ item, tag, st, onChange }) {
             >
               {st.verdict === "notname" ? "буцаах" : "Нэр биш"}
             </Button>
-            <Button
-              size="small"
-              color="secondary"
-              title="Хэт их зурах шаардлагатай, эсвэл эргэлзээтэй — алгасна (устахгүй, дахин гарахгүй, сургалтад «нэр биш» гэж орохгүй)"
-              onClick={() => {
-                setDrawing(null);
-                onChange({
-                  verdict:
-                    st.verdict === "later" ? (isText ? "skip" : "ok") : "later",
-                  geom: null,
-                  ...(st.verdict === "later" && !isText
-                    ? { name: item.name }
-                    : {}),
-                });
-              }}
-            >
-              {st.verdict === "later" ? "буцаах" : "Алгасах"}
-            </Button>
+            {st.verdict === "later" ? (
+              <Button
+                size="small"
+                color="secondary"
+                onClick={() =>
+                  onChange({
+                    verdict: isText ? "skip" : "ok",
+                    reason: null,
+                    ...(!isText ? { name: item.name } : {}),
+                  })
+                }
+              >
+                буцаах
+              </Button>
+            ) : (
+              <IssueMenu
+                onPick={(r) => {
+                  setDrawing(null);
+                  onChange({ verdict: "later", reason: r, geom: null });
+                }}
+              />
+            )}
             {(st.pos || st.geom || st.verdict !== (isText ? "skip" : "ok")) && (
               <Button
                 size="small"
@@ -625,6 +631,7 @@ export default function NameGrid({ tag }) {
         kind: it.kind,
         id: it.id,
         verdict: s.verdict,
+        reason: s.verdict === "later" ? s.reason || null : null,
         name: s.name,
         geoname_id: s.geoname_id,
         pos: s.pos,
@@ -695,8 +702,8 @@ export default function NameGrid({ tag }) {
       <Typography variant="body2" sx={{ mb: 0.5 }}>
         <b>1. Тэмдгийн төв дээр товш</b> (ногоон +) — улаан дугуй буруу бол.{" "}
         <b>2. Нэр</b> — зөв нэрийг сонго эсвэл хайж бич; бүртгэлд байхгүй бол
-        «Бүртгэлгүй», нэр биш бол «Нэр биш», хэт их зурах шаардлагатай бол
-        «Алгасах». <b>3. Шугам/талбайн нэр</b> бол «Шугам» / «Талбай» дараад
+        «Бүртгэлгүй», нэр биш бол «Нэр биш». Нэр мөн боловч өөр төрлийн, байршил
+        зөрсөн, нуурын талбай гараагүй, эргэлзээтэй бол «Асуудалтай ▾»-аас шалтгааныг сонго. <b>3. Шугам/талбайн нэр</b> бол «Шугам» / «Талбай» дараад
         зураг дээр цэг цэгээр зур. Олсон нэрийн карт анхдагчаар зөв; бичвэрийн
         картад нэр сонгоогүй бол алгасна. <b>Enter</b> — хадгалаад дараагийнх.
       </Typography>

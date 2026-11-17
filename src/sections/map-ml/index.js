@@ -52,6 +52,7 @@ import {
   ToggleButtonGroup,
 } from "@mui/material";
 
+import IssueMenu, { issueLabel } from "./issue-menu";
 import { RouterLink } from "src/routes/components";
 import { useGetBaseLayers } from "src/api/map";
 import Iconify from "src/components/iconify";
@@ -233,7 +234,7 @@ export function NameEditPanel({ item, tag, onClose, onSaved, onSkip, recount = f
   const [pick, setPick] = useState(null);
   const [busy, setBusy] = useState(false);
   const isText = item.kind === "text";
-  const save = async (verdict, name, gid) => {
+  const save = async (verdict, name, gid, reason) => {
     setBusy(true);
     try {
       await axiosInstance.post(endpoints.ml.nameRevBatch, {
@@ -242,6 +243,7 @@ export function NameEditPanel({ item, tag, onClose, onSaved, onSkip, recount = f
             kind: item.kind,
             id: item.id,
             verdict,
+            reason: reason || null,
             name,
             geoname_id: gid ?? null,
             pos: item.pos || null,
@@ -255,7 +257,7 @@ export function NameEditPanel({ item, tag, onClose, onSaved, onSkip, recount = f
         verdict === "notname"
           ? "«Нэр биш» гэж тэмдэглэлээ"
           : verdict === "later"
-            ? "Шугам/талбай — дараа шалгана"
+            ? `Асуудалтай: ${issueLabel(reason)}`
             : `Хадгаллаа: ${name}`,
       );
     } catch (e) {
@@ -366,15 +368,7 @@ export function NameEditPanel({ item, tag, onClose, onSaved, onSkip, recount = f
               )}
             </Stack>
           )}
-          <Button
-            size="small"
-            color="secondary"
-            title="Гуу, жалга, ам гэх мэт шугам/талбайн нэр — одоохондоо алгасна (устахгүй)"
-            onClick={() => save("later", item.name || null)}
-            disabled={busy}
-          >
-            Шугам/талбай
-          </Button>
+          <IssueMenu disabled={busy} onPick={(r) => save("later", item.name || null, null, r)} />
           {!isText && (
             <Button
               size="small"
