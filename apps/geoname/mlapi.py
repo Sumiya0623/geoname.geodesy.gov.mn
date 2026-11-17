@@ -863,10 +863,13 @@ class MlNameReviewViewSet(_MissingTable):
                     row = c.fetchone()
                     if not row:
                         continue
-                    c.execute("""INSERT INTO nameqc_namerev (kind, ref_id, tag, verdict, name, box_ids, user_id)
-                                  VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    # reason (2026-11-17, «Асуудалтай ▾»): othertype / posoff / noarea / shape / doubt
+                    reason = it.get('reason') if it.get('reason') in ('othertype', 'posoff', 'noarea', 'shape', 'doubt') else None
+                    c.execute("""INSERT INTO nameqc_namerev (kind, ref_id, tag, verdict, name, box_ids, user_id, reason)
+                                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                                   ON CONFLICT (kind, ref_id) DO UPDATE SET verdict = EXCLUDED.verdict, name = EXCLUDED.name,
-                                      user_id = EXCLUDED.user_id, created = now()""", [kind, rid, row[0], verdict, name, row[1], uid])
+                                      user_id = EXCLUDED.user_id, reason = EXCLUDED.reason, created = now()""",
+                              [kind, rid, row[0], verdict, name, row[1], uid, reason])
                     _keep_ocr(c, kind, rid)
                     if kind == 'place':
                         c.execute("UPDATE nameqc_place SET review = %s WHERE id = %s", [verdict, rid])
@@ -914,7 +917,7 @@ class MlNameReviewViewSet(_MissingTable):
                               VALUES (%s, %s, %s, %s, %s, %s, {pg[0]}, %s, %s, %s)
                               ON CONFLICT (kind, ref_id) DO UPDATE SET verdict = EXCLUDED.verdict, name = EXCLUDED.name,
                                   geoname_id = EXCLUDED.geoname_id, pos = EXCLUDED.pos, pos_moved = EXCLUDED.pos_moved,
-                                  user_id = EXCLUDED.user_id, created = now()""",
+                                  user_id = EXCLUDED.user_id, reason = NULL, created = now()""",
                           [kind, rid, tag, verdict, name, gid, *pg[1], bool(pos), box_ids, uid])
                 c.execute("UPDATE nameqc_namerev SET shape = ST_GeomFromText(%s, 4326) WHERE kind = %s AND ref_id = %s",
                           [shape_wkt, kind, rid])
