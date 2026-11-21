@@ -712,6 +712,7 @@ export default function NameGrid({ tag }) {
           ["all", "Бүгд"],
           ["place", "Олсон нэр"],
           ["text", "Нэр болоогүй бичвэр"],
+          ["low", "Автоматаар нуусан"],
         ].map(([k, l]) => (
           <Chip
             key={k}
@@ -727,6 +728,7 @@ export default function NameGrid({ tag }) {
             нэр биш · {stats.unreg || 0} бүртгэлгүй · {stats.shape || 0} зурсан
             · {stats.later || 0} алгассан · {stats.pos} байрлал заасан · үлдсэн{" "}
             {stats.todo}
+            {stats.low ? ` · автоматаар нуусан сул бичвэр ${stats.low}` : ""}
           </Typography>
         )}
       </Stack>
