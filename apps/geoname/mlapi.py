@@ -634,6 +634,27 @@ def _keep_ocr(c, kind, rid):
                        FROM nameqc_text t WHERE t.id = r.ref_id AND r.kind = 'text' AND r.ref_id = %s""", [rid])
 
 
+LOW_SIM = 0.3
+
+
+def _mark_low():
+    """«Сул» бичвэрийг (low = true) нэг удаа тэмдэглэнэ — сум + хөрш сумдын бүртгэлтэй ямар ч нэртэй similarity < LOW_SIM
+    БӨГӨӨД нэр томъёогоор (бүртгэлд ≥15 удаа сүүлийн үг) төгсөөгүй. Хүний шалгалтаар (namerev, 727 бичвэр, 2026-11-21):
+    «нэр биш»-ийн 67% нь нуугдана. Гар шалгалтын дараалалд гарахгүй, устахгүй (kind=low-оор харж болно)."""
+    with connection.cursor() as c:
+        c.execute("""
+            WITH tw AS (SELECT lower(regexp_replace(name, '^.* ', '')) AS w FROM core_geoname WHERE name LIKE '%% %%'
+                         GROUP BY 1 HAVING count(*) >= 15)
+            UPDATE nameqc_text t SET low = NOT (
+                (t.ocr LIKE '%% %%' AND lower(regexp_replace(t.ocr, '^.* ', '')) IN (SELECT w FROM tw))
+                OR EXISTS (SELECT 1 FROM core_geoname g JOIN core_geoname_unit gu ON gu.geoname_id = g.id
+                            WHERE gu.adminunit_id IN (SELECT n.id FROM core_adminunit n, core_adminunit u
+                                                       WHERE u.id = t.unit_id AND n.parent_id IS NOT NULL
+                                                         AND (n.id = u.id OR ST_Intersects(n.geom, u.geom)))
+                              AND similarity(lower(g.name), lower(COALESCE(t.ocr, t.guess, ''))) >= %s))
+             WHERE t.low IS NULL""", [LOW_SIM])
+
+
 class MlNameReviewViewSet(_MissingTable):
     """«Нэр шалгах»: загварын олсон нэр (nameqc_place) ба нэр болоогүй бичвэр (nameqc_text)-ийг хүн шалгана —
     тэмдгийн төв (байрлал) дээр товшиж, нэрийг батлах / сонгох / бичих / «нэр биш». Үр дүн → nameqc_namerev
@@ -675,7 +696,9 @@ class MlNameReviewViewSet(_MissingTable):
             n = max(1, min(int(request.query_params.get('n', 20)), 60))
         except ValueError:
             n = 20
-        kinds = ['place', 'text'] if kind == 'all' else [kind]
+        _mark_low()
+        low = kind == 'low'                      # автоматаар нуусан сул бичвэрүүд
+        kinds = ['place', 'text'] if kind == 'all' else ['text'] if low else [kind]
         rows = _rows("""
             WITH it AS (
                 SELECT 'place'::text AS kind, p.id, p.unit_id, p.name, p.alt, p.type_name AS type, p.how, p.doubt,
@@ -686,7 +709,7 @@ class MlNameReviewViewSet(_MissingTable):
                 UNION ALL
                 SELECT 'text', t.id, t.unit_id, t.guess, NULL, NULL, 'text', true, NULL, t.ocr, NULL, t.box_ids, t.geom,
                        NULL::geometry
-                  FROM nameqc_text t WHERE t.tag = %s)
+                  FROM nameqc_text t WHERE t.tag = %s AND COALESCE(t.low, false) = %s)
             SELECT it.kind, it.id, it.unit_id, it.name, it.alt, it.type, it.how, it.doubt, it.reg, it.ocr, it.geoname_id,
                    ST_X(ST_Transform(it.geom, 3857)) AS x, ST_Y(ST_Transform(it.geom, 3857)) AS y,
                    -- талбайн нэрийн (нуур) урьдчилан ялгасан полигон: хамгийн том хэсгийн гадна хүрээ
@@ -698,7 +721,7 @@ class MlNameReviewViewSet(_MissingTable):
               LEFT JOIN LATERAL (SELECT ST_Extent(ST_Transform(d.geom, 3857))::geometry AS e
                                    FROM nameqc_detection d WHERE d.id = ANY(it.box_ids)) b ON true
              WHERE r.id IS NULL AND it.kind = ANY(%s)
-             ORDER BY (it.kind = 'text'), it.doubt DESC, random() LIMIT %s""", [tag, tag, kinds, n])
+             ORDER BY (it.kind = 'text'), it.doubt DESC, random() LIMIT %s""", [tag, tag, low, kinds, n])
         out = []
         for it in rows:
             cands = []
@@ -737,7 +760,7 @@ class MlNameReviewViewSet(_MissingTable):
                    AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id AND r.verdict <> 'pos')
                 UNION ALL
                 SELECT 'text', t.id, t.guess, t.ocr, NULL, t.geom FROM nameqc_text t
-                 WHERE t.tag = %s AND NOT (t.id = ANY(%s))
+                 WHERE t.tag = %s AND NOT (t.id = ANY(%s)) AND NOT COALESCE(t.low, false)
                    AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id))
             SELECT kind, id AS ref, name, ocr, alt, ST_X(ST_Transform(geom, 3857)) AS x, ST_Y(ST_Transform(geom, 3857)) AS y,
                    count(*) OVER () AS todo
@@ -766,6 +789,7 @@ class MlNameReviewViewSet(_MissingTable):
                                ST_AsGeoJSON(ST_Transform(t.geom, 3857))
                           FROM nameqc_text t
                          WHERE t.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND (%s::text IS NULL OR t.tag = %s)
+                           AND NOT COALESCE(t.low, false)
                            AND NOT EXISTS (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)
                          LIMIT 3000""", [*b, tag, tag, *b, tag, tag])
         return Response(_fc(rows))
@@ -956,6 +980,7 @@ class MlNameReviewViewSet(_MissingTable):
     def tags(self, request):
         """Таамагтай хэсгүүд (шошго) — map-ml-ийн «хэсэг» сонголт. todo = шалгаагүй үлдсэн (stats-ийн todo-той ижил:
         хүн/Recount шийдвэргүй, namerev-д ороогүй нэр + бичвэр); todo = 0 бол «шалгаж дууссан»."""
+        _mark_low()
         return Response(_rows("""
             WITH p AS (
               SELECT p.tag, p.unit_id, p.geom, p.review,
@@ -963,7 +988,7 @@ class MlNameReviewViewSet(_MissingTable):
                        (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id)) AS todo
                 FROM nameqc_place p),
             t AS (
-              SELECT t.tag, count(*) AS n FROM nameqc_text t WHERE NOT EXISTS
+              SELECT t.tag, count(*) AS n FROM nameqc_text t WHERE NOT COALESCE(t.low, false) AND NOT EXISTS
                 (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id) GROUP BY t.tag)
             SELECT p.tag, max(u.unit) AS unit, max(a.unit) AS aimag,
                    CASE WHEN p.tag LIKE 'w%%' THEN 'hydro' ELSE 'nameqc' END AS project,
@@ -982,6 +1007,7 @@ class MlNameReviewViewSet(_MissingTable):
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
+        _mark_low()
         tag = request.query_params.get('tag') or ''
         r = _rows("""SELECT count(*) FILTER (WHERE verdict = 'ok') AS ok, count(*) FILTER (WHERE verdict = 'fixed') AS fixed,
                             count(*) FILTER (WHERE verdict = 'notname') AS notname,
@@ -993,7 +1019,10 @@ class MlNameReviewViewSet(_MissingTable):
         r['todo'] = _rows("""SELECT (SELECT count(*) FROM nameqc_place p WHERE p.tag = %s
                                        AND COALESCE(p.review, '') NOT IN ('human', 'notname', 'recount', 'later', 'unreg') AND NOT EXISTS
                                        (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'place' AND r.ref_id = p.id))
-                                  + (SELECT count(*) FROM nameqc_text t WHERE t.tag = %s AND NOT EXISTS
+                                  + (SELECT count(*) FROM nameqc_text t WHERE t.tag = %s AND NOT COALESCE(t.low, false)
+                                       AND NOT EXISTS
                                        (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)) AS n""",
                           [tag, tag])[0]['n']
+        r['low'] = _rows("""SELECT count(*) AS n FROM nameqc_text t WHERE t.tag = %s AND t.low AND NOT EXISTS
+                              (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)""", [tag])[0]['n']
         return Response(r)
