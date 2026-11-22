@@ -1057,8 +1057,9 @@ class MlRawTextViewSet(_MissingTable):
         bbox = _bbox(request)
         if not bbox:
             return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
-        rows = _rows(f"""SELECT id, word_id, idx, ch, round(prob::numeric, 2)::float AS prob, alt,
-                                ST_AsGeoJSON(geom, 7) AS geojson
+        # цэг = үсгийн ЗҮҮН ирмэгийн дунд (зүүн дээд + зүүн доод булангийн дундаж; хэрэглэгч 2026-11-22)
+        rows = _rows(f"""SELECT id, word_id, idx, ch, round(prob::numeric, 2)::float AS prob, alt, src, chain, seq,
+                                round(angle::numeric)::float AS angle, ST_AsGeoJSON(pt, 7) AS geojson
                            FROM nameqc_rawchar WHERE pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
                           LIMIT {MAX_FEATURES * 2}""", bbox)
         for r in rows:
