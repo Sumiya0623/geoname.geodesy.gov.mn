@@ -444,7 +444,7 @@ export default function MapMlView() {
   const [rawQ, setRawQ] = useState("");
   const rawLayerRef = useRef(null);
   const rawChLayerRef = useRef(null);
-  const [showRawCh, setShowRawCh] = useState(false);
+  const [showRawCh, setShowRawCh] = useState(true);
   const rawQRef = useRef("");
   const textLayerRef = useRef(null);
   const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
@@ -1185,6 +1185,19 @@ export default function MapMlView() {
       minZoom: 11,
       visible: false,
       style: (f) => {
+        if (f.get("cls") === "curve")
+          return new Style({
+            stroke: new Stroke({ color: "#8e24aa", width: 2, lineDash: [6, 4] }),
+            text: new Text({
+              text: f.get("text") || "",
+              font: "bold 13px sans-serif",
+              placement: "line",
+              fill: new Fill({ color: "#4a148c" }),
+              stroke: new Stroke({ color: "#fff", width: 4 }),
+              offsetY: -12,
+              overflow: true,
+            }),
+          });
         const col = COLOR[f.get("cls")] || COLOR.unknown;
         return new Style({
           stroke: new Stroke({ color: col, width: 2 }),
@@ -1234,7 +1247,7 @@ export default function MapMlView() {
     const chLayer = new VectorLayer({
       source: chSrc,
       zIndex: 93,
-      minZoom: 13,
+      minZoom: 12,
       visible: false,
       style: (f) => {
         const col = CH_COL[f.get("src")] || "#6a1b9a";
@@ -2216,7 +2229,7 @@ export default function MapMlView() {
                 }
                 label={
                   <Typography variant="body2">
-                    Үсэг бүрээр (зум 13+): цэг — үсгийн зүүн ирмэгийн дунд
+                    Үсэг бүрээр (зум 12+): цэг — үсгийн зүүн ирмэгийн дунд
                   </Typography>
                 }
               />
@@ -2242,7 +2255,7 @@ export default function MapMlView() {
                 </Stack>
               ))}
               <Typography variant="caption" color="text.secondary" component="div">
-                Үг: зум 11+, хүрээний өнгө ногоон — нэр, хөх — тоо, улбар шар — бусад. Үсэг (зум 13+): ногоон — үгийн
+                Үг: зум 11+, хүрээний өнгө ногоон — нэр, хөх — тоо, улбар шар — бусад. Ягаан тасархай шугам — муруй/налуу бичээс (үсгийн гинж). Үсэг (зум 12+): ногоон — үгийн
                 уншилт, хар — налуу/муруй бичээсийн гинж, ягаан — ганц үсгийн ангилагч, улбар — зөвхөн үгийн
                 уншигч; нарийн үсэг — итгэл &lt; 0.6.
               </Typography>
