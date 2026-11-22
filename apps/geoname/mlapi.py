@@ -1031,6 +1031,7 @@ class MlNameReviewViewSet(_MissingTable):
 class MlRawTextViewSet(_MissingTable):
     """RawText (2026-11-22): зургаас ШУУД уншсан бүх үг байрлалтайгаа (nameqc_rawtext, `python -m nameqc rawtext`).
       GET /api/n/ml-rawtext/?bbox=x0,y0,x1,y1[&cls=name,number,other][&q=текст]  → GeoJSON (үгийн хүрээ)
+      GET /api/n/ml-rawtext/chars/?bbox=…                                         → үсэг бүр (nameqc_rawchar)
       GET /api/n/ml-rawtext/stats/                                               → [{unit, sum, aimag, tag, cls, n}]"""
     permission_classes = [IsAuthenticated]
 
@@ -1048,6 +1049,21 @@ class MlRawTextViewSet(_MissingTable):
         rows = _rows(f"""SELECT id, tag, unit, cls, text, round(conf::numeric, 2)::float AS conf,
                                 round(det_conf::numeric, 2)::float AS det_conf, ST_AsGeoJSON(geom, 7) AS geojson
                            FROM nameqc_rawtext WHERE {' AND '.join(where)} LIMIT {MAX_FEATURES}""", params)
+        return Response(_fc(rows))
+
+    @action(detail=False, methods=['get'])
+    def chars(self, request):
+        """Үсэг бүр (nameqc_rawchar): GET /api/n/ml-rawtext/chars/?bbox=… → GeoJSON (үсгийн хүрээ; ch, prob, alt, word_id, idx)."""
+        bbox = _bbox(request)
+        if not bbox:
+            return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
+        rows = _rows(f"""SELECT id, word_id, idx, ch, round(prob::numeric, 2)::float AS prob, alt,
+                                ST_AsGeoJSON(geom, 7) AS geojson
+                           FROM nameqc_rawchar WHERE pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+                          LIMIT {MAX_FEATURES * 2}""", bbox)
+        for r in rows:
+            if isinstance(r.get('alt'), str):
+                r['alt'] = json.loads(r['alt'])
         return Response(_fc(rows))
 
     @action(detail=False, methods=['get'])
