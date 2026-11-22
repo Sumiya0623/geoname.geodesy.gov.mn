@@ -1026,3 +1026,35 @@ class MlNameReviewViewSet(_MissingTable):
         r['low'] = _rows("""SELECT count(*) AS n FROM nameqc_text t WHERE t.tag = %s AND t.low AND NOT EXISTS
                               (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id)""", [tag])[0]['n']
         return Response(r)
+
+
+class MlRawTextViewSet(_MissingTable):
+    """RawText (2026-11-22): зургаас ШУУД уншсан бүх үг байрлалтайгаа (nameqc_rawtext, `python -m nameqc rawtext`).
+      GET /api/n/ml-rawtext/?bbox=x0,y0,x1,y1[&cls=name,number,other][&q=текст]  → GeoJSON (үгийн хүрээ)
+      GET /api/n/ml-rawtext/stats/                                               → [{unit, sum, aimag, tag, cls, n}]"""
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        bbox = _bbox(request)
+        if not bbox:
+            return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
+        where, params = ['geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)'], list(bbox)
+        cls = [x for x in (request.query_params.get('cls') or '').split(',') if x in TEXT_CLS]
+        if cls:
+            where.append('cls = ANY(%s)'); params.append(cls)
+        q = (request.query_params.get('q') or '').strip()
+        if q:
+            where.append('text ILIKE %s'); params.append(f'%{q}%')
+        rows = _rows(f"""SELECT id, tag, unit, cls, text, round(conf::numeric, 2)::float AS conf,
+                                round(det_conf::numeric, 2)::float AS det_conf, ST_AsGeoJSON(geom, 7) AS geojson
+                           FROM nameqc_rawtext WHERE {' AND '.join(where)} LIMIT {MAX_FEATURES}""", params)
+        return Response(_fc(rows))
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        return Response(_rows("""SELECT r.unit, s.unit AS sum, a.unit AS aimag, r.tag, r.cls, count(*) AS n,
+                                        ST_XMin(ST_Extent(r.geom)) x0, ST_YMin(ST_Extent(r.geom)) y0,
+                                        ST_XMax(ST_Extent(r.geom)) x1, ST_YMax(ST_Extent(r.geom)) y1
+                                   FROM nameqc_rawtext r JOIN core_adminunit s ON s.id = r.unit
+                                   LEFT JOIN core_adminunit a ON a.id = s.parent_id
+                                  GROUP BY 1, 2, 3, 4, 5 ORDER BY 3, 2, 5""", []))

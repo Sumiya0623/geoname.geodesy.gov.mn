@@ -10,7 +10,7 @@ from .apiviews import (
 )
 from .namestat import NameStatViewSet
 from .mlapi import (MlDetectionViewSet, MlTaskViewSet, MlReviewViewSet, MlSymCenterViewSet, MlPlaceViewSet,
-                    MlNameReviewViewSet)
+                    MlNameReviewViewSet, MlRawTextViewSet)
 
 
 router = DefaultRouter()
@@ -30,6 +30,7 @@ router.register('ml-review', MlReviewViewSet, basename='ml-review')
 router.register('ml-symcenter', MlSymCenterViewSet, basename='ml-symcenter')
 router.register('ml-place', MlPlaceViewSet, basename='ml-place')
 router.register('ml-namerev', MlNameReviewViewSet, basename='ml-namerev')
+router.register('ml-rawtext', MlRawTextViewSet, basename='ml-rawtext')
 
 
 urlpatterns = []
