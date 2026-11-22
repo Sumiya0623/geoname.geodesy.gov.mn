@@ -231,6 +231,7 @@ export const endpoints = {
     rawText: (bbox, q) =>
       `/api/n/ml-rawtext/?bbox=${bbox}${q ? `&q=${encodeURIComponent(q)}` : ""}`,
     rawTextStats: `/api/n/ml-rawtext/stats/`,
+    rawChars: (bbox) => `/api/n/ml-rawtext/chars/?bbox=${bbox}`,
     reviewBatch: `/api/n/ml-review/batch/`,
   },
 

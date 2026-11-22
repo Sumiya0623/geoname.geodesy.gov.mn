@@ -443,6 +443,8 @@ export default function MapMlView() {
   const [rawStats, setRawStats] = useState([]);
   const [rawQ, setRawQ] = useState("");
   const rawLayerRef = useRef(null);
+  const rawChLayerRef = useRef(null);
+  const [showRawCh, setShowRawCh] = useState(false);
   const rawQRef = useRef("");
   const textLayerRef = useRef(null);
   const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
@@ -1203,6 +1205,48 @@ export default function MapMlView() {
     rawLayerRef.current = rawLayer;
     map.addLayer(rawLayer);
 
+    // RawText үсэг бүр (зум 14+): үсгийн хүрээ + уншсан үсэг; итгэл < 0.6 бол улаанаар
+    const chSrc = new VectorSource({
+      strategy: bboxStrategy,
+      loader: (extent, _res, _proj, success, failure) => {
+        const e = transformExtent(extent, "EPSG:3857", "EPSG:4326").map((v) =>
+          v.toFixed(5),
+        );
+        axiosInstance
+          .get(endpoints.ml.rawChars(e.join(",")))
+          .then(({ data }) => {
+            const fs = new GeoJSON().readFeatures(data, {
+              featureProjection: "EPSG:3857",
+            });
+            chSrc.addFeatures(fs);
+            success(fs);
+          })
+          .catch(() => failure());
+      },
+    });
+    const chLayer = new VectorLayer({
+      source: chSrc,
+      zIndex: 93,
+      minZoom: 14,
+      visible: false,
+      style: (f) => {
+        const low = (f.get("prob") ?? 1) < 0.6;
+        const col = low ? "#d50000" : "#6a1b9a";
+        return new Style({
+          stroke: new Stroke({ color: col, width: 1 }),
+          text: new Text({
+            text: f.get("ch") || "",
+            font: "bold 14px sans-serif",
+            fill: new Fill({ color: col }),
+            stroke: new Stroke({ color: "#fff", width: 3 }),
+            offsetY: 22,
+          }),
+        });
+      },
+    });
+    rawChLayerRef.current = chLayer;
+    map.addLayer(chLayer);
+
     // Олсон нэрийн байрлалыг чирж засах (зум ≥ EDIT_ZOOM): шар цагираг → зөв тэмдгийн төв рүү чирнэ
     const placeVecSrc = new VectorSource();
     placeVecSrcRef.current = placeVecSrc;
@@ -1453,6 +1497,9 @@ export default function MapMlView() {
         .then(({ data }) => setRawStats(data || []))
         .catch(() => setRawStats([]));
   }, [showRaw]);
+  useEffect(() => {
+    rawChLayerRef.current?.setVisible(showRaw && showRawCh);
+  }, [showRaw, showRawCh]);
   useEffect(() => {
     const t = setTimeout(() => {
       rawQRef.current = rawQ.trim();
@@ -2145,6 +2192,20 @@ export default function MapMlView() {
                 value={rawQ}
                 onChange={(e) => setRawQ(e.target.value)}
                 sx={{ mb: 0.5 }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={showRawCh}
+                    onChange={(e) => setShowRawCh(e.target.checked)}
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    Үсэг бүрээр (зум 14+; улаан — итгэл &lt; 0.6)
+                  </Typography>
+                }
               />
               {rawSums.length === 0 && (
                 <Typography variant="caption" color="text.secondary">
