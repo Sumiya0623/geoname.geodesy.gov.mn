@@ -2035,6 +2035,13 @@ export default function MapMlView() {
               ▶ Нэрийг дараалан шалгах (ойрын шалгаагүйгээс)
             </Button>
           )}
+          {/* утсан дээр давхаргын тохиргоо ба тайлбарыг бүхэлд нь нуух (хэрэглэгч 2026-11-22) */}
+          {isMobile && (
+            <Button size="small" onClick={() => setShowHelp((v) => !v)}>
+              {showHelp ? "Давхарга, тайлбар нуух ▴" : "Давхарга, тайлбар ▾"}
+            </Button>
+          )}
+          <Collapse in={helpOpen}>
           <Typography
             variant="caption"
             color="text.secondary"
@@ -2154,12 +2161,6 @@ export default function MapMlView() {
               </Typography>
             }
           />
-          {isMobile && (
-            <Button size="small" sx={{ mt: 0.5 }} onClick={() => setShowHelp((v) => !v)}>
-              {showHelp ? "Тайлбар нуух ▴" : "Тайлбар харах ▾"}
-            </Button>
-          )}
-          <Collapse in={helpOpen}>
           <Typography variant="caption" color="text.secondary" component="div">
             Цэг: ● дүүрэн — тэмдэг (⊙) дээр буусан · ○ хөндий — тэмдэг олдоогүй,
             бичвэрийн эхэнд. Өнгө: улаан — сумын/хөршийн бүртгэлтэй · ягаан —
@@ -2170,9 +2171,9 @@ export default function MapMlView() {
           </Collapse>
         </Box>
 
-        <Divider />
+        <Divider sx={{ display: isMobile ? "none" : "block" }} />
 
-        <Box sx={{ display: helpOpen ? "block" : "none" }}>
+        <Box sx={{ display: isMobile ? "none" : "block" }}>
           <Typography variant="overline" color="text.secondary">
             Тайлбар
           </Typography>
