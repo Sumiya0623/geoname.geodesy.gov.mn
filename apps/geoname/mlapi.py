@@ -1049,7 +1049,19 @@ class MlRawTextViewSet(_MissingTable):
         rows = _rows(f"""SELECT id, tag, unit, cls, text, round(conf::numeric, 2)::float AS conf,
                                 round(det_conf::numeric, 2)::float AS det_conf, ST_AsGeoJSON(geom, 7) AS geojson
                            FROM nameqc_rawtext WHERE {' AND '.join(where)} LIMIT {MAX_FEATURES}""", params)
-        return Response(_fc(rows))
+        # МУРУЙ/налуу бичээс (YOLO үг болоогүй, CharNet гинж): гинжийн үсгүүдийг дарааллаар нь шугам + нийлмэл бичвэр
+        # (хэрэглэгч 2026-11-22 «муруй бичээс бүгд хоосон»)
+        cw, cp = ['pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326)', 'chain IS NOT NULL', 'word_id IS NULL'], list(bbox)
+        crow = _rows(f"""SELECT 'c' || chain AS id, chain, 'curve' AS cls, string_agg(ch, '' ORDER BY seq) AS text,
+                                round(avg(prob)::numeric, 2)::float AS conf, count(*) AS n,
+                                ST_AsGeoJSON(ST_MakeLine(pt ORDER BY seq), 7) AS geojson
+                           FROM nameqc_rawchar WHERE {' AND '.join(cw)}
+                          GROUP BY chain HAVING count(*) >= 2 LIMIT {MAX_FEATURES}""", cp)
+        if q:
+            crow = [r for r in crow if q.lower() in (r['text'] or '').lower()]
+        out = _fc(rows)
+        out['features'] += _fc(crow)['features']
+        return Response(out)
 
     @action(detail=False, methods=['get'])
     def chars(self, request):
