@@ -1205,7 +1205,14 @@ export default function MapMlView() {
     rawLayerRef.current = rawLayer;
     map.addLayer(rawLayer);
 
-    // RawText үсэг бүр (зум 14+): үсгийн хүрээ + уншсан үсэг; итгэл < 0.6 бол улаанаар
+    // RawText үсэг бүр (зум 13+): цэг = үсгийн зүүн ирмэгийн дунд, баруун талд нь уншсан үсэг.
+    // Өнгө: ногоон — YOLO үг (CRNN), хар — гинжийн зурвас (CRNN, налуу/муруй), ягаан — ганц үсгийн ангилагч, улбар — зөвхөн CRNN
+    const CH_COL = {
+      "charnet+crnn": "#1b5e20",
+      "charnet+strip": "#000000",
+      charnet: "#c2185b",
+      crnn: "#ef6c00",
+    };
     const chSrc = new VectorSource({
       strategy: bboxStrategy,
       loader: (extent, _res, _proj, success, failure) => {
@@ -1227,19 +1234,25 @@ export default function MapMlView() {
     const chLayer = new VectorLayer({
       source: chSrc,
       zIndex: 93,
-      minZoom: 14,
+      minZoom: 13,
       visible: false,
       style: (f) => {
+        const col = CH_COL[f.get("src")] || "#6a1b9a";
         const low = (f.get("prob") ?? 1) < 0.6;
-        const col = low ? "#d50000" : "#6a1b9a";
         return new Style({
-          stroke: new Stroke({ color: col, width: 1 }),
+          image: new CircleStyle({
+            radius: 3.5,
+            fill: new Fill({ color: col }),
+            stroke: new Stroke({ color: "#fff", width: 1 }),
+          }),
           text: new Text({
             text: f.get("ch") || "",
-            font: "bold 14px sans-serif",
+            font: `${low ? "" : "bold "}14px sans-serif`,
             fill: new Fill({ color: col }),
             stroke: new Stroke({ color: "#fff", width: 3 }),
-            offsetY: 22,
+            textAlign: "left",
+            offsetX: 6,
+            offsetY: -8,
           }),
         });
       },
@@ -2203,7 +2216,7 @@ export default function MapMlView() {
                 }
                 label={
                   <Typography variant="body2">
-                    Үсэг бүрээр (зум 14+; улаан — итгэл &lt; 0.6)
+                    Үсэг бүрээр (зум 13+): цэг — үсгийн зүүн ирмэгийн дунд
                   </Typography>
                 }
               />
@@ -2229,7 +2242,9 @@ export default function MapMlView() {
                 </Stack>
               ))}
               <Typography variant="caption" color="text.secondary" component="div">
-                Зум 11+ дээр харагдана. Хүрээний өнгө: ногоон — нэр, хөх — тоо, улбар шар — бусад.
+                Үг: зум 11+, хүрээний өнгө ногоон — нэр, хөх — тоо, улбар шар — бусад. Үсэг (зум 13+): ногоон — үгийн
+                уншилт, хар — налуу/муруй бичээсийн гинж, ягаан — ганц үсгийн ангилагч, улбар — зөвхөн үгийн
+                уншигч; нарийн үсэг — итгэл &lt; 0.6.
               </Typography>
             </Box>
           )}
