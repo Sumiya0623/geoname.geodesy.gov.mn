@@ -20,6 +20,8 @@ import {
   Typography,
   Autocomplete,
   LinearProgress,
+  Collapse,
+  useMediaQuery,
 } from "@mui/material";
 
 import { useSnackbar } from "src/components/snackbar";
@@ -597,6 +599,9 @@ export default function NameGrid({ tag }) {
   const [stats, setStats] = useState(null);
   const [busy, setBusy] = useState(false);
   const rootRef = useRef(null);
+  // утсан дээр заавар нугалж, нэг баганаар (хэрэглэгч 2026-11-22)
+  const isMobile = useMediaQuery((th) => th.breakpoints.down("md"));
+  const [showHelp, setShowHelp] = useState(false);
   const key = (it) => `${it.kind}:${it.id}`;
 
   const load = useCallback(async () => {
@@ -691,14 +696,20 @@ export default function NameGrid({ tag }) {
         inset: 0,
         overflowY: "auto",
         bgcolor: "grey.100",
-        p: 2,
+        p: { xs: 1, md: 2 },
       }}
     >
       {busy && (
         <LinearProgress
-          sx={{ position: "sticky", top: -16, mx: -2, mt: -2, mb: 2 }}
+          sx={{ position: "sticky", top: { xs: -8, md: -16 }, mx: { xs: -1, md: -2 }, mt: { xs: -1, md: -2 }, mb: 2 }}
         />
       )}
+      {isMobile && (
+        <Button size="small" onClick={() => setShowHelp((v) => !v)} sx={{ mb: 0.5 }}>
+          {showHelp ? "Заавар нуух ▴" : "Заавар харах ▾"}
+        </Button>
+      )}
+      <Collapse in={!isMobile || showHelp}>
       <Typography variant="body2" sx={{ mb: 0.5 }}>
         <b>1. Тэмдгийн төв дээр товш</b> (ногоон +) — улаан дугуй буруу бол.{" "}
         <b>2. Нэр</b> — зөв нэрийг сонго эсвэл хайж бич; бүртгэлд байхгүй бол
@@ -707,7 +718,8 @@ export default function NameGrid({ tag }) {
         зураг дээр цэг цэгээр зур. Олсон нэрийн карт анхдагчаар зөв; бичвэрийн
         картад нэр сонгоогүй бол алгасна. <b>Enter</b> — хадгалаад дараагийнх.
       </Typography>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+      </Collapse>
+      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ mb: 1.5 }}>
         {[
           ["all", "Бүгд"],
           ["place", "Олсон нэр"],
@@ -741,7 +753,11 @@ export default function NameGrid({ tag }) {
             sx={{
               display: "grid",
               gap: 1.5,
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gridTemplateColumns: {
+                xs: "minmax(0, 1fr)",
+                sm: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(3, minmax(0, 1fr))",
+              },
             }}
           >
             {items.map((it) => (
@@ -761,9 +777,9 @@ export default function NameGrid({ tag }) {
             justifyContent="flex-end"
             sx={{
               position: "sticky",
-              bottom: -16,
-              mx: -2,
-              mb: -2,
+              bottom: { xs: -8, md: -16 },
+              mx: { xs: -1, md: -2 },
+              mb: { xs: -1, md: -2 },
               mt: 2,
               p: 1.5,
               bgcolor: "background.paper",

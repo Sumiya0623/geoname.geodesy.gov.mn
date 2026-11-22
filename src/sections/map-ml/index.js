@@ -50,6 +50,9 @@ import {
   FormControlLabel,
   LinearProgress,
   ToggleButtonGroup,
+  Fab,
+  Collapse,
+  useMediaQuery,
 } from "@mui/material";
 
 import IssueMenu, { issueLabel } from "./issue-menu";
@@ -275,8 +278,11 @@ export function NameEditPanel({ item, tag, onClose, onSaved, onSkip, recount = f
         position: "absolute",
         top: 12,
         right: 12,
+        left: { xs: 12, sm: "auto" },
         zIndex: 20,
-        width: 340,
+        width: { xs: "auto", sm: 340 },
+        maxHeight: "calc(100dvh - 24px)",
+        overflowY: "auto",
         p: 1.5,
       }}
     >
@@ -510,7 +516,12 @@ export default function MapMlView() {
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search)
       : null;
-  const [view, setView] = useState("names"); // names = нэрийн хүснэгт (цорын ганц хэсэг)
+  const [view, setView] = useState("names");
+  // утас/жижиг дэлгэц (хэрэглэгч 2026-11-22): самбар доороос гарах хуудас, газрын зураг бүтэн дэлгэц
+  const isMobile = useMediaQuery((th) => th.breakpoints.down("md"));
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const helpOpen = !isMobile || showHelp; // names = нэрийн хүснэгт (цорын ганц хэсэг)
   // шалгах үлдэгдлийн тоог хэсэг солих / нэр шалгахаас буцах бүрт шинэчилнэ
   useEffect(() => {
     reloadSums();
@@ -1582,6 +1593,18 @@ export default function MapMlView() {
             }}
           />
         )}
+        {isMobile && !panelOpen && (
+          <Fab
+            variant="extended"
+            color="primary"
+            size="medium"
+            onClick={() => setPanelOpen(true)}
+            sx={{ position: "absolute", left: 12, bottom: view === "names" ? 84 : 16, zIndex: 25 }}
+          >
+            <Iconify icon="eva:menu-2-fill" sx={{ mr: 1 }} />
+            Удирдлага
+          </Fab>
+        )}
         {view === "grid" && <ReviewGrid onSaved={loadRstats} />}
         {view === "sym" && <SymGrid />}
         {view === "pos" && <PlaceGrid />}
@@ -1611,7 +1634,21 @@ export default function MapMlView() {
         sx={{
           order: -1, // үндсэн газрын зураг шиг зүүн талд «Удирдлага»
           width: 400,
+          flexShrink: 0,
           p: 2,
+          ...(isMobile && {
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: "100%",
+            maxHeight: "80dvh",
+            zIndex: 1200,
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            boxShadow: 24,
+            display: panelOpen ? "flex" : "none",
+          }),
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
@@ -1630,6 +1667,11 @@ export default function MapMlView() {
           <Typography variant="subtitle1" sx={{ flex: 1, textAlign: "right" }}>
             Нэр таних (ML)
           </Typography>
+          {isMobile && (
+            <IconButton onClick={() => setPanelOpen(false)} aria-label="Хаах">
+              <Iconify icon="eva:close-fill" />
+            </IconButton>
+          )}
         </Stack>
         <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.5 }}>
           Шалгах хэсэг — {manualSums.reduce((n, x) => n + x.todo, 0)} мөр
@@ -1645,7 +1687,10 @@ export default function MapMlView() {
             })
           }
           active={sumTag}
-          onPick={setSumTag}
+          onPick={(t) => {
+            setSumTag(t);
+            if (isMobile) setPanelOpen(false);
+          }}
         />
         <Divider />
 
@@ -2109,6 +2154,12 @@ export default function MapMlView() {
               </Typography>
             }
           />
+          {isMobile && (
+            <Button size="small" sx={{ mt: 0.5 }} onClick={() => setShowHelp((v) => !v)}>
+              {showHelp ? "Тайлбар нуух ▴" : "Тайлбар харах ▾"}
+            </Button>
+          )}
+          <Collapse in={helpOpen}>
           <Typography variant="caption" color="text.secondary" component="div">
             Цэг: ● дүүрэн — тэмдэг (⊙) дээр буусан · ○ хөндий — тэмдэг олдоогүй,
             бичвэрийн эхэнд. Өнгө: улаан — сумын/хөршийн бүртгэлтэй · ягаан —
@@ -2116,11 +2167,12 @@ export default function MapMlView() {
             хөх □ — худаг, бор □ — толгой/уул/овоо; доорх тоо — загварын итгэл
             (0–1).
           </Typography>
+          </Collapse>
         </Box>
 
         <Divider />
 
-        <Box>
+        <Box sx={{ display: helpOpen ? "block" : "none" }}>
           <Typography variant="overline" color="text.secondary">
             Тайлбар
           </Typography>
