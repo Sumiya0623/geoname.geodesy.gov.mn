@@ -438,6 +438,12 @@ export default function MapMlView() {
   const [showSyms, setShowSyms] = useState(true); // тэмдэг илрүүлэгчийн олсон тэмдэг
   const [showRecount, setShowRecount] = useState(true); // тодруулгаар батлагдсан нэр (цэг/шугам/талбай)
   const recountLayerRef = useRef(null);
+  // RawText (хэрэглэгч 2026-11-22): зургаас шууд уншсан бүх үг — шүүлтгүй, бүртгэлтэй тулгаагүй
+  const [showRaw, setShowRaw] = useState(false);
+  const [rawStats, setRawStats] = useState([]);
+  const [rawQ, setRawQ] = useState("");
+  const rawLayerRef = useRef(null);
+  const rawQRef = useRef("");
   const textLayerRef = useRef(null);
   const [showTexts, setShowTexts] = useState(true); // нэр болоогүй бичвэрийн уншилт (nameqc_text)
   const [sumTag, setSumTag] = useState("");
@@ -1152,6 +1158,51 @@ export default function MapMlView() {
     recountLayerRef.current = rcLayer;
     map.addLayer(rcLayer);
 
+    // RawText — үгийн хүрээ (ангиллын өнгөөр) + уншсан бичвэр
+    const rawSrc = new VectorSource({
+      strategy: bboxStrategy,
+      loader: (extent, _res, _proj, success, failure) => {
+        const e = transformExtent(extent, "EPSG:3857", "EPSG:4326").map((v) =>
+          v.toFixed(5),
+        );
+        axiosInstance
+          .get(endpoints.ml.rawText(e.join(","), rawQRef.current))
+          .then(({ data }) => {
+            const fs = new GeoJSON().readFeatures(data, {
+              featureProjection: "EPSG:3857",
+            });
+            rawSrc.addFeatures(fs);
+            success(fs);
+          })
+          .catch(() => failure());
+      },
+    });
+    const rawLayer = new VectorLayer({
+      source: rawSrc,
+      zIndex: 92,
+      minZoom: 11,
+      visible: false,
+      style: (f) => {
+        const col = COLOR[f.get("cls")] || COLOR.unknown;
+        return new Style({
+          stroke: new Stroke({ color: col, width: 2 }),
+          fill: new Fill({ color: "rgba(255,255,255,0.01)" }),
+          text: new Text({
+            text: f.get("text") || "",
+            font: "bold 12px sans-serif",
+            fill: new Fill({ color: "#111" }),
+            backgroundFill: new Fill({ color: "rgba(255,255,255,0.85)" }),
+            backgroundStroke: new Stroke({ color: col, width: 1 }),
+            padding: [1, 3, 1, 3],
+            offsetY: -16,
+            overflow: true,
+          }),
+        });
+      },
+    });
+    rawLayerRef.current = rawLayer;
+    map.addLayer(rawLayer);
+
     // Олсон нэрийн байрлалыг чирж засах (зум ≥ EDIT_ZOOM): шар цагираг → зөв тэмдгийн төв рүү чирнэ
     const placeVecSrc = new VectorSource();
     placeVecSrcRef.current = placeVecSrc;
@@ -1394,6 +1445,42 @@ export default function MapMlView() {
   useEffect(() => {
     recountLayerRef.current?.setVisible(showRecount);
   }, [showRecount]);
+  useEffect(() => {
+    rawLayerRef.current?.setVisible(showRaw);
+    if (showRaw)
+      axiosInstance
+        .get(endpoints.ml.rawTextStats)
+        .then(({ data }) => setRawStats(data || []))
+        .catch(() => setRawStats([]));
+  }, [showRaw]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      rawQRef.current = rawQ.trim();
+      rawLayerRef.current?.getSource().refresh();
+    }, 400);
+    return () => clearTimeout(t);
+  }, [rawQ]);
+  const rawSums = Object.values(
+    rawStats.reduce((m, r) => {
+      const k = `${r.unit}:${r.tag}`;
+      const o = m[k] || { ...r, n: 0, by: {} };
+      o.n += r.n;
+      o.by[r.cls] = r.n;
+      o.x0 = Math.min(o.x0, r.x0);
+      o.y0 = Math.min(o.y0, r.y0);
+      o.x1 = Math.max(o.x1, r.x1);
+      o.y1 = Math.max(o.y1, r.y1);
+      m[k] = o;
+      return m;
+    }, {}),
+  );
+  const fitRaw = (r) =>
+    mapRef.current
+      ?.getView()
+      .fit(transformExtent([r.x0, r.y0, r.x1, r.y1], "EPSG:4326", "EPSG:3857"), {
+        duration: 500,
+        padding: [20, 20, 20, 20],
+      });
 
   // Даалгаврын нэрийн үг бүр холбогдсон хүрээнд байгаа эсэх (✓/✗) + илүү/давхар холболтын анхааруулга.
   // linkTick нь хүрээ хадгалах/ачаалах бүрт дахин тооцоолуулна.
@@ -2034,6 +2121,56 @@ export default function MapMlView() {
             >
               ▶ Нэрийг дараалан шалгах (ойрын шалгаагүйгээс)
             </Button>
+          )}
+          <FormControlLabel
+            control={
+              <Switch
+                size="small"
+                checked={showRaw}
+                onChange={(e) => setShowRaw(e.target.checked)}
+              />
+            }
+            label={
+              <Typography variant="body2">
+                <b>RawText</b> — зургаас уншсан бүх үг (шүүлтгүй)
+              </Typography>
+            }
+          />
+          {showRaw && (
+            <Box sx={{ pl: 1, mb: 1 }}>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="RawText-ээс хайх (жишээ: толгой)"
+                value={rawQ}
+                onChange={(e) => setRawQ(e.target.value)}
+                sx={{ mb: 0.5 }}
+              />
+              {rawSums.length === 0 && (
+                <Typography variant="caption" color="text.secondary">
+                  RawText өгөгдөл алга.
+                </Typography>
+              )}
+              {rawSums.map((r) => (
+                <Stack
+                  key={`${r.unit}:${r.tag}`}
+                  direction="row"
+                  alignItems="center"
+                  spacing={1}
+                >
+                  <Typography variant="caption" sx={{ flex: 1 }}>
+                    {r.aimag} · {r.sum}: {r.n} үг (нэр {r.by.name || 0} · тоо{" "}
+                    {r.by.number || 0} · бусад {r.by.other || 0})
+                  </Typography>
+                  <Button size="small" onClick={() => fitRaw(r)}>
+                    Очих
+                  </Button>
+                </Stack>
+              ))}
+              <Typography variant="caption" color="text.secondary" component="div">
+                Зум 11+ дээр харагдана. Хүрээний өнгө: ногоон — нэр, хөх — тоо, улбар шар — бусад.
+              </Typography>
+            </Box>
           )}
           {/* утсан дээр давхаргын тохиргоо ба тайлбарыг бүхэлд нь нуух (хэрэглэгч 2026-11-22) */}
           {isMobile && (

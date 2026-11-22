@@ -228,6 +228,9 @@ export const endpoints = {
     nameRevNext: `/api/n/ml-namerev/next/`,
     nameRevLake: (x, y) => `/api/n/ml-namerev/lake/?x=${x}&y=${y}`,
     nameRevArea: (id) => `/api/n/ml-namerev/area/?id=${id}`,
+    rawText: (bbox, q) =>
+      `/api/n/ml-rawtext/?bbox=${bbox}${q ? `&q=${encodeURIComponent(q)}` : ""}`,
+    rawTextStats: `/api/n/ml-rawtext/stats/`,
     reviewBatch: `/api/n/ml-review/batch/`,
   },
 
