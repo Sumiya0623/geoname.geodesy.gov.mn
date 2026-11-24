@@ -1506,6 +1506,12 @@ export default function MapMlView() {
   useEffect(() => {
     textLayerRef.current?.setVisible(showTexts);
   }, [showTexts]);
+  // «1 M100k Open» (o<сум>) → хэвлэмэл суурь, бусад таг → 1970 (хэрэглэгч гараар сольж болно)
+  useEffect(() => {
+    if (/^o\d/.test(sumTag || "")) {
+      if (baseCfgs.some((c) => c.key === "m100k")) setBaseKey("m100k");
+    } else if (sumTag) setBaseKey((k) => (k === "m100k" ? DEFAULT_BASE : k));
+  }, [sumTag, baseCfgs]);
   useEffect(() => {
     sumTagRef.current = sumTag;
     // идэвхтэй сум > чагталсан сумууд > шалгах шаардлагатай бүх хэсэг (Recount-тай/дууссан сумын үлдэгдлийг харуулахгүй)

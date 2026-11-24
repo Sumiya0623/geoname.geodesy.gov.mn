@@ -33,12 +33,15 @@ const GEOSERVER = process.env.NEXT_PUBLIC_GEOSERVER_URL;
 const PAGE = 9; // 3×3
 const IMG = 520;
 
-function wmsUrl(ex) {
+// «1 M100k Open» (o<сум>) таамгийг хэвлэмэл зураг дээр хийсэн → тайрц ч мөн хэвлэмэлээс
+export const rasterOf = (tag) => (/^o\d/.test(tag || "") ? "raster:open" : "raster:1970");
+
+function wmsUrl(ex, tag) {
   const q = new URLSearchParams({
     service: "WMS",
     version: "1.1.1",
     request: "GetMap",
-    layers: "raster:1970",
+    layers: rasterOf(tag),
     styles: "",
     srs: "EPSG:3857",
     bbox: ex.join(","),
@@ -258,7 +261,7 @@ function Card({ item, tag, st, onChange }) {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={wmsUrl(ex)}
+            src={wmsUrl(ex, tag)}
             alt=""
             draggable={false}
             style={{
