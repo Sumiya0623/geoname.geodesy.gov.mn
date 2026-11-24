@@ -465,6 +465,7 @@ export default function MapMlView() {
   }, []);
   const sumTagRef = useRef("");
   const placeVecSrcRef = useRef(null);
+  const placeShpSrcRef = useRef(null); // нэрийн хил/шугам (машины)
   const placeVecRef = useRef(null);
   const [nameEdit, setNameEdit] = useState(null); // газрын зураг дээр нэр засах цонх
   const skippedRef = useRef(new Set());
@@ -596,6 +597,21 @@ export default function MapMlView() {
           .then(({ data }) => {
             placeVecSrcRef.current.clear();
             placeVecSrcRef.current.addFeatures(geojson3857.readFeatures(data));
+            // машины гаргасан хил (нуур, тойром) / шугаман нэрийн муруй (ам, хөндий) — чирэгдэхгүй тусдаа давхарга
+            if (placeShpSrcRef.current) {
+              placeShpSrcRef.current.clear();
+              placeShpSrcRef.current.addFeatures(
+                data.features
+                  .filter((x) => x.properties.shp)
+                  .map((x) =>
+                    geojson3857.readFeature({
+                      type: "Feature",
+                      geometry: JSON.parse(x.properties.shp),
+                      properties: { name: x.properties.name },
+                    }),
+                  ),
+              );
+            }
           })
           .catch(() => {});
       }
@@ -1276,6 +1292,19 @@ export default function MapMlView() {
     map.addLayer(chLayer);
 
     // Олсон нэрийн байрлалыг чирж засах (зум ≥ EDIT_ZOOM): шар цагираг → зөв тэмдгийн төв рүү чирнэ
+    const placeShpSrc = new VectorSource();
+    placeShpSrcRef.current = placeShpSrc;
+    map.addLayer(
+      new VectorLayer({
+        source: placeShpSrc,
+        zIndex: 94,
+        minZoom: EDIT_ZOOM,
+        style: new Style({
+          stroke: new Stroke({ color: "#d500f9", width: 3 }),
+          fill: new Fill({ color: "rgba(213,0,249,0.08)" }),
+        }),
+      }),
+    );
     const placeVecSrc = new VectorSource();
     placeVecSrcRef.current = placeVecSrc;
     const placeVec = new VectorLayer({

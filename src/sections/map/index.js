@@ -2938,12 +2938,14 @@ function Map2() {
   }, [mlEditKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // УСЗҮЙ: нуурын урьдчилсан гөлгөр хил (nameqc_place.area) — засах цонх нээгдэхэд дүрсээр харуулна (батлахад хадгалагдана)
   useEffect(() => {
-    if (!mlEdit || mlEdit.kind !== "place" || mlEdit.geom || !String(mlEdit.tag || "").startsWith("w")) return;
+    // w = усзүй, o = «1 M100k Open» (нуур/тойромын хил, ам/хөндийн муруй — 2026-11-24)
+    if (!mlEdit || mlEdit.kind !== "place" || mlEdit.geom || !/^[wo]/.test(String(mlEdit.tag || ""))) return;
     axiosInstance
       .get(endpoints.ml.nameRevArea(mlEdit.id))
       .then(({ data }) => {
-        if (data?.pts?.length >= 3)
-          setMlEdit((m) => (m && m.id === mlEdit.id && !m.geom ? { ...m, geom: { t: "area", pts: data.pts } } : m));
+        const t = data?.t || "area";
+        if (data?.pts?.length >= (t === "line" ? 2 : 3))
+          setMlEdit((m) => (m && m.id === mlEdit.id && !m.geom ? { ...m, geom: { t, pts: data.pts } } : m));
       })
       .catch(() => {});
   }, [mlEditKey]); // eslint-disable-line react-hooks/exhaustive-deps
