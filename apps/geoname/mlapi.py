@@ -782,13 +782,15 @@ class MlNameReviewViewSet(_MissingTable):
             return Response({'detail': 'bbox'}, status=http.HTTP_400_BAD_REQUEST)
         tag = request.query_params.get('tag') or None
         rows = _rows("""SELECT 'place:' || id AS id, 'place' AS kind, id AS ref, tag, name, NULL AS ocr, alt, how, doubt,
-                               review, ST_AsGeoJSON(ST_Transform(geom, 3857)) AS geojson
+                               review, ST_AsGeoJSON(ST_Transform(geom, 3857)) AS geojson,
+                               -- машины гаргасан хил (нуур, тойром) эсвэл шугаман нэрийн муруй (ам, хөндий; 2026-11-24)
+                               ST_AsGeoJSON(ST_Transform(COALESCE(area, CASE WHEN GeometryType(shape) = 'LINESTRING' THEN shape END), 3857), 1) AS shp
                           FROM nameqc_place
                          WHERE geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND (%s::text IS NULL OR tag = %s)
                            AND coalesce(review, '') NOT IN ('notname', 'later', 'unreg')
                         UNION ALL
                         SELECT 'text:' || t.id, 'text', t.id, t.tag, t.guess, t.ocr, NULL, 'text', true, NULL,
-                               ST_AsGeoJSON(ST_Transform(t.geom, 3857))
+                               ST_AsGeoJSON(ST_Transform(t.geom, 3857)), NULL
                           FROM nameqc_text t
                          WHERE t.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND (%s::text IS NULL OR t.tag = %s)
                            AND NOT COALESCE(t.low, false)
@@ -804,11 +806,16 @@ class MlNameReviewViewSet(_MissingTable):
         except (TypeError, ValueError):
             return Response({})
         r = _rows("""SELECT ST_AsGeoJSON(ST_Transform(area, 3857)) AS g FROM nameqc_place WHERE id = %s AND area IS NOT NULL""", [pid])
-        if not r or not r[0]['g']:
-            return Response({})
         import json as _json
-        ring = _json.loads(r[0]['g'])['coordinates'][0][:-1]
-        return Response({'pts': [[round(x, 2), round(y, 2)] for x, y in ring]})
+        if r and r[0]['g']:
+            ring = _json.loads(r[0]['g'])['coordinates'][0][:-1]
+            return Response({'t': 'area', 'pts': [[round(x, 2), round(y, 2)] for x, y in ring]})
+        # шугаман нэр (ам, хөндий, гол …): бичээсийн эхний үсгээс төгсгөл хүртэлх муруй (nameqc_place.shape LineString; 2026-11-24)
+        r = _rows("""SELECT ST_AsGeoJSON(ST_Transform(shape, 3857)) AS g FROM nameqc_place
+                      WHERE id = %s AND GeometryType(shape) = 'LINESTRING'""", [pid])
+        if r and r[0]['g']:
+            return Response({'t': 'line', 'pts': [[round(x, 2), round(y, 2)] for x, y in _json.loads(r[0]['g'])['coordinates']]})
+        return Response({})
 
     @action(detail=False, methods=['get'])
     def lake(self, request):
@@ -933,7 +940,10 @@ class MlNameReviewViewSet(_MissingTable):
                     # УСЗҮЙ: хүн дүрс зураагүй ч машины гаргасан нуурын хил (nameqc_place.area) байвал түүнийг ашиглана
                     # (картын «дараалан шалгах» урьдчилсан хилийг ачаалдаггүй — 2026-11-16)
                     c.execute("""SELECT ST_AsText(ST_Multi(area)) FROM nameqc_place WHERE id = %s AND area IS NOT NULL
-                                   AND type_name IN ('Нуур', 'Усан сан', 'Цөөрөм', 'Бүрд', 'Намаг')""", [rid])
+                                   AND type_name IN ('Нуур', 'Усан сан', 'Цөөрөм', 'Бүрд', 'Намаг', 'Тойром')
+                                 UNION ALL   -- шугаман нэрийн машины муруй (o<сум>, 2026-11-24)
+                                 SELECT ST_AsText(ST_Multi(shape)) FROM nameqc_place WHERE id = %s AND GeometryType(shape) = 'LINESTRING'
+                                 LIMIT 1""", [rid, rid])
                     _a = c.fetchone()
                     shape_wkt = _a[0] if _a else None
                 pg = ("ST_Transform(ST_SetSRID(ST_MakePoint(%s, %s), 3857), 4326)", [float(pos[0]), float(pos[1])]) \
