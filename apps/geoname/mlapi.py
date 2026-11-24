@@ -1039,7 +1039,9 @@ class MlRawTextViewSet(_MissingTable):
         bbox = _bbox(request)
         if not bbox:
             return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
-        where, params = ['geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)'], list(bbox)
+        # 2026-11-24: туршилтын tag-ууд (raw19/20/21…) ижил газарт давхардаж харагддаг байв → анхдагч зөвхөн 'raw' (?tag=… өөрчилнө)
+        tag = (request.query_params.get('tag') or 'raw').strip()
+        where, params = ['geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)', 'tag = %s'], list(bbox) + [tag]
         cls = [x for x in (request.query_params.get('cls') or '').split(',') if x in TEXT_CLS]
         if cls:
             where.append('cls = ANY(%s)'); params.append(cls)
@@ -1053,12 +1055,13 @@ class MlRawTextViewSet(_MissingTable):
                            FROM nameqc_rawtext WHERE {' AND '.join(where)} LIMIT {MAX_FEATURES}""", params)
         # МУРУЙ/налуу бичээс (YOLO үг болоогүй, CharNet гинж): гинжийн үсгүүдийг дарааллаар нь шугам + нийлмэл бичвэр
         # (хэрэглэгч 2026-11-22 «муруй бичээс бүгд хоосон»)
-        cw, cp = ['pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326)', 'chain IS NOT NULL', 'word_id IS NULL'], list(bbox)
-        crow = _rows(f"""SELECT 'c' || chain AS id, chain, 'curve' AS cls, string_agg(ch, '' ORDER BY seq) AS text,
+        # chain id = хавтангийн пикселийн байрлал → tag/сум хооронд ДАВХЦДАГ («ББББрррлллл», хол цэгүүдийг холбосон шугам) → tag, unit-аар бүлэглэнэ
+        cw, cp = ['pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326)', 'chain IS NOT NULL', 'word_id IS NULL', 'tag = %s'], list(bbox) + [tag]
+        crow = _rows(f"""SELECT 'c' || unit || '_' || chain AS id, chain, 'curve' AS cls, string_agg(ch, '' ORDER BY seq) AS text,
                                 round(avg(prob)::numeric, 2)::float AS conf, count(*) AS n,
                                 ST_AsGeoJSON(ST_MakeLine(pt ORDER BY seq), 7) AS geojson
                            FROM nameqc_rawchar WHERE {' AND '.join(cw)}
-                          GROUP BY chain HAVING count(*) >= 2 LIMIT {MAX_FEATURES}""", cp)
+                          GROUP BY unit, chain HAVING count(*) >= 2 LIMIT {MAX_FEATURES}""", cp)
         if q:
             crow = [r for r in crow if q.lower() in (r['text'] or '').lower()]
         out = _fc(rows)
@@ -1074,8 +1077,8 @@ class MlRawTextViewSet(_MissingTable):
         # цэг = үсгийн ЗҮҮН ирмэгийн дунд (зүүн дээд + зүүн доод булангийн дундаж; хэрэглэгч 2026-11-22)
         rows = _rows(f"""SELECT id, word_id, idx, ch, round(prob::numeric, 2)::float AS prob, alt, src, chain, seq,
                                 round(angle::numeric)::float AS angle, ST_AsGeoJSON(pt, 7) AS geojson
-                           FROM nameqc_rawchar WHERE pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
-                          LIMIT {MAX_FEATURES * 2}""", bbox)
+                           FROM nameqc_rawchar WHERE pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND tag = %s
+                          LIMIT {MAX_FEATURES * 2}""", list(bbox) + [(request.query_params.get('tag') or 'raw').strip()])
         for r in rows:
             if isinstance(r.get('alt'), str):
                 r['alt'] = json.loads(r['alt'])
