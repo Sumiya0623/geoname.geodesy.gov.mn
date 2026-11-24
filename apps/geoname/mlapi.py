@@ -1045,8 +1045,10 @@ class MlRawTextViewSet(_MissingTable):
             where.append('cls = ANY(%s)'); params.append(cls)
         q = (request.query_params.get('q') or '').strip()
         if q:
-            where.append('text ILIKE %s'); params.append(f'%{q}%')
-        rows = _rows(f"""SELECT id, tag, unit, cls, text, round(conf::numeric, 2)::float AS conf,
+            where.append('coalesce(text_lex, text) ILIKE %s'); params.append(f'%{q}%')
+        # 2026-11-24: сумын батлагдсан нэрийн үгийн сангаар уншсан хувилбар (text_lex; runs/link/lex_words.py, lex_merge.py) байвал
+        # түүнийг харуулна ('' = хөрш хайрцагтай нийлсэн хэсэг); чөлөөт уншилт text_raw (хэрэглэгч: «Хойр|Боон» ← «Хонгорын»)
+        rows = _rows(f"""SELECT id, tag, unit, cls, coalesce(text_lex, text) AS text, text AS text_raw, round(conf::numeric, 2)::float AS conf,
                                 round(det_conf::numeric, 2)::float AS det_conf, ST_AsGeoJSON(geom, 7) AS geojson
                            FROM nameqc_rawtext WHERE {' AND '.join(where)} LIMIT {MAX_FEATURES}""", params)
         # МУРУЙ/налуу бичээс (YOLO үг болоогүй, CharNet гинж): гинжийн үсгүүдийг дарааллаар нь шугам + нийлмэл бичвэр
