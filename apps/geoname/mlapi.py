@@ -1028,6 +1028,11 @@ class MlNameReviewViewSet(_MissingTable):
         return Response(r)
 
 
+# 2026-11-24: хэрэглэгч «өмнөх RawText хасаад шинэ зургаас таамагласныг л харуул» → m100k_open (машинаар хэвлэсэн) зургаас
+# уншсан tag. 1970-ийн 'raw' DB-д үлдэнэ (харьцуулалтад), ?tag=raw-аар харж болно.
+RAW_DISPLAY_TAG = 'open1'
+
+
 class MlRawTextViewSet(_MissingTable):
     """RawText (2026-11-22): зургаас ШУУД уншсан бүх үг байрлалтайгаа (nameqc_rawtext, `python -m nameqc rawtext`).
       GET /api/n/ml-rawtext/?bbox=x0,y0,x1,y1[&cls=name,number,other][&q=текст]  → GeoJSON (үгийн хүрээ)
@@ -1040,7 +1045,7 @@ class MlRawTextViewSet(_MissingTable):
         if not bbox:
             return Response({'detail': 'bbox шаардлагатай'}, status=http.HTTP_400_BAD_REQUEST)
         # 2026-11-24: туршилтын tag-ууд (raw19/20/21…) ижил газарт давхардаж харагддаг байв → анхдагч зөвхөн 'raw' (?tag=… өөрчилнө)
-        tag = (request.query_params.get('tag') or 'raw').strip()
+        tag = (request.query_params.get('tag') or RAW_DISPLAY_TAG).strip()
         where, params = ['geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)', 'tag = %s'], list(bbox) + [tag]
         cls = [x for x in (request.query_params.get('cls') or '').split(',') if x in TEXT_CLS]
         if cls:
@@ -1078,7 +1083,7 @@ class MlRawTextViewSet(_MissingTable):
         rows = _rows(f"""SELECT id, word_id, idx, ch, round(prob::numeric, 2)::float AS prob, alt, src, chain, seq,
                                 round(angle::numeric)::float AS angle, ST_AsGeoJSON(pt, 7) AS geojson
                            FROM nameqc_rawchar WHERE pt && ST_MakeEnvelope(%s, %s, %s, %s, 4326) AND tag = %s
-                          LIMIT {MAX_FEATURES * 2}""", list(bbox) + [(request.query_params.get('tag') or 'raw').strip()])
+                          LIMIT {MAX_FEATURES * 2}""", list(bbox) + [(request.query_params.get('tag') or RAW_DISPLAY_TAG).strip()])
         for r in rows:
             if isinstance(r.get('alt'), str):
                 r['alt'] = json.loads(r['alt'])
@@ -1091,4 +1096,5 @@ class MlRawTextViewSet(_MissingTable):
                                         ST_XMax(ST_Extent(r.geom)) x1, ST_YMax(ST_Extent(r.geom)) y1
                                    FROM nameqc_rawtext r JOIN core_adminunit s ON s.id = r.unit
                                    LEFT JOIN core_adminunit a ON a.id = s.parent_id
-                                  GROUP BY 1, 2, 3, 4, 5 ORDER BY 3, 2, 5""", []))
+                                  WHERE r.tag = %s
+                                  GROUP BY 1, 2, 3, 4, 5 ORDER BY 3, 2, 5""", [(request.query_params.get('tag') or RAW_DISPLAY_TAG).strip()]))
