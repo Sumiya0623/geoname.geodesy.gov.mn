@@ -601,7 +601,9 @@ def _sync_recount(c, kind, ref_id, uid, loc_wkt, create=False):
     if rc is None:
         # дугаараар (nameqc) хайна — нэрийг нь хэрэглэгч өөрчилж болно
         # w<сум> = УСЗҮЙ-МАШИН СУРГАЛТ (тусдаа төсөл, хэрэглэгч 2026-11-16), бусад = Машин сургалт
-        dg, pname = ('hydro', 'УСЗҮЙ-МАШИН СУРГАЛТ') if (rtag or '').startswith('w') else ('nameqc', ML_PROJECT_NAME)
+        # o<сум> = «1 M100k Open» — машинаар хэвлэсэн m100k_open зургаас уншсан сан (хэрэглэгч 2026-11-24)
+        dg, pname = ('hydro', 'УСЗҮЙ-МАШИН СУРГАЛТ') if (rtag or '').startswith('w') else \
+            ('open', '1 M100k Open') if (rtag or '').startswith('o') else ('nameqc', ML_PROJECT_NAME)
         proj = Project.objects.filter(dugaar=dg).order_by('id').first() or \
             Project.objects.create(name=pname, dugaar=dg, percent='')
         step = Constant.objects.filter(key='RECOUNT_STEPS', name=ML_STEP_NAME).first()
@@ -991,8 +993,9 @@ class MlNameReviewViewSet(_MissingTable):
               SELECT t.tag, count(*) AS n FROM nameqc_text t WHERE NOT COALESCE(t.low, false) AND NOT EXISTS
                 (SELECT 1 FROM nameqc_namerev r WHERE r.kind = 'text' AND r.ref_id = t.id) GROUP BY t.tag)
             SELECT p.tag, max(u.unit) AS unit, max(a.unit) AS aimag,
-                   CASE WHEN p.tag LIKE 'w%%' THEN 'hydro' ELSE 'nameqc' END AS project,
+                   CASE WHEN p.tag LIKE 'w%%' THEN 'hydro' WHEN p.tag LIKE 'o%%' THEN 'open' ELSE 'nameqc' END AS project,
                    -- Recount-аар бүрэн тодруулсан сум (≥100 цэг): гар шалгалт хэрэггүй (хэрэглэгч 2026-11-09/16)
+                   p.tag NOT LIKE 'o%%' AND   -- m100k_open сан: Recount-тай сум ч гар шалгалтад гарна
                    (SELECT count(*) FROM (SELECT 1 FROM core_recount rc, core_adminunit uu WHERE uu.id = max(p.unit_id)
                       AND ST_Intersects(rc.loc, uu.geom) LIMIT 100) z) >= 100 AS auto,
                    count(*) FILTER (WHERE p.todo) + COALESCE(max(t.n), 0) AS todo,
@@ -1002,7 +1005,7 @@ class MlNameReviewViewSet(_MissingTable):
                    ST_X(ST_Centroid(ST_Collect(p.geom))) AS lon_all, ST_Y(ST_Centroid(ST_Collect(p.geom))) AS lat_all
               FROM p LEFT JOIN t ON t.tag = p.tag LEFT JOIN core_adminunit u ON u.id = p.unit_id
               LEFT JOIN core_adminunit a ON a.id = u.parent_id
-             WHERE p.tag ~ '^(n|t|sb|lk|w)[0-9]+$'        -- туршилтын шошго (a0, s0, b0 …) жагсаалтад гарахгүй; w = усзүй
+             WHERE p.tag ~ '^(n|t|sb|lk|w|o)[0-9]+$'      -- туршилтын шошго (a0, s0, b0 …) жагсаалтад гарахгүй; w = усзүй, o = m100k_open
              GROUP BY p.tag ORDER BY max(a.unit), max(u.unit)""", []))
 
     @action(detail=False, methods=['get'])
