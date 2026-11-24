@@ -101,8 +101,10 @@ AimagNode.propTypes = {
 export default function SumTree({ sums, checked, onToggle, active, onPick }) {
   const groups = useMemo(() => {
     const g = {};
+    // төсөл тус бүр тусдаа бүлэг: o<сум> = «1 M100k Open» (машинаар хэвлэсэн зургаас, 2026-11-24)
     sums.forEach((x) => {
-      (g[x.aimag || ""] = g[x.aimag || ""] || []).push(x);
+      const k = x.project === "open" ? `1 M100k Open · ${x.aimag || ""}` : x.aimag || "";
+      (g[k] = g[k] || []).push(x);
     });
     return Object.entries(g).sort((a, b) => a[0].localeCompare(b[0], "mn"));
   }, [sums]);
